@@ -297,6 +297,52 @@ def test_transfer_to_personal_injects_order_id():
 
 
 @respx.mock
+def test_payment_injects_order_id_when_whitespace():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    client = make_sync()
+    client.payments.create(amount="10", currency="USD", order_id="   ")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body.get("order_id", "").startswith("idem-"), \
+        "order_id из одних пробелов должен считаться отсутствующим и нормализоваться"
+
+
+@respx.mock
+def test_payment_keeps_real_order_id_alongside_whitespace_fix():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "p1", "order_id": "ord-1", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    client = make_sync()
+    client.payments.create(amount="10", currency="USD", order_id="ord-1")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["order_id"] == "ord-1", "реальный order_id должен сохраняться без изменений"
+
+
+@respx.mock
+async def test_async_payment_injects_order_id_when_whitespace():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "pa", "order_id": "oa", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
+        await client.payments.create(amount="10", currency="USD", order_id="   ")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body.get("order_id", "").startswith("idem-")
+
+
+@respx.mock
 async def test_async_payment_injects_order_id():
     route = respx.post(f"{BASE}/v1/payment").mock(
         return_value=httpx.Response(200, json={"state": 0, "result": {

@@ -227,8 +227,12 @@ def _with_idempotency(params: Dict[str, Any]) -> Dict[str, Any]:
     переводы по ``order_id`` (для переводов сигнатурный fallback ломается переподписью). Если
     вызывающий не задал непустой ``order_id`` — подставляем его один раз (мутируем переданный
     ``params``), чтобы все попытки ретрая использовали тот же ключ и не создавали дубль.
+
+    «Отсутствующим» считается значение, которого нет, ``None``, ``""`` или строка из одних
+    пробелов: пустой после ``.strip()`` ключ не даёт дедупликации, поэтому нормализуем его.
     """
-    if not params.get("order_id"):
+    order_id = params.get("order_id")
+    if not (isinstance(order_id, str) and order_id.strip()):
         params["order_id"] = "idem-" + uuid.uuid4().hex
     return params
 
