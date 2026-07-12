@@ -22,7 +22,7 @@ from ..models import (
     Wallet,
     WebhookRegistration,
 )
-from .sync_resources import _clean, _lookup
+from .sync_resources import _clean, _lookup, _with_idempotency
 
 
 class _Base:
@@ -32,7 +32,7 @@ class _Base:
 
 class Payments(_Base):
     async def create(self, **params: Any) -> Payment:
-        return Payment.model_validate(await self._http.request("/v1/payment", params))
+        return Payment.model_validate(await self._http.request("/v1/payment", _with_idempotency(params)))
 
     async def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(await self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
@@ -154,7 +154,7 @@ class AccountResource(_Base):
         return ReferralInfo.model_validate(await self._http.request("/v1/referral/info", {}))
 
     async def transfer_to_personal(self, **params: Any) -> Dict[str, Any]:
-        return await self._http.request("/v1/transfer/to-personal", params)
+        return await self._http.request("/v1/transfer/to-personal", _with_idempotency(params))
 
     async def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}

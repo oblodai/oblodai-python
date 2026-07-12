@@ -118,8 +118,11 @@ class SyncHTTPClient:
             except OblodaiAPIError as api_err:
                 if self._retry and should_retry(api_err, attempt, attempts):
                     # Уважаем Retry-After от сервера (напр. 429), иначе — собственный backoff.
+                    # Retry-After — прямое указание сервера, поэтому НЕ зажимаем его до max_delay
+                    # (иначе `Retry-After: 60` превратился бы в 30с и мы били бы раньше срока).
+                    # Ставим лишь абсолютный потолок в 300с как защиту от абсурдных значений.
                     delay = (
-                        min(api_err.retry_after, self._retry.max_delay)
+                        min(api_err.retry_after, 300.0)
                         if api_err.retry_after is not None
                         else backoff_delay(attempt, self._retry)
                     )
@@ -227,8 +230,11 @@ class AsyncHTTPClient:
             except OblodaiAPIError as api_err:
                 if self._retry and should_retry(api_err, attempt, attempts):
                     # Уважаем Retry-After от сервера (напр. 429), иначе — собственный backoff.
+                    # Retry-After — прямое указание сервера, поэтому НЕ зажимаем его до max_delay
+                    # (иначе `Retry-After: 60` превратился бы в 30с и мы били бы раньше срока).
+                    # Ставим лишь абсолютный потолок в 300с как защиту от абсурдных значений.
                     delay = (
-                        min(api_err.retry_after, self._retry.max_delay)
+                        min(api_err.retry_after, 300.0)
                         if api_err.retry_after is not None
                         else backoff_delay(attempt, self._retry)
                     )

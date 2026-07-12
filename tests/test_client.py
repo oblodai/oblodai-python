@@ -226,4 +226,86 @@ async def test_async_api_error():
         with pytest.raises(OblodaiAPIError) as ei:
             await client.payouts.create(amount="5", currency="USDT", address="T", order_id="x")
     assert ei.value.code == "payout.funds_maturing"
-    assert ei.value.is_retriable is True
+    assert ei.value.is_retriable is False
+
+
+# ─────────────────────── Авто-идемпотентность (order_id) ───────────────────────
+
+
+@respx.mock
+def test_payment_injects_order_id_when_omitted():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    client = make_sync()
+    client.payments.create(amount="10", currency="USD")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body.get("order_id"), "order_id должен быть подставлен, когда не задан"
+    assert body["order_id"].startswith("idem-")
+
+
+@respx.mock
+def test_payment_same_order_id_across_503_retry():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        side_effect=[
+            httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}}),
+            httpx.Response(200, json={"state": 0, "result": {
+                "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
+                "payment_status": "check",
+            }}),
+        ]
+    )
+    client = make_sync(retry=RetryConfig(max_attempts=3, initial_delay=0.001, max_delay=0.005))
+    client.payments.create(amount="10", currency="USD")
+
+    assert route.call_count == 2
+    first = json.loads(route.calls[0].request.content)["order_id"]
+    second = json.loads(route.calls[1].request.content)["order_id"]
+    assert first.startswith("idem-")
+    assert first == second, "order_id должен быть одинаковым на обеих попытках ретрая"
+
+
+@respx.mock
+def test_payment_keeps_explicit_order_id():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "p1", "order_id": "mine", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    client = make_sync()
+    client.payments.create(amount="10", currency="USD", order_id="mine")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["order_id"] == "mine"
+
+
+@respx.mock
+def test_transfer_to_personal_injects_order_id():
+    route = respx.post(f"{BASE}/v1/transfer/to-personal").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {"ok": True}})
+    )
+    client = make_sync()
+    client.account.transfer_to_personal(amount="50", currency="USDT")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body.get("order_id", "").startswith("idem-")
+
+
+@respx.mock
+async def test_async_payment_injects_order_id():
+    route = respx.post(f"{BASE}/v1/payment").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "uuid": "pa", "order_id": "oa", "amount": "10.00", "currency": "USD",
+            "payment_status": "check",
+        }})
+    )
+    async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
+        await client.payments.create(amount="10", currency="USD")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body.get("order_id", "").startswith("idem-")

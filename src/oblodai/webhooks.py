@@ -46,7 +46,15 @@ def verify_webhook(
         raise OblodaiSignatureError("Отсутствует timestamp или signature вебхука")
 
     expected = compute_webhook_signature(secret, ts, raw_body)
-    if not hmac.compare_digest(expected, sig):
+    try:
+        matches = hmac.compare_digest(expected, sig)
+    except TypeError:
+        # Легитимная подпись — hex в ASCII. Заголовок с не-ASCII символами не может совпасть;
+        # hmac.compare_digest на таких строках бросает TypeError — превращаем его в штатную
+        # ошибку подписи (fail-closed, с задокументированным типом исключения).
+        logger.warning("oblodai: webhook verify failed: non-ascii signature header")
+        raise OblodaiSignatureError("Некорректная подпись вебхука (не-ASCII символы)")
+    if not matches:
         logger.warning("oblodai: webhook verify failed: bad signature")
         raise OblodaiSignatureError("Подпись вебхука не совпадает")
 

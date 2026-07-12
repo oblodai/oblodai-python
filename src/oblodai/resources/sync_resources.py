@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Dict, List, Optional
 
 from .._http import SyncHTTPClient
@@ -32,7 +33,7 @@ class _Base:
 
 class Payments(_Base):
     def create(self, **params: Any) -> Payment:
-        return Payment.model_validate(self._http.request("/v1/payment", params))
+        return Payment.model_validate(self._http.request("/v1/payment", _with_idempotency(params)))
 
     def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
@@ -155,7 +156,7 @@ class AccountResource(_Base):
         return ReferralInfo.model_validate(self._http.request("/v1/referral/info", {}))
 
     def transfer_to_personal(self, **params: Any) -> Dict[str, Any]:
-        return self._http.request("/v1/transfer/to-personal", params)
+        return self._http.request("/v1/transfer/to-personal", _with_idempotency(params))
 
     def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}
@@ -217,6 +218,19 @@ class Rates(_Base):
 
 
 # ── Хелперы ──
+
+
+def _with_idempotency(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Гарантирует стабильный ключ идемпотентности ``order_id`` для не-идемпотентных POST.
+
+    Клиент повторяет POST и переподписывает КАЖДУЮ попытку; бэкенд дедуплицирует платежи и
+    переводы по ``order_id`` (для переводов сигнатурный fallback ломается переподписью). Если
+    вызывающий не задал непустой ``order_id`` — подставляем его один раз (мутируем переданный
+    ``params``), чтобы все попытки ретрая использовали тот же ключ и не создавали дубль.
+    """
+    if not params.get("order_id"):
+        params["order_id"] = "idem-" + uuid.uuid4().hex
+    return params
 
 
 def _lookup(uuid: Optional[str], order_id: Optional[str]) -> Dict[str, str]:

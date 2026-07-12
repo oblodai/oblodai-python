@@ -46,8 +46,8 @@ class OblodaiAPIError(OblodaiError):
             return True
         if self.status == 429:
             return True
-        if self.code == "payout.funds_maturing":
-            return True
+        # payout.funds_maturing — терминальная (средства ещё зреют): повтор с backoff
+        # ничего не изменит и лишь тратит попытки; пусть вызывающий решает, когда повторить.
         return False
 
     def __repr__(self) -> str:  # pragma: no cover - для отладки

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oblodai"
-version = "1.0.0"
+version = "1.0.1"
 description = "Официальный Python SDK для платёжного шлюза Oblodai: приём платежей, выплаты, статические кошельки, вебхуки."
 readme = "README.md"
 requires-python = ">=3.9"

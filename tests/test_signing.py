@@ -57,6 +57,14 @@ class TestVerifyWebhook:
         with pytest.raises(OblodaiSignatureError):
             verify_webhook(self.secret, '{"status":"paid"}', headers)
 
+    def test_rejects_non_ascii_signature(self):
+        # Не-ASCII в заголовке подписи не должен ронять TypeError из hmac.compare_digest —
+        # ожидаем штатную OblodaiSignatureError (fail-closed).
+        ts = str(int(time.time()))
+        headers = {"X-Webhook-Timestamp": ts, "X-Webhook-Signature": "подпись"}
+        with pytest.raises(OblodaiSignatureError):
+            verify_webhook(self.secret, '{"status":"paid"}', headers)
+
     def test_rejects_stale_replay(self):
         old = str(int(time.time()) - 3600)
         body = '{"status":"paid"}'
