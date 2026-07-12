@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oblodai"
+version = "1.0.0"
+description = "Официальный Python SDK для платёжного шлюза Oblodai: приём платежей, выплаты, статические кошельки, вебхуки."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Oblodai" }]
+keywords = ["oblodai", "crypto", "payments", "payout", "cryptocurrency", "usdt", "webhook", "payment-gateway"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.24",
+    "pydantic>=2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/oblodai/oblodai-python"
+Repository = "https://github.com/oblodai/oblodai-python"
+Documentation = "https://github.com/oblodai/oblodai-python#readme"
+Issues = "https://github.com/oblodai/oblodai-python/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-asyncio>=0.23",
+    "respx>=0.20",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oblodai"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

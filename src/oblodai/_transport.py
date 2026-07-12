@@ -1,0 +1,138 @@
+"""Общее ядро транспорта (без I/O).
+
+Здесь чистые функции, разделяемые синхронным и асинхронным клиентами: подготовка подписанного
+запроса, разбор ответа в результат/ошибку и расчёт задержки backoff. Сам HTTP-вызов и сон делают
+конкретные клиенты — так логика не дублируется между sync и async.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import random
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple
+
+from .errors import OblodaiAPIError
+from .signing import sign_request
+
+DEFAULT_BASE_URL = "https://api.oblodai.com"
+DEFAULT_TIMEOUT = 30.0
+
+#: Логгер SDK. По умолчанию молчит (нет хендлера) — это и есть opt-in: логи включаются, только
+#: если приложение настроит logging, либо через env-переменную ``OBLODAI_LOG`` (см. client.py).
+#: ВАЖНО: никогда не логируем секрет, X-Signature, секрет вебхука и тела запросов/ответов.
+logger = logging.getLogger("oblodai")
+
+
+@dataclass
+class RetryConfig:
+    max_attempts: int = 4
+    initial_delay: float = 0.5
+    max_delay: float = 30.0
+
+
+@dataclass
+class PreparedRequest:
+    method: str
+    url: str
+    headers: Dict[str, str]
+    body: Optional[str]
+
+
+def prepare_request(
+    *,
+    base_url: str,
+    public_id: str,
+    secret: str,
+    path: str,
+    payload: Any,
+    signed: bool,
+    method: str = "POST",
+) -> PreparedRequest:
+    """Готовит подписанный (или публичный) запрос: сериализует тело один раз и считает подпись по нему."""
+    url = base_url.rstrip("/") + path
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    body: Optional[str]
+
+    if method == "GET":
+        body = None
+    else:
+        # Компактный JSON — подписываем ровно эту строку и её же отправляем.
+        body = json.dumps(payload if payload is not None else {}, separators=(",", ":"))
+
+    if signed and body is not None:
+        s = sign_request(secret, method, path, body)
+        headers["X-Public-Id"] = public_id
+        headers["X-Timestamp"] = s.timestamp
+        headers["X-Signature"] = s.signature
+
+    return PreparedRequest(method=method, url=url, headers=headers, body=body)
+
+
+def parse_retry_after(header: Optional[str]) -> Optional[float]:
+    """Разбирает заголовок ``Retry-After`` в секунды.
+
+    Поддерживает форму «секунды» (как отдаёт шлюз на 429: ``Retry-After: 60``). HTTP-date форму
+    игнорируем (шлюз её не использует). ``None`` — если заголовка нет или он не число.
+    """
+    if not header:
+        return None
+    try:
+        seconds = float(header.strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def parse_response(status: int, text: str, retry_after: Optional[str] = None) -> Any:
+    """Разбирает ответ. Возвращает ``result`` из конверта или бросает :class:`OblodaiAPIError`.
+
+    Также обрабатывает случай ответа без конверта (единственное исключение — ``POST /v1/webhooks``,
+    ``201 Created``). ``retry_after`` — значение заголовка ``Retry-After`` (для 429).
+    """
+    try:
+        parsed = json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        raise OblodaiAPIError(
+            "response.not_json", f"Ответ не является JSON (HTTP {status})", status, text
+        )
+
+    if isinstance(parsed, dict) and "error" in parsed:
+        err = parsed.get("error") or {}
+        raise OblodaiAPIError(
+            err.get("code", "unknown"),
+            err.get("message", "Неизвестная ошибка"),
+            status,
+            parsed,
+            parse_retry_after(retry_after),
+        )
+
+    if not (200 <= status < 300):
+        # 429 приходит телом `{state:1,message:"rate limit exceeded"}` без ключа `error` —
+        # достаём message из тела и учитываем Retry-After.
+        body_msg = parsed.get("message") if isinstance(parsed, dict) else None
+        raise OblodaiAPIError(
+            f"http.{status}",
+            body_msg if isinstance(body_msg, str) else f"HTTP {status}",
+            status,
+            parsed,
+            parse_retry_after(retry_after),
+        )
+
+    if isinstance(parsed, dict) and "result" in parsed:
+        return parsed["result"]
+
+    # Ответ без конверта (например, /v1/webhooks).
+    return parsed
+
+
+def should_retry(err: OblodaiAPIError, attempt: int, max_attempts: int) -> bool:
+    return attempt < max_attempts and err.is_retriable
+
+
+def backoff_delay(attempt: int, cfg: RetryConfig) -> float:
+    """Экспоненциальная задержка с джиттером для попытки ``attempt`` (1-based)."""
+    base = min(cfg.initial_delay * (2 ** (attempt - 1)), cfg.max_delay)
+    jitter = random.uniform(0, cfg.initial_delay / 2)
+    return base + jitter
