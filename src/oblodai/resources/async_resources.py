@@ -9,20 +9,33 @@ from ..models import (
     Currency,
     AutoWithdrawRule,
     Balance,
+    BatchInfo,
+    BatchSubmitResult,
     Delivery,
     ExchangeRate,
     MassPayoutResult,
     Payment,
+    PaymentLink,
+    PaymentLinkCreated,
+    PaymentLinkInfo,
     PaymentList,
+    PaymentResolution,
     Payout,
     PayoutCalculation,
+    PayoutLink,
+    PayoutLinkBatchResult,
+    PayoutLinkClaimInfo,
+    PayoutLinkClaimResult,
+    PayoutLinkCreated,
     PayoutList,
     ReferralInfo,
     ServiceMethod,
+    SplitRule,
+    SplitRuleCreated,
     Wallet,
     WebhookRegistration,
 )
-from .sync_resources import _clean, _lookup, _with_idempotency
+from .sync_resources import _clean, _idem_key, _lookup, _pop_idem_key
 
 
 class _Base:
@@ -32,7 +45,41 @@ class _Base:
 
 class Payments(_Base):
     async def create(self, **params: Any) -> Payment:
-        return Payment.model_validate(await self._http.request("/v1/payment", _with_idempotency(params)))
+        """См. sync :meth:`~oblodai.resources.sync_resources.Payments.create`:
+        ``Idempotency-Key`` авто-uuid4 (стабилен между ретраями), свой — ``idempotency_key``;
+        ``order_id`` уходит как есть."""
+        key = _pop_idem_key(params)
+        return Payment.model_validate(await self._http.request("/v1/payment", params, idempotency_key=key))
+
+    async def create_batch(
+        self,
+        payments: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Пачка платежей (до 5000). ``POST /v1/payment/batch``. ``order_id`` обязателен на item."""
+        body: Dict[str, Any] = {"payments": payments}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            await self._http.request("/v1/payment/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    async def refund_batch(
+        self,
+        refunds: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Синоним ``client.refunds.create_batch``."""
+        body: Dict[str, Any] = {"refunds": refunds}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            await self._http.request("/v1/refund/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     async def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(await self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
@@ -55,7 +102,37 @@ class Payments(_Base):
         return await self._http.request("/v1/payment/resend", _lookup(uuid, order_id))
 
     async def refund(self, **params: Any) -> Any:
-        return await self._http.request("/v1/payment/refund", params)
+        """Возврат; с v1.1.0 ``address`` необязателен (дефолт — ``payer_address``, кроме UTXO).
+        Идемпотентность — заголовком ``Idempotency-Key`` (``idempotency_key`` в тело не попадает)."""
+        key = _pop_idem_key(params)
+        return await self._http.request("/v1/payment/refund", params, idempotency_key=key)
+
+    async def resolve(
+        self,
+        *,
+        uuid: Optional[str] = None,
+        order_id: Optional[str] = None,
+        action: str,
+        address: Optional[str] = None,
+        network: Optional[str] = None,
+        reference: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> PaymentResolution:
+        """Судьба недоплаченного платежа: ``action="accept"`` | ``"refund"``. ``POST /v1/payment/resolve``."""
+        body = _clean(uuid=uuid, order_id=order_id, action=action, address=address,
+                      network=network, reference=reference)
+        return PaymentResolution.model_validate(
+            await self._http.request("/v1/payment/resolve", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    async def send_email(
+        self, *, uuid: Optional[str] = None, order_id: Optional[str] = None, email: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Письмо-счёт покупателю. ``POST /v1/payment/send-email``. Получатель — ``email`` или ``payer_email``."""
+        body = _lookup(uuid, order_id)
+        if email is not None:
+            body["email"] = email
+        return await self._http.request("/v1/payment/send-email", body)
 
     async def list_accepted(self) -> Dict[str, Any]:
         return await self._http.request("/v1/payment/accepted/list", {})
@@ -82,15 +159,57 @@ class Payments(_Base):
         return await self._http.request("/v1/payment/autorefund/set", params)
 
 
+class Refunds(_Base):
+    async def create_batch(
+        self,
+        refunds: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Пачка возвратов (до 5000). ``POST /v1/refund/batch``.
+        На item обязательны ``reference`` и ``uuid``/``order_id`` инвойса."""
+        body: Dict[str, Any] = {"refunds": refunds}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            await self._http.request("/v1/refund/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+
 class Payouts(_Base):
     async def create(self, **params: Any) -> Payout:
-        return Payout.model_validate(await self._http.request("/v1/payout", params))
+        key = _pop_idem_key(params)
+        return Payout.model_validate(await self._http.request("/v1/payout", params, idempotency_key=key))
 
-    async def create_mass(self, payouts: List[Dict[str, Any]], source: Optional[str] = None) -> MassPayoutResult:
+    async def create_mass(
+        self,
+        payouts: List[Dict[str, Any]],
+        source: Optional[str] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> MassPayoutResult:
         body: Dict[str, Any] = {"payouts": payouts}
         if source is not None:
             body["source"] = source
-        return MassPayoutResult.model_validate(await self._http.request("/v1/payout/mass", body))
+        return MassPayoutResult.model_validate(
+            await self._http.request("/v1/payout/mass", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    async def create_batch(
+        self,
+        payouts: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Пачка выплат (до 5000). ``POST /v1/payout/batch``. ``order_id`` обязателен на item."""
+        body: Dict[str, Any] = {"payouts": payouts}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            await self._http.request("/v1/payout/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     async def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payout:
         return Payout.model_validate(await self._http.request("/v1/payout/info", _lookup(uuid, order_id)))
@@ -113,7 +232,8 @@ class Payouts(_Base):
         return await self._http.request("/v1/payout/approve", {"uuid": uuid})
 
     async def refund(self, **params: Any) -> Any:
-        return await self._http.request("/v1/payment/refund", params)
+        key = _pop_idem_key(params)
+        return await self._http.request("/v1/payment/refund", params, idempotency_key=key)
 
     async def get_fee_config(self) -> Dict[str, Any]:
         return await self._http.request("/v1/payout/fee-config/get", {})
@@ -126,6 +246,111 @@ class Payouts(_Base):
 
     async def set_refund_fee_config(self, fee_on_customer: bool) -> Any:
         return await self._http.request("/v1/payout/refund-fee-config/set", {"fee_on_customer": fee_on_customer})
+
+
+class Batches(_Base):
+    async def info(self, batch_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None) -> BatchInfo:
+        """Прогресс и по-элементные результаты пачки. ``POST /v1/batch/info``."""
+        body: Dict[str, Any] = {"batch_id": batch_id}
+        if limit is not None:
+            body["limit"] = limit
+        if offset is not None:
+            body["offset"] = offset
+        return BatchInfo.model_validate(await self._http.request("/v1/batch/info", body))
+
+
+class PaymentLinks(_Base):
+    """Платёжные ссылки. Management-эндпоинты не используют ``Idempotency-Key``."""
+
+    async def create(self, **params: Any) -> PaymentLinkCreated:
+        return PaymentLinkCreated.model_validate(await self._http.request("/v1/payment/link", params))
+
+    async def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PaymentLink]:
+        data = await self._http.request("/v1/payment/link/list", _clean(limit=limit, offset=offset))
+        return [PaymentLink.model_validate(x) for x in data.get("items", [])]
+
+    async def info(self, link_id: str) -> PaymentLinkInfo:
+        return PaymentLinkInfo.model_validate(await self._http.request("/v1/payment/link/info", {"link_id": link_id}))
+
+    async def toggle(self, link_id: str, active: bool) -> Dict[str, Any]:
+        return await self._http.request("/v1/payment/link/toggle", {"link_id": link_id, "active": active})
+
+    async def public_get(self, link_id: str) -> Any:
+        """Публичные данные ссылки (без подписи). ``GET /v1/link/{id}``."""
+        return await self._http.request_public(f"/v1/link/{link_id}", method="GET")
+
+    async def checkout(self, link_id: str, **params: Any) -> Payment:
+        """Публичный checkout (без подписи). ``POST /v1/link/{id}/checkout``. Ответ — обычный платёж."""
+        return Payment.model_validate(await self._http.request_public(f"/v1/link/{link_id}/checkout", params))
+
+
+class Splits(_Base):
+    async def create_rule(self, **params: Any) -> SplitRuleCreated:
+        """``{address, network}`` XOR ``{merchant_id}`` + ``percent`` (+ ``note``). ``POST /v1/split/rule``."""
+        return SplitRuleCreated.model_validate(await self._http.request("/v1/split/rule", params))
+
+    async def split_to_address(
+        self, *, address: str, network: str, percent: float, note: Optional[str] = None
+    ) -> SplitRuleCreated:
+        return await self.create_rule(**_clean(address=address, network=network, percent=percent, note=note))
+
+    async def split_to_merchant(
+        self, *, merchant_id: str, percent: float, note: Optional[str] = None
+    ) -> SplitRuleCreated:
+        return await self.create_rule(**_clean(merchant_id=merchant_id, percent=percent, note=note))
+
+    async def list_rules(self) -> List[SplitRule]:
+        data = await self._http.request("/v1/split/rule/list", {})
+        return [SplitRule.model_validate(x) for x in data.get("items", [])]
+
+    async def delete_rule(self, rule_id: str) -> Dict[str, Any]:
+        return await self._http.request("/v1/split/rule/delete", {"rule_id": rule_id})
+
+    async def get_config(self) -> Dict[str, Any]:
+        return await self._http.request("/v1/split/config/get", {})
+
+    async def set_config(self, *, refund_hold_hours: int) -> Dict[str, Any]:
+        return await self._http.request("/v1/split/config/set", {"refund_hold_hours": refund_hold_hours})
+
+
+class PayoutLinks(_Base):
+    """Payout-ссылки («крипто-чеки»). ``/v1/payout/link*`` НЕ принимают ``Idempotency-Key`` —
+    дедупликация через per-link ``reference``. Требуют PAYOUT/API-ключ."""
+
+    async def create(self, **params: Any) -> PayoutLinkCreated:
+        """``POST /v1/payout/link``. Рекомендуем задавать ``expires_in_hours`` ЯВНО (1–720):
+        при отсутствии/0 бэкенд клампит срок к 1 часу. ``claim_token``/``claim_url`` —
+        только в этом ответе."""
+        return PayoutLinkCreated.model_validate(await self._http.request("/v1/payout/link", params))
+
+    async def create_batch(self, links: List[Dict[str, Any]]) -> PayoutLinkBatchResult:
+        """Пачка ссылок (до 500), index-aligned ответ. ``POST /v1/payout/link/batch``."""
+        return PayoutLinkBatchResult.model_validate(
+            await self._http.request("/v1/payout/link/batch", {"links": links})
+        )
+
+    async def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PayoutLink]:
+        data = await self._http.request("/v1/payout/link/list", _clean(limit=limit, offset=offset))
+        return [PayoutLink.model_validate(x) for x in data.get("links", [])]
+
+    async def info(self, link_id: str) -> PayoutLink:
+        return PayoutLink.model_validate(await self._http.request("/v1/payout/link/info", {"link_id": link_id}))
+
+    async def cancel(self, link_id: str) -> PayoutLink:
+        return PayoutLink.model_validate(await self._http.request("/v1/payout/link/cancel", {"link_id": link_id}))
+
+    async def claim_info(self, token: str) -> PayoutLinkClaimInfo:
+        """ПУБЛИЧНО (без подписи). ``GET /v1/claim/{token}``."""
+        return PayoutLinkClaimInfo.model_validate(
+            await self._http.request_public(f"/v1/claim/{token}", method="GET")
+        )
+
+    async def claim(self, token: str, *, address: str, memo: Optional[str] = None) -> PayoutLinkClaimResult:
+        """ПУБЛИЧНО (без подписи): забрать средства на ``address``. ``POST /v1/claim/{token}``."""
+        body: Dict[str, Any] = {"address": address}
+        if memo is not None:
+            body["memo"] = memo
+        return PayoutLinkClaimResult.model_validate(await self._http.request_public(f"/v1/claim/{token}", body))
 
 
 class Wallets(_Base):
@@ -154,7 +379,9 @@ class AccountResource(_Base):
         return ReferralInfo.model_validate(await self._http.request("/v1/referral/info", {}))
 
     async def transfer_to_personal(self, **params: Any) -> Dict[str, Any]:
-        return await self._http.request("/v1/transfer/to-personal", _with_idempotency(params))
+        """Идемпотентность — заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``)."""
+        key = _pop_idem_key(params)
+        return await self._http.request("/v1/transfer/to-personal", params, idempotency_key=key)
 
     async def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}

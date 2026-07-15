@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +47,10 @@ class Payment(_Model):
     confirmations: Optional[int] = None
     required_confirmations: Optional[int] = None
     txid: Optional[str] = None
+    # v1.1.0
+    payer_address: Optional[str] = None
+    refund_status: Optional[str] = None  # "none" | "partial" | "full"
+    refunds: Optional[List[Dict[str, Any]]] = None
 
 
 class Paginate(_Model):
@@ -193,6 +197,197 @@ class Currency(_Model):
     symbol: str
     decimals: int
     networks: List[CurrencyNetwork] = []
+
+
+# ─────────────────────────────── Батчи (v1.1.0) ───────────────────────────────
+
+
+class BatchSubmitResult(_Model):
+    """Ответ постановки пачки (``/v1/payment|refund|payout/batch``)."""
+
+    batch_id: str
+    kind: str  # "payments" | "refunds" | "payouts"
+    count: int
+    status: str  # "pending"
+
+
+class BatchItem(_Model):
+    idx: int
+    status: str
+    order_id: Optional[str] = None
+    result: Optional[Any] = None  # байт-в-байт result соответствующего единичного эндпоинта
+    error: Optional[str] = None
+
+
+class BatchInfo(_Model):
+    batch_id: str
+    kind: str
+    status: str  # "pending" | "processing" | "completed"
+    on_error: Optional[str] = None
+    total: int
+    succeeded: int
+    failed: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    items: List[BatchItem] = []
+
+    @property
+    def done(self) -> bool:
+        """``True``, когда пачка обработана до конца (``status == "completed"``)."""
+        return self.status == "completed"
+
+
+# ─────────────────────────────── Платёжные ссылки (v1.1.0) ───────────────────────────────
+
+
+class PaymentLinkCreated(_Model):
+    """Ответ ``POST /v1/payment/link``."""
+
+    link_id: str
+    url: Optional[str] = None
+
+
+class PaymentLink(_Model):
+    link_id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    amount_mode: str  # "fixed" | "open" | "range"
+    currency: str
+    active: bool
+    url: Optional[str] = None
+    created_at: Optional[str] = None
+    amount_fixed: Optional[str] = None
+    amount_min: Optional[str] = None
+    amount_max: Optional[str] = None
+    pinned_currency: Optional[str] = None
+    pinned_network: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class PaymentLinkPayment(_Model):
+    """Платёж в выдаче ``/v1/payment/link/info``."""
+
+    uuid: str
+    status: str
+    amount: str
+    currency: str
+    created_at: Optional[str] = None
+    order_id: Optional[str] = None
+
+
+class PaymentLinkInfo(PaymentLink):
+    payments: List[PaymentLinkPayment] = []
+
+
+# ─────────────────────────────── Сплиты (v1.1.0) ───────────────────────────────
+
+
+class SplitRuleCreated(_Model):
+    rule_id: str
+    percent: float
+
+
+class SplitRule(_Model):
+    rule_id: str
+    percent: float
+    active: bool
+    note: Optional[str] = None
+    # либо внешний адрес (необратимо), либо аккаунт на платформе (обратимо)
+    address: Optional[str] = None
+    network: Optional[str] = None
+    merchant_id: Optional[str] = None
+    reversible: Optional[bool] = None
+
+
+# ─────────────────────────────── Payout-ссылки / крипто-чеки (v1.1.0) ───────────────────────────────
+
+
+class PayoutLink(_Model):
+    """Claimable-ссылка на выплату (``payoutLinkView``). Без claim-токена — он только в ответе create."""
+
+    link_id: str
+    status: str  # "funded" | "claiming" | "claimed" | "expired" | "cancelled"
+    amount: str
+    currency: str
+    network: str
+    title: Optional[str] = None
+    note: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+    reference: Optional[str] = None
+    email: Optional[str] = None
+    payout_id: Optional[str] = None
+    claim_address: Optional[str] = None
+    batch_id: Optional[str] = None
+
+
+class PayoutLinkCreated(PayoutLink):
+    """Ответ create: ``claim_token``/``claim_url`` возвращаются ЕДИНСТВЕННЫЙ раз — сохраните их."""
+
+    claim_token: Optional[str] = None
+    claim_url: Optional[str] = None
+
+
+class PayoutLinkBatchItem(_Model):
+    ok: bool
+    link: Optional[PayoutLinkCreated] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
+
+
+class PayoutLinkBatchResult(_Model):
+    created: int
+    total: int
+    results: List[PayoutLinkBatchItem] = []
+
+
+class PayoutLinkClaimInfo(_Model):
+    """Публичная информация о ссылке для страницы claim (``GET /v1/claim/{token}``)."""
+
+    status: str
+    amount: str
+    currency: str
+    network: str
+    title: Optional[str] = None
+    note: Optional[str] = None
+    expires_at: Optional[str] = None
+    claimable: bool = False
+
+
+class PayoutLinkClaimResult(_Model):
+    """Результат публичного claim (``POST /v1/claim/{token}``)."""
+
+    status: str  # "claimed"
+    payout_id: Optional[str] = None
+    amount: str
+    currency: str
+    network: Optional[str] = None
+    address: Optional[str] = None
+
+
+# ─────────────────────────────── Resolve недоплаты (v1.1.0) ───────────────────────────────
+
+
+class PaymentResolution(_Model):
+    """Ответ ``POST /v1/payment/resolve``. Поля различаются по ``resolution``.
+
+    ``resolution == "accepted"`` — заполнены ``amount_kept``/``currency``.
+    ``resolution == "refunded"`` — заполнены ``uuid`` (рефанд-payout), ``amount``, ``address``,
+    ``status`` (check/process/paid/fail/cancel) и ``is_final``.
+    """
+
+    payment_uuid: str
+    order_id: Optional[str] = None
+    resolution: str  # "accepted" | "refunded"
+    currency: Optional[str] = None
+    # accept
+    amount_kept: Optional[str] = None
+    # refund
+    uuid: Optional[str] = None
+    amount: Optional[str] = None
+    address: Optional[str] = None
+    status: Optional[str] = None
+    is_final: Optional[bool] = None
 
 
 # ─────────────────────────────── Вебхуки/настройки ───────────────────────────────

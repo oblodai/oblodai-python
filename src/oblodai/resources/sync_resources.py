@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
+import uuid as _uuid
 from typing import Any, Dict, List, Optional
 
 from .._http import SyncHTTPClient
@@ -11,16 +11,29 @@ from ..models import (
     AcceptedMethod,
     AutoWithdrawRule,
     Balance,
+    BatchInfo,
+    BatchSubmitResult,
     Delivery,
     ExchangeRate,
     MassPayoutResult,
     Payment,
+    PaymentLink,
+    PaymentLinkCreated,
+    PaymentLinkInfo,
     PaymentList,
+    PaymentResolution,
     Payout,
     PayoutCalculation,
+    PayoutLink,
+    PayoutLinkBatchResult,
+    PayoutLinkClaimInfo,
+    PayoutLinkClaimResult,
+    PayoutLinkCreated,
     PayoutList,
     ReferralInfo,
     ServiceMethod,
+    SplitRule,
+    SplitRuleCreated,
     Wallet,
     WebhookRegistration,
 )
@@ -33,7 +46,53 @@ class _Base:
 
 class Payments(_Base):
     def create(self, **params: Any) -> Payment:
-        return Payment.model_validate(self._http.request("/v1/payment", _with_idempotency(params)))
+        """Создаёт платёж. ``POST /v1/payment``.
+
+        Идемпотентность (v1.1.0): SDK генерирует заголовок ``Idempotency-Key`` (uuid4) один
+        раз на вызов — он одинаков во всех внутренних ретраях, поэтому повтор после
+        таймаута/5xx не создаст дубль. Свой ключ передаётся kwarg'ом ``idempotency_key``
+        (уходит в заголовок, в тело запроса не попадает). ``order_id`` — ваш
+        бизнес-идентификатор: уходит как есть, SDK его больше НЕ подставляет.
+        """
+        key = _pop_idem_key(params)
+        return Payment.model_validate(self._http.request("/v1/payment", params, idempotency_key=key))
+
+    def create_batch(
+        self,
+        payments: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Ставит пачку платежей (до 5000) одним запросом. ``POST /v1/payment/batch``.
+
+        Каждый item — тело обычного ``payments.create``; ``order_id`` обязателен на каждом
+        item (ключ дедупликации внутри пачки). ``on_error`` — ``"continue"`` (по умолчанию)
+        или ``"stop"``. Обработка в фоне: результаты по каждому элементу — через
+        ``client.batches.info(batch_id)``. Идемпотентность — заголовком ``Idempotency-Key``
+        (генерируется автоматически, свой — через ``idempotency_key``).
+        """
+        body: Dict[str, Any] = {"payments": payments}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            self._http.request("/v1/payment/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    def refund_batch(
+        self,
+        refunds: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Синоним :meth:`Refunds.create_batch` (``client.refunds.create_batch``)."""
+        body: Dict[str, Any] = {"refunds": refunds}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            self._http.request("/v1/refund/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
@@ -56,7 +115,53 @@ class Payments(_Base):
         return self._http.request("/v1/payment/resend", _lookup(uuid, order_id))
 
     def refund(self, **params: Any) -> Any:
-        return self._http.request("/v1/payment/refund", params)
+        """Возврат по платежу. ``POST /v1/payment/refund``.
+
+        С v1.1.0 ``address`` необязателен — по умолчанию возврат уходит на адрес плательщика
+        (``payer_address``); для UTXO-сетей (Bitcoin и т. п.), где адрес плательщика неизвестен,
+        ``address`` по-прежнему обязателен. Идемпотентность — заголовком ``Idempotency-Key``
+        (авто-uuid4, стабилен между ретраями; свой — kwarg ``idempotency_key``).
+        """
+        key = _pop_idem_key(params)
+        return self._http.request("/v1/payment/refund", params, idempotency_key=key)
+
+    def resolve(
+        self,
+        *,
+        uuid: Optional[str] = None,
+        order_id: Optional[str] = None,
+        action: str,
+        address: Optional[str] = None,
+        network: Optional[str] = None,
+        reference: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> PaymentResolution:
+        """Решает судьбу НЕДОПЛАЧЕННОГО платежа (статус ``wrong_amount``). ``POST /v1/payment/resolve``.
+
+        ``action="accept"`` — оставить частичную оплату себе (глушит авто-возврат);
+        ``action="refund"`` — вернуть плательщику (``address`` по умолчанию — записанный
+        ``payer_address`` инвойса; ``reference`` — per-refund ключ дедупликации).
+        Требует PAYOUT/API-ключ. Идемпотентность — заголовком ``Idempotency-Key``
+        (авто-uuid4, стабилен между ретраями; свой — ``idempotency_key``).
+        """
+        body = _clean(uuid=uuid, order_id=order_id, action=action, address=address,
+                      network=network, reference=reference)
+        return PaymentResolution.model_validate(
+            self._http.request("/v1/payment/resolve", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    def send_email(
+        self, *, uuid: Optional[str] = None, order_id: Optional[str] = None, email: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Отправляет покупателю письмо-счёт с кнопкой «Оплатить». ``POST /v1/payment/send-email``.
+
+        Получатель — ``email``, а если он не задан — ``payer_email`` платежа
+        (иначе ``email.no_recipient``). Лимит: 10 писем/час на адрес получателя.
+        """
+        body = _lookup(uuid, order_id)
+        if email is not None:
+            body["email"] = email
+        return self._http.request("/v1/payment/send-email", body)
 
     def list_accepted(self) -> Dict[str, Any]:
         return self._http.request("/v1/payment/accepted/list", {})
@@ -83,15 +188,73 @@ class Payments(_Base):
         return self._http.request("/v1/payment/autorefund/set", params)
 
 
+class Refunds(_Base):
+    def create_batch(
+        self,
+        refunds: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Ставит пачку возвратов (до 5000). ``POST /v1/refund/batch``.
+
+        На каждом item обязательны ``reference`` (per-refund ключ дедупликации) и
+        ``uuid``/``order_id`` инвойса. ``on_error`` — ``"continue"`` (по умолчанию) или
+        ``"stop"``. Результаты — через ``client.batches.info(batch_id)``. Идемпотентность —
+        заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``).
+        """
+        body: Dict[str, Any] = {"refunds": refunds}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            self._http.request("/v1/refund/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+
 class Payouts(_Base):
     def create(self, **params: Any) -> Payout:
-        return Payout.model_validate(self._http.request("/v1/payout", params))
+        """Создаёт выплату. ``POST /v1/payout``. ``order_id`` обязателен (требование API).
 
-    def create_mass(self, payouts: List[Dict[str, Any]], source: Optional[str] = None) -> MassPayoutResult:
+        Идемпотентность (v1.1.0): заголовок ``Idempotency-Key`` — авто-uuid4, одинаков во
+        всех внутренних ретраях; свой ключ — kwarg ``idempotency_key`` (в тело не попадает).
+        """
+        key = _pop_idem_key(params)
+        return Payout.model_validate(self._http.request("/v1/payout", params, idempotency_key=key))
+
+    def create_mass(
+        self,
+        payouts: List[Dict[str, Any]],
+        source: Optional[str] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> MassPayoutResult:
         body: Dict[str, Any] = {"payouts": payouts}
         if source is not None:
             body["source"] = source
-        return MassPayoutResult.model_validate(self._http.request("/v1/payout/mass", body))
+        return MassPayoutResult.model_validate(
+            self._http.request("/v1/payout/mass", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    def create_batch(
+        self,
+        payouts: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Ставит пачку выплат (до 5000). ``POST /v1/payout/batch``.
+
+        ``order_id`` обязателен на каждом item (ключ дедупликации внутри пачки).
+        ``on_error`` — ``"continue"`` (по умолчанию) или ``"stop"``. Результаты — через
+        ``client.batches.info(batch_id)``. Идемпотентность — заголовком ``Idempotency-Key``
+        (авто-uuid4; свой — ``idempotency_key``).
+        """
+        body: Dict[str, Any] = {"payouts": payouts}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            self._http.request("/v1/payout/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payout:
         return Payout.model_validate(self._http.request("/v1/payout/info", _lookup(uuid, order_id)))
@@ -114,7 +277,9 @@ class Payouts(_Base):
         return self._http.request("/v1/payout/approve", {"uuid": uuid})
 
     def refund(self, **params: Any) -> Any:
-        return self._http.request("/v1/payment/refund", params)
+        """Синоним ``payments.refund`` (``POST /v1/payment/refund``); та же идемпотентность."""
+        key = _pop_idem_key(params)
+        return self._http.request("/v1/payment/refund", params, idempotency_key=key)
 
     def get_fee_config(self) -> Dict[str, Any]:
         return self._http.request("/v1/payout/fee-config/get", {})
@@ -127,6 +292,156 @@ class Payouts(_Base):
 
     def set_refund_fee_config(self, fee_on_customer: bool) -> Any:
         return self._http.request("/v1/payout/refund-fee-config/set", {"fee_on_customer": fee_on_customer})
+
+
+class Batches(_Base):
+    def info(self, batch_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None) -> BatchInfo:
+        """Прогресс и по-элементные результаты пачки. ``POST /v1/batch/info``.
+
+        ``limit`` ≤ 0 или > 500 сервер заменяет на 100. ``info.done`` — ``True``, когда
+        ``status == "completed"``; ``items[i].result`` — байт-в-байт result единичного
+        эндпоинта, ``items[i].error`` — код ошибки элемента.
+        """
+        body: Dict[str, Any] = {"batch_id": batch_id}
+        if limit is not None:
+            body["limit"] = limit
+        if offset is not None:
+            body["offset"] = offset
+        return BatchInfo.model_validate(self._http.request("/v1/batch/info", body))
+
+
+class PaymentLinks(_Base):
+    """Платёжные ссылки: переиспользуемая ссылка, по которой платят много людей.
+
+    Management-эндпоинты НЕ используют ``Idempotency-Key`` (создание ссылки не двигает деньги).
+    """
+
+    def create(self, **params: Any) -> PaymentLinkCreated:
+        """Создаёт платёжную ссылку. ``POST /v1/payment/link``.
+
+        Поля: ``amount_mode`` (``fixed|open|range``), ``currency``, ``amount_fixed``/
+        ``amount_min``/``amount_max``, ``pinned_currency``/``pinned_network``, ``title``,
+        ``description``, ``expires_in`` (секунды; 0 — бессрочно).
+        """
+        return PaymentLinkCreated.model_validate(self._http.request("/v1/payment/link", params))
+
+    def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PaymentLink]:
+        data = self._http.request("/v1/payment/link/list", _clean(limit=limit, offset=offset))
+        return [PaymentLink.model_validate(x) for x in data.get("items", [])]
+
+    def info(self, link_id: str) -> PaymentLinkInfo:
+        """Ссылка + платежи по ней. ``POST /v1/payment/link/info``."""
+        return PaymentLinkInfo.model_validate(self._http.request("/v1/payment/link/info", {"link_id": link_id}))
+
+    def toggle(self, link_id: str, active: bool) -> Dict[str, Any]:
+        return self._http.request("/v1/payment/link/toggle", {"link_id": link_id, "active": active})
+
+    def public_get(self, link_id: str) -> Any:
+        """Публичные данные ссылки (без подписи). ``GET /v1/link/{id}``."""
+        return self._http.request_public(f"/v1/link/{link_id}", method="GET")
+
+    def checkout(self, link_id: str, **params: Any) -> Payment:
+        """Публичный checkout по ссылке (без подписи). ``POST /v1/link/{id}/checkout``.
+
+        Поля: ``amount``, ``currency``, ``network``, ``payer_email``. Закреплённые на ссылке
+        валюта/сеть побеждают. Лимит: 30 инвойсов/мин на ссылку. Ответ — обычный платёж.
+        """
+        return Payment.model_validate(self._http.request_public(f"/v1/link/{link_id}/checkout", params))
+
+
+class Splits(_Base):
+    """Сплит-платежи: доля каждого входящего платежа автоматически уходит партнёру."""
+
+    def create_rule(self, **params: Any) -> SplitRuleCreated:
+        """Создаёт правило сплита. ``POST /v1/split/rule``.
+
+        Либо ``address`` + ``network`` (внешний адрес, необратимо), либо ``merchant_id``
+        (аккаунт на платформе, обратимо) — ровно одно из двух. ``percent`` — доля в процентах
+        (шаг 0.01), ``note`` — заметка.
+        """
+        return SplitRuleCreated.model_validate(self._http.request("/v1/split/rule", params))
+
+    def split_to_address(
+        self, *, address: str, network: str, percent: float, note: Optional[str] = None
+    ) -> SplitRuleCreated:
+        """Правило «доля на внешний адрес» (необратимо при возвратах). Обёртка над :meth:`create_rule`."""
+        return self.create_rule(**_clean(address=address, network=network, percent=percent, note=note))
+
+    def split_to_merchant(self, *, merchant_id: str, percent: float, note: Optional[str] = None) -> SplitRuleCreated:
+        """Правило «доля аккаунту на платформе» (обратимо: возврат отзовёт долю). Обёртка над :meth:`create_rule`."""
+        return self.create_rule(**_clean(merchant_id=merchant_id, percent=percent, note=note))
+
+    def list_rules(self) -> List[SplitRule]:
+        data = self._http.request("/v1/split/rule/list", {})
+        return [SplitRule.model_validate(x) for x in data.get("items", [])]
+
+    def delete_rule(self, rule_id: str) -> Dict[str, Any]:
+        return self._http.request("/v1/split/rule/delete", {"rule_id": rule_id})
+
+    def get_config(self) -> Dict[str, Any]:
+        return self._http.request("/v1/split/config/get", {})
+
+    def set_config(self, *, refund_hold_hours: int) -> Dict[str, Any]:
+        """Окно удержания перед отправкой долей (часы) — защита базы возвратов. ``POST /v1/split/config/set``."""
+        return self._http.request("/v1/split/config/set", {"refund_hold_hours": refund_hold_hours})
+
+
+class PayoutLinks(_Base):
+    """Payout-ссылки («крипто-чеки»): резервируете сумму, получатель сам вводит адрес на странице claim.
+
+    Эндпоинты ``/v1/payout/link*`` НЕ принимают заголовок ``Idempotency-Key`` (не обёрнуты в
+    идемпотентность на шлюзе) — SDK его сюда не шлёт. Дедупликация — через опциональный
+    per-link ``reference`` (уникален в рамках мерчанта). Требуют PAYOUT/API-ключ.
+    """
+
+    def create(self, **params: Any) -> PayoutLinkCreated:
+        """Создаёт claimable-ссылку (резервирует средства). ``POST /v1/payout/link``.
+
+        Поля: ``currency``, ``network``, ``amount`` (обязательные), ``reference`` (ключ
+        дедупликации), ``title``, ``note``, ``email`` (получателю уйдёт claim-письмо),
+        ``expires_in_hours``.
+
+        Рекомендуем задавать ``expires_in_hours`` ЯВНО (1–720): при отсутствии или ``0``
+        бэкенд клампит срок к 1 часу, а не к максимуму. ``claim_token``/``claim_url``
+        возвращаются только этим вызовом — сохраните их сразу.
+        """
+        return PayoutLinkCreated.model_validate(self._http.request("/v1/payout/link", params))
+
+    def create_batch(self, links: List[Dict[str, Any]]) -> PayoutLinkBatchResult:
+        """Пачка ссылок (до 500) одним запросом. ``POST /v1/payout/link/batch``.
+
+        Каждый item — тело обычного ``create`` (тоже рекомендуем явный ``expires_in_hours``);
+        все ссылки вызова получают общий ``batch_id``. Ответ index-aligned: плохой item фейлит
+        только себя. ``Idempotency-Key`` не используется — дедуп по per-link ``reference``.
+        """
+        return PayoutLinkBatchResult.model_validate(self._http.request("/v1/payout/link/batch", {"links": links}))
+
+    def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PayoutLink]:
+        data = self._http.request("/v1/payout/link/list", _clean(limit=limit, offset=offset))
+        return [PayoutLink.model_validate(x) for x in data.get("links", [])]
+
+    def info(self, link_id: str) -> PayoutLink:
+        """Состояние ссылки (после claim содержит ``payout_id`` и ``claim_address``). ``POST /v1/payout/link/info``."""
+        return PayoutLink.model_validate(self._http.request("/v1/payout/link/info", {"link_id": link_id}))
+
+    def cancel(self, link_id: str) -> PayoutLink:
+        """Отменяет непорученную (``funded``) ссылку и возвращает резерв. ``POST /v1/payout/link/cancel``."""
+        return PayoutLink.model_validate(self._http.request("/v1/payout/link/cancel", {"link_id": link_id}))
+
+    def claim_info(self, token: str) -> PayoutLinkClaimInfo:
+        """ПУБЛИЧНО (без подписи): данные ссылки для страницы claim. ``GET /v1/claim/{token}``."""
+        return PayoutLinkClaimInfo.model_validate(self._http.request_public(f"/v1/claim/{token}", method="GET"))
+
+    def claim(self, token: str, *, address: str, memo: Optional[str] = None) -> PayoutLinkClaimResult:
+        """ПУБЛИЧНО (без подписи): забрать средства на ``address``. ``POST /v1/claim/{token}``.
+
+        ``memo`` — dest tag/comment для сетей, где он нужен (TON и т. п.). Повторный claim с
+        тем же адресом — идемпотентный успех; с другим адресом — ``payoutlink.claim_in_progress``.
+        """
+        body: Dict[str, Any] = {"address": address}
+        if memo is not None:
+            body["memo"] = memo
+        return PayoutLinkClaimResult.model_validate(self._http.request_public(f"/v1/claim/{token}", body))
 
 
 class Wallets(_Base):
@@ -156,7 +471,14 @@ class AccountResource(_Base):
         return ReferralInfo.model_validate(self._http.request("/v1/referral/info", {}))
 
     def transfer_to_personal(self, **params: Any) -> Dict[str, Any]:
-        return self._http.request("/v1/transfer/to-personal", _with_idempotency(params))
+        """Перевод на персональный счёт. ``POST /v1/transfer/to-personal``.
+
+        Идемпотентность (v1.1.0): заголовок ``Idempotency-Key`` — авто-uuid4, одинаков во
+        всех внутренних ретраях; свой ключ — kwarg ``idempotency_key``. ``order_id`` больше
+        НЕ подставляется автоматически.
+        """
+        key = _pop_idem_key(params)
+        return self._http.request("/v1/transfer/to-personal", params, idempotency_key=key)
 
     def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}
@@ -220,21 +542,22 @@ class Rates(_Base):
 # ── Хелперы ──
 
 
-def _with_idempotency(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Гарантирует стабильный ключ идемпотентности ``order_id`` для не-идемпотентных POST.
+def _idem_key(explicit: Optional[str] = None) -> str:
+    """Ключ идемпотентности для заголовка ``Idempotency-Key`` (v1.1.0).
 
-    Клиент повторяет POST и переподписывает КАЖДУЮ попытку; бэкенд дедуплицирует платежи и
-    переводы по ``order_id`` (для переводов сигнатурный fallback ломается переподписью). Если
-    вызывающий не задал непустой ``order_id`` — подставляем его один раз (мутируем переданный
-    ``params``), чтобы все попытки ретрая использовали тот же ключ и не создавали дубль.
-
-    «Отсутствующим» считается значение, которого нет, ``None``, ``""`` или строка из одних
-    пробелов: пустой после ``.strip()`` ключ не даёт дедупликации, поэтому нормализуем его.
+    Если вызывающий передал непустой свой ключ — используется он, иначе генерируется uuid4.
+    Вызывается ОДИН раз на вызов метода (до цикла ретраев), поэтому все внутренние повторы
+    уходят с одним и тем же ключом. В подпись запроса заголовок не входит.
     """
-    order_id = params.get("order_id")
-    if not (isinstance(order_id, str) and order_id.strip()):
-        params["order_id"] = "idem-" + uuid.uuid4().hex
-    return params
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit
+    return str(_uuid.uuid4())
+
+
+def _pop_idem_key(params: Dict[str, Any]) -> str:
+    """Достаёт caller-ключ ``idempotency_key`` из kwargs (УДАЛЯЯ его из тела запроса —
+    иначе он утёк бы в подписанное тело) и возвращает итоговый ключ для заголовка."""
+    return _idem_key(params.pop("idempotency_key", None))
 
 
 def _lookup(uuid: Optional[str], order_id: Optional[str]) -> Dict[str, str]:

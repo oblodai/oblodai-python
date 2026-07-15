@@ -49,8 +49,14 @@ def prepare_request(
     payload: Any,
     signed: bool,
     method: str = "POST",
+    idempotency_key: Optional[str] = None,
 ) -> PreparedRequest:
-    """Готовит подписанный (или публичный) запрос: сериализует тело один раз и считает подпись по нему."""
+    """Готовит подписанный (или публичный) запрос: сериализует тело один раз и считает подпись по нему.
+
+    ``idempotency_key`` уходит заголовком ``Idempotency-Key``. В подпись он НЕ входит
+    (подпись покрывает только timestamp + метод + путь + тело), поэтому один и тот же ключ
+    можно слать во всех попытках ретрая, хотя каждая попытка переподписывается заново.
+    """
     url = base_url.rstrip("/") + path
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     body: Optional[str]
@@ -66,6 +72,9 @@ def prepare_request(
         headers["X-Public-Id"] = public_id
         headers["X-Timestamp"] = s.timestamp
         headers["X-Signature"] = s.signature
+
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
 
     return PreparedRequest(method=method, url=url, headers=headers, body=body)
 

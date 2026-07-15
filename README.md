@@ -1,8 +1,13 @@
 # Oblodai Python SDK
 
-Официальный Python SDK для платёжного шлюза **Oblodai**: приём платежей, выплаты, статические
-кошельки, вебхуки. Синхронный и асинхронный клиенты, подпись запросов, разбор ответов в
-pydantic-модели, типизированные ошибки и автоматические повторы.
+Официальный Python SDK для платёжного шлюза **Oblodai**: приём платежей, выплаты, массовые
+операции (батчи), платёжные и payout-ссылки, сплиты, счета на e-mail, статические кошельки,
+вебхуки. Синхронный и асинхронный клиенты, подпись запросов, разбор ответов в pydantic-модели,
+типизированные ошибки и автоматические повторы.
+
+> **v1.1.0 — ломающее изменение идемпотентности.** SDK больше **не подставляет** `order_id`.
+> От дублей при повторах защищает заголовок `Idempotency-Key`, который SDK генерирует сам
+> (один раз на вызов). Подробнее — в разделе «Повторы (retry) и идемпотентность».
 
 > **Базовый URL.** По умолчанию — `https://api.oblodai.com`. При необходимости переопределите `base_url` и свои ключи при инициализации.
 
@@ -143,11 +148,12 @@ except OblodaiAPIError as e:
 | `OblodaiSignatureError` | Не прошла проверка подписи вебхука. |
 | `OblodaiError` | Базовый класс для всех выше. |
 
-## Повторы (retry)
+## Повторы (retry) и идемпотентность
 
 Временные ошибки (`5xx`, `429`, сетевые сбои) повторяются автоматически с
-экспоненциальным backoff и джиттером. Ошибки запроса (`4xx`) не повторяются.
-`payout.funds_maturing` — терминальная ошибка (средства ещё зреют) и НЕ повторяется автоматически.
+экспоненциальным backoff и джиттером (на `429` соблюдается `Retry-After`). Ошибки запроса
+(`4xx`) не повторяются. `payout.funds_maturing` — терминальная ошибка (средства ещё зреют)
+и НЕ повторяется автоматически.
 
 ```python
 from oblodai import OblodaiClient, RetryConfig
@@ -159,31 +165,145 @@ client = OblodaiClient(
 )
 ```
 
-> **Важно про таймаут.** Таймаут не означает, что операция не прошла. Благодаря идемпотентности по
-> `order_id` повтор безопасен: если выплата уже создана — вернётся она же, дубля не будет.
-> Для `payments.create` и `account.transfer_to_personal` SDK сам подставляет стабильный `order_id`
-> (`idem-<uuid>`), если вы его не задали, так что все попытки ретрая используют один ключ и дубль
-> не возникает. Для выплат задавайте `order_id` явно.
+**Как устроена защита от дублей (v1.1.0).** На создающих вызовах (`payments.create`,
+`payments.refund`, `payments.resolve`, `payouts.create`, `payouts.create_mass`, все
+`create_batch`, `account.transfer_to_personal`) SDK генерирует заголовок `Idempotency-Key`
+(uuid4) **один раз до цикла ретраев** — все внутренние повторы уходят с одним и тем же ключом,
+поэтому таймаут/обрыв сети не создаст дубль счёта или перевода. В подпись запроса заголовок не
+входит.
+
+```python
+# свой ключ идемпотентности — уйдёт в ЗАГОЛОВОК, в тело запроса не попадает
+client.payments.create(amount="10", currency="USD", order_id="ord-1",
+                       idempotency_key="my-op-42")
+```
+
+- **`order_id` уходит как есть** — SDK его больше не подставляет и не переписывает
+  (в v1.0.x при пустом `order_id` подставлялся `idem-<uuid>`). Это ваш бизнес-идентификатор:
+  задавайте его явно и сохраняйте ДО вызова, чтобы потом найти платёж через `payments.info`.
+- **Выплаты:** `order_id` обязателен всегда (требование API).
+- **Payout-ссылки (`payout_links.*`)** заголовок не используют — там дедупликация через
+  per-link `reference` (см. ниже).
+
+## Новое в v1.1.0
+
+### Массовые операции (батчи)
+
+До 5000 платежей/возвратов/выплат одним подписанным запросом (одна отметка rate-limit).
+Обработка в фоне: постановка возвращает `batch_id`, результаты — через `batches.info`.
+
+```python
+sub = client.payments.create_batch([
+    {"amount": "10", "currency": "USD", "order_id": "a-1"},
+    {"amount": "20", "currency": "EUR", "order_id": "a-2"},
+], on_error="continue")   # "continue" (по умолчанию) или "stop"
+
+info = client.batches.info(sub.batch_id, limit=100)
+if info.done:                       # status == "completed"
+    print(info.succeeded, info.failed)
+    for item in info.items:
+        print(item.idx, item.status, item.result or item.error)
+
+client.refunds.create_batch([{"uuid": "p1", "reference": "r-1", "amount": "5"}])
+client.payouts.create_batch([{"amount": "5", "currency": "USDT", "network": "tron",
+                              "address": "T...", "order_id": "w-1"}])
+```
+
+Ключи дедупликации внутри пачки: у платежей/выплат обязателен `order_id` на каждом элементе,
+у возвратов — `reference` + `uuid`/`order_id` инвойса.
+
+### Платёжные ссылки
+
+Переиспользуемая ссылка: по ней платят много людей, каждый платёж — свой инвойс.
+
+```python
+link = client.payment_links.create(amount_mode="open", currency="USD", title="Донат")
+print(link.url)
+
+client.payment_links.list(limit=50)
+client.payment_links.info(link.link_id)          # + платежи по ссылке
+client.payment_links.toggle(link.link_id, active=False)
+
+# публичные (без подписи) — то, что зовёт ваша страница оплаты
+client.payment_links.public_get(link.link_id)
+client.payment_links.checkout(link.link_id, amount="10", currency="USD", network="tron")
+```
+
+`client.links` — синоним `client.payment_links`.
+
+### Payout-ссылки («крипто-чеки»)
+
+Резервируете сумму, не зная кошелька получателя; получатель открывает `claim_url`
+и сам вводит адрес. Требуется PAYOUT/API-ключ.
+
+```python
+link = client.payout_links.create(
+    currency="USDT", network="tron", amount="25",
+    reference="bonus-42",        # ключ дедупликации (Idempotency-Key здесь не используется)
+    expires_in_hours=720,        # задавайте ЯВНО: при 0/отсутствии срок клампится к 1 часу
+    email="user@example.com",    # опционально: письмо с кнопкой «Получить средства»
+)
+print(link.claim_url)            # claim_token/claim_url возвращаются ТОЛЬКО здесь — сохраните
+
+client.payout_links.create_batch([{...}, ...])   # до 500 ссылок, общий batch_id
+client.payout_links.list(limit=50)
+client.payout_links.info(link.link_id)           # после claim: payout_id, claim_address
+client.payout_links.cancel(link.link_id)         # только funded → возврат резерва
+
+# публичные (без подписи) — для своей страницы claim
+client.payout_links.claim_info(token)                    # GET /v1/claim/{token}
+client.payout_links.claim(token, address="T...", memo=None)
+```
+
+### Сплиты
+
+Доля каждого входящего платежа автоматически уходит партнёру.
+
+```python
+client.splits.split_to_address(address="T...", network="tron", percent=10, note="партнёр А")
+client.splits.split_to_merchant(merchant_id="m2", percent=5)     # обратимо при возвратах
+client.splits.list_rules()
+client.splits.delete_rule(rule_id)
+client.splits.get_config() / client.splits.set_config(refund_hold_hours=24)
+```
+
+### Счёт на e-mail и resolve недоплаты
+
+```python
+client.payments.send_email(uuid=payment.uuid, email="buyer@example.com")
+
+# платёж в статусе wrong_amount (недоплата): оставить себе или вернуть плательщику
+client.payments.resolve(uuid=payment.uuid, action="accept")
+client.payments.resolve(uuid=payment.uuid, action="refund")   # address по умолчанию — адрес плательщика
+```
 
 ## Обзор методов
 
 ```python
 # Платежи
 client.payments.create(amount=..., currency=..., order_id=..., ...)
+client.payments.create_batch([...], on_error="continue")
 client.payments.info(order_id="order-1")
 client.payments.history(limit=25, offset=0, status="paid")
 client.payments.services()
 client.payments.qr(order_id="order-1")
 client.payments.resend(order_id="order-1")
-client.payments.refund(order_id="order-1", address="T...", amount="10")
+client.payments.refund(order_id="order-1", amount="10")   # address опционален (кроме UTXO)
+client.payments.refund_batch([...])                        # = client.refunds.create_batch
+client.payments.resolve(uuid=..., action="accept" | "refund")
+client.payments.send_email(uuid=..., email=...)
 client.payments.set_accepted([...]) / list_accepted()
 client.payments.set_discount(...) / list_discounts()
 client.payments.set_accuracy(...) / get_accuracy()
 client.payments.set_autorefund(...) / get_autorefund()
 
+# Возвраты пачкой
+client.refunds.create_batch([...], on_error="continue")
+
 # Выплаты
 client.payouts.create(amount=..., currency=..., address=..., order_id=...)
 client.payouts.create_mass([...])
+client.payouts.create_batch([...], on_error="continue")
 client.payouts.info(order_id="payout-1")
 client.payouts.history(...)
 client.payouts.services()
@@ -192,6 +312,21 @@ client.payouts.approve(uuid)
 client.payouts.refund(...)
 client.payouts.get_fee_config() / set_fee_config(bool)
 client.payouts.get_refund_fee_config() / set_refund_fee_config(bool)
+
+# Пачки
+client.batches.info(batch_id, limit=100, offset=0)
+
+# Платёжные ссылки (client.links — синоним)
+client.payment_links.create(...) / list() / info(link_id) / toggle(link_id, active)
+client.payment_links.public_get(link_id) / checkout(link_id, ...)   # публичные, без подписи
+
+# Payout-ссылки (крипто-чеки)
+client.payout_links.create(...) / create_batch([...]) / list() / info(link_id) / cancel(link_id)
+client.payout_links.claim_info(token) / claim(token, address=...)   # публичные, без подписи
+
+# Сплиты
+client.splits.create_rule(...) / split_to_address(...) / split_to_merchant(...)
+client.splits.list_rules() / delete_rule(rule_id) / get_config() / set_config(refund_hold_hours=...)
 
 # Кошельки
 client.wallets.create(currency="USDT", network="tron", order_id="client-42")
@@ -223,10 +358,13 @@ client.rates.list("ETH")
 ## Замечания
 
 - **Суммы — строки** в единицах валюты (`"25.00"`), не числа. Так сохраняется точность.
-- **`order_id`/`reference` — ваш ключ идемпотентности.** Задавайте всегда для платежей и выплат.
-  Если не задан, для `payments.create` и `account.transfer_to_personal` SDK подставит его сам
-  (`idem-<uuid>`); для выплат укажите свой, чтобы связать операцию со своим заказом.
+- **`order_id` — ваш бизнес-идентификатор**, по которому вы находите платёж через
+  `payments.info`. С v1.1.0 SDK его НЕ подставляет: от дублей защищает заголовок
+  `Idempotency-Key` (автоматически или через kwarg `idempotency_key`). Для выплат `order_id`
+  обязателен.
 - **Секрет — только на сервере.** SDK серверный; не встраивайте ключ в клиентские приложения.
+  Исключение — публичные методы (`payout_links.claim*`, `payment_links.public_get/checkout`,
+  `rates.*`): они не подписываются и ключей не требуют.
 - **Модели игнорируют неописанные поля** — дополнительные поля в ответе API не сломают разбор.
 
 ## Лицензия

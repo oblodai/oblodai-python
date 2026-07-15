@@ -17,7 +17,7 @@ from .errors import (
 from .signing import compute_webhook_signature, sign_request
 from .webhooks import construct_event, verify_webhook
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "OblodaiClient",

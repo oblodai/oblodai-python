@@ -94,7 +94,14 @@ class OblodaiClient:
             public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
         )
         self.payments = _s.Payments(self._http)
+        self.refunds = _s.Refunds(self._http)
         self.payouts = _s.Payouts(self._http)
+        self.batches = _s.Batches(self._http)
+        self.payment_links = _s.PaymentLinks(self._http)
+        #: Синоним ``payment_links`` (именование из пользовательской документации).
+        self.links = self.payment_links
+        self.payout_links = _s.PayoutLinks(self._http)
+        self.splits = _s.Splits(self._http)
         self.wallets = _s.Wallets(self._http)
         self.account = _s.AccountResource(self._http)
         self.webhooks = _s.WebhooksResource(self._http)
@@ -152,7 +159,14 @@ class AsyncOblodaiClient:
             public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
         )
         self.payments = _a.Payments(self._http)
+        self.refunds = _a.Refunds(self._http)
         self.payouts = _a.Payouts(self._http)
+        self.batches = _a.Batches(self._http)
+        self.payment_links = _a.PaymentLinks(self._http)
+        #: Синоним ``payment_links`` (именование из пользовательской документации).
+        self.links = self.payment_links
+        self.payout_links = _a.PayoutLinks(self._http)
+        self.splits = _a.Splits(self._http)
         self.wallets = _a.Wallets(self._http)
         self.account = _a.AccountResource(self._http)
         self.webhooks = _a.WebhooksResource(self._http)

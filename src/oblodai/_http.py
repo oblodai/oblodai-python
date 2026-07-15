@@ -55,17 +55,25 @@ class SyncHTTPClient:
         self._client = http_client or httpx.Client(timeout=timeout)
         self._owns_client = http_client is None
 
-    def request(self, path: str, payload: Any = None) -> Any:
-        return self._execute(path, payload, signed=True)
+    def request(self, path: str, payload: Any = None, idempotency_key: Optional[str] = None) -> Any:
+        return self._execute(path, payload, signed=True, idempotency_key=idempotency_key)
 
     def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return self._execute(path, payload, signed=False, method=method)
 
-    def _execute(self, path: str, payload: Any, signed: bool, method: str = "POST") -> Any:
+    def _execute(
+        self,
+        path: str,
+        payload: Any,
+        signed: bool,
+        method: str = "POST",
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
         attempts = self._retry.max_attempts if self._retry else 1
         attempt = 0
         while True:
             attempt += 1
+            # idempotency_key вычислен вызывающим ДО цикла — одинаков во всех попытках ретрая.
             prep = prepare_request(
                 base_url=self._base_url,
                 public_id=self._public_id,
@@ -74,6 +82,7 @@ class SyncHTTPClient:
                 payload=payload,
                 signed=signed,
                 method=method,
+                idempotency_key=idempotency_key,
             )
             logger.debug("oblodai: -> %s %s (attempt %d/%d)", method, path, attempt, attempts)
             started = time.monotonic()
@@ -170,17 +179,25 @@ class AsyncHTTPClient:
         self._client = http_client or httpx.AsyncClient(timeout=timeout)
         self._owns_client = http_client is None
 
-    async def request(self, path: str, payload: Any = None) -> Any:
-        return await self._execute(path, payload, signed=True)
+    async def request(self, path: str, payload: Any = None, idempotency_key: Optional[str] = None) -> Any:
+        return await self._execute(path, payload, signed=True, idempotency_key=idempotency_key)
 
     async def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return await self._execute(path, payload, signed=False, method=method)
 
-    async def _execute(self, path: str, payload: Any, signed: bool, method: str = "POST") -> Any:
+    async def _execute(
+        self,
+        path: str,
+        payload: Any,
+        signed: bool,
+        method: str = "POST",
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
         attempts = self._retry.max_attempts if self._retry else 1
         attempt = 0
         while True:
             attempt += 1
+            # idempotency_key вычислен вызывающим ДО цикла — одинаков во всех попытках ретрая.
             prep = prepare_request(
                 base_url=self._base_url,
                 public_id=self._public_id,
@@ -189,6 +206,7 @@ class AsyncHTTPClient:
                 payload=payload,
                 signed=signed,
                 method=method,
+                idempotency_key=idempotency_key,
             )
             logger.debug("oblodai: -> %s %s (attempt %d/%d)", method, path, attempt, attempts)
             started = time.monotonic()
