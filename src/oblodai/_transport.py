@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import random
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 from .errors import OblodaiAPIError
 from .signing import sign_request
@@ -23,6 +25,64 @@ DEFAULT_TIMEOUT = 30.0
 #: если приложение настроит logging, либо через env-переменную ``OBLODAI_LOG`` (см. client.py).
 #: ВАЖНО: никогда не логируем секрет, X-Signature, секрет вебхука и тела запросов/ответов.
 logger = logging.getLogger("oblodai")
+
+
+def _is_loopback_host(host: str) -> bool:
+    """``True`` для петлевого хоста: ``localhost``, ``127.0.0.0/8``, ``::1``.
+
+    Такой трафик не покидает машину, поэтому подслушать подпись на нём некому — это и есть
+    исключение, ради которого локальные стенды (``http://localhost:8095``) продолжают работать.
+    """
+    h = host.strip().lower()
+    if not h:
+        return False
+    # urlsplit отдаёт IPv6-хост в скобках: "[::1]".
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    if h == "localhost" or h.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_base_url(base_url: str) -> str:
+    """Требует https:// для базового URL (исключение — петлевые хосты). Возвращает URL как есть.
+
+    Зачем. Каждый подписанный запрос несёт заголовок ``X-Signature`` — HMAC тела и пути на
+    секрете API-ключа. По ``http://`` он идёт открытым текстом: любой посредник на пути
+    (прокси, Wi-Fi, оператор) читает подпись вместе с телом и может переиграть запрос,
+    пока не истёк timestamp. Раньше SDK принимал ``http://`` молча, и опечатка в схеме или
+    забытая настройка стенда тихо превращалась в утечку — теперь это ошибка на создании
+    клиента, до первого запроса.
+
+    Петлевой хост (``localhost``, ``127.0.0.1``, ``::1``) разрешён по ``http://``: трафик не
+    уходит с машины, и на этом держатся локальные стенды.
+
+    :raises ValueError: если схема не ``https`` и хост не петлевой, либо URL без схемы/хоста.
+    """
+    parts = urlsplit(base_url.strip())
+    scheme = parts.scheme.lower()
+
+    if not scheme or not parts.netloc:
+        raise ValueError(
+            "oblodai: base_url должен быть абсолютным URL со схемой и хостом, "
+            f"например 'https://api.oblodai.com' (получено: {base_url!r})"
+        )
+
+    if scheme == "https":
+        return base_url
+
+    if scheme == "http" and _is_loopback_host(parts.hostname or ""):
+        return base_url
+
+    raise ValueError(
+        f"oblodai: base_url должен использовать https:// (получено: {base_url!r}). "
+        "По http:// заголовок подписи X-Signature уходит открытым текстом и его может "
+        "перехватить любой посредник. Исключение — только локальные стенды на петлевом "
+        "хосте: localhost, 127.0.0.1, ::1 (например 'http://localhost:8095')."
+    )
 
 
 @dataclass

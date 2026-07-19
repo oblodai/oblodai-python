@@ -6,6 +6,14 @@ import uuid as _uuid
 from typing import Any, Dict, List, Optional
 
 from .._http import SyncHTTPClient
+from .._params import (
+    PAYMENT_FIELDS,
+    PAYMENT_LINK_FIELDS,
+    PAYOUT_FIELDS,
+    PAYOUT_LINK_FIELDS,
+    SPLIT_RULE_FIELDS,
+    check_params,
+)
 from ..models import (
     Currency,
     AcceptedMethod,
@@ -59,7 +67,16 @@ class Payments(_Base):
         таймаута/5xx не создаст дубль. Свой ключ передаётся kwarg'ом ``idempotency_key``
         (уходит в заголовок, в тело запроса не попадает). ``order_id`` — ваш
         бизнес-идентификатор: уходит как есть, SDK его больше НЕ подставляет.
+
+        Имена полей проверяются по белому списку (:data:`oblodai._params.PAYMENT_FIELDS`) ДО
+        подписи и отправки: неизвестное имя — ``TypeError``, а не молча изменённая денежная
+        операция. Допустимые поля: ``amount``, ``currency``, ``order_id``, ``network``,
+        ``to_currency``, ``lifetime``, ``subtract``, ``accuracy_payment_percent``,
+        ``url_callback``, ``url_return``, ``url_success``, ``additional_data``,
+        ``payer_email``, ``theme``, ``is_payment_multiple``, ``is_refresh``
+        (плюс SDK-kwarg ``idempotency_key``).
         """
+        check_params("payments.create", params, PAYMENT_FIELDS)
         key = _pop_idem_key(params)
         return Payment.model_validate(self._http.request("/v1/payment", params, idempotency_key=key))
 
@@ -92,7 +109,16 @@ class Payments(_Base):
         on_error: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> BatchSubmitResult:
-        """Синоним :meth:`Refunds.create_batch` (``client.refunds.create_batch``)."""
+        """Ставит пачку возвратов (до 5000). ``POST /v1/refund/batch``. КАНОНИЧЕСКИЙ путь.
+
+        На каждом item обязательны ``reference`` (per-refund ключ дедупликации) и
+        ``uuid``/``order_id`` инвойса. ``on_error`` — ``"continue"`` (по умолчанию) или
+        ``"stop"``. Результаты — через ``client.batches.info(batch_id)``. Идемпотентность —
+        заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``).
+
+        Устаревший синоним — ``client.refunds.create_batch(...)`` (тот же эндпоинт, то же тело);
+        он есть только в Python SDK и при обращении выдаёт ``DeprecationWarning``.
+        """
         body: Dict[str, Any] = {"refunds": refunds}
         if on_error is not None:
             body["on_error"] = on_error
@@ -218,6 +244,13 @@ class Payments(_Base):
 
 
 class Refunds(_Base):
+    """УСТАРЕВШАЯ группа (``client.refunds``). Канон — ``client.payments.refund_batch(...)``.
+
+    Дублирует ``Payments.refund_batch``: тот же ``POST /v1/refund/batch``, то же тело, та же
+    идемпотентность — и существует только в Python SDK. Обращение к ``client.refunds`` выдаёт
+    ``DeprecationWarning``; сама группа не удалена и работает как раньше.
+    """
+
     def create_batch(
         self,
         refunds: List[Dict[str, Any]],
@@ -225,12 +258,11 @@ class Refunds(_Base):
         on_error: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> BatchSubmitResult:
-        """Ставит пачку возвратов (до 5000). ``POST /v1/refund/batch``.
+        """УСТАРЕЛО — используйте :meth:`Payments.refund_batch`. Пачка возвратов (до 5000).
 
-        На каждом item обязательны ``reference`` (per-refund ключ дедупликации) и
-        ``uuid``/``order_id`` инвойса. ``on_error`` — ``"continue"`` (по умолчанию) или
-        ``"stop"``. Результаты — через ``client.batches.info(batch_id)``. Идемпотентность —
-        заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``).
+        ``POST /v1/refund/batch``. На каждом item обязательны ``reference`` (per-refund ключ
+        дедупликации) и ``uuid``/``order_id`` инвойса. ``on_error`` — ``"continue"``
+        (по умолчанию) или ``"stop"``. Результаты — через ``client.batches.info(batch_id)``.
         """
         body: Dict[str, Any] = {"refunds": refunds}
         if on_error is not None:
@@ -246,7 +278,13 @@ class Payouts(_Base):
 
         Идемпотентность (v1.1.0): заголовок ``Idempotency-Key`` — авто-uuid4, одинаков во
         всех внутренних ретраях; свой ключ — kwarg ``idempotency_key`` (в тело не попадает).
+
+        Имена полей проверяются по белому списку (:data:`oblodai._params.PAYOUT_FIELDS`) ДО
+        подписи и отправки: неизвестное имя — ``TypeError``. Допустимые поля: ``amount``,
+        ``currency``, ``order_id``, ``address``, ``network``, ``is_subtract``, ``memo``,
+        ``url_callback``, ``from_currency``, ``source`` (плюс SDK-kwarg ``idempotency_key``).
         """
+        check_params("payouts.create", params, PAYOUT_FIELDS)
         key = _pop_idem_key(params)
         return Payout.model_validate(self._http.request("/v1/payout", params, idempotency_key=key))
 
@@ -359,7 +397,13 @@ class PaymentLinks(_Base):
         Поля: ``amount_mode`` (``fixed|open|range``), ``currency``, ``amount_fixed``/
         ``amount_min``/``amount_max``, ``pinned_currency``/``pinned_network``, ``title``,
         ``description``, ``expires_in`` (секунды; 0 — бессрочно).
+
+        Имена полей проверяются по белому списку
+        (:data:`oblodai._params.PAYMENT_LINK_FIELDS`): неизвестное имя — ``TypeError``.
+        Management-эндпоинт не двигает деньги, поэтому ``idempotency_key`` здесь не
+        принимается.
         """
+        check_params("payment_links.create", params, PAYMENT_LINK_FIELDS, allow_idempotency_key=False)
         return PaymentLinkCreated.model_validate(self._http.request("/v1/payment/link", params))
 
     def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PaymentLink]:
@@ -395,7 +439,13 @@ class Splits(_Base):
         Либо ``address`` + ``network`` (внешний адрес, необратимо), либо ``merchant_id``
         (аккаунт на платформе, обратимо) — ровно одно из двух. ``percent`` — доля в процентах
         (шаг 0.01), ``note`` — заметка.
+
+        Имена полей проверяются по белому списку
+        (:data:`oblodai._params.SPLIT_RULE_FIELDS`): неизвестное имя — ``TypeError``
+        (опечатка в ``percent`` увела бы долю партнёра в 0). Допустимые поля: ``address``,
+        ``network``, ``merchant_id``, ``percent``, ``note``.
         """
+        check_params("splits.create_rule", params, SPLIT_RULE_FIELDS, allow_idempotency_key=False)
         return SplitRuleCreated.model_validate(self._http.request("/v1/split/rule", params))
 
     def split_to_address(
@@ -463,7 +513,14 @@ class PayoutLinks(_Base):
         в тело запроса он не попадает). Шлюз его уважает: повтор с тем же ключом реплеит
         первый ответ и не резервирует баланс второй раз. Дубль ``reference`` — 409
         ``payoutlink.duplicate_reference``.
+
+        Имена полей проверяются по белому списку
+        (:data:`oblodai._params.PAYOUT_LINK_FIELDS`): неизвестное имя — ``TypeError``.
+        Допустимые поля: ``currency``, ``network``, ``amount``, ``reference``, ``title``,
+        ``note``, ``email``, ``expires_in_hours`` (плюс SDK-kwarg ``idempotency_key``).
+        Внимание на ``expires_in_hours``: опечатка тут не отбивалась и давала срок 1 час.
         """
+        check_params("payout_links.create", params, PAYOUT_LINK_FIELDS)
         key = _pop_idem_key(params)
         return PayoutLinkCreated.model_validate(
             self._http.request("/v1/payout/link", params, idempotency_key=key)

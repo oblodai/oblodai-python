@@ -41,6 +41,14 @@ from ..models import (
     Wallet,
     WebhookRegistration,
 )
+from .._params import (
+    PAYMENT_FIELDS,
+    PAYMENT_LINK_FIELDS,
+    PAYOUT_FIELDS,
+    PAYOUT_LINK_FIELDS,
+    SPLIT_RULE_FIELDS,
+    check_params,
+)
 from .sync_resources import _clean, _idem_key, _lookup, _pop_idem_key
 
 
@@ -53,7 +61,9 @@ class Payments(_Base):
     async def create(self, **params: Any) -> Payment:
         """См. sync :meth:`~oblodai.resources.sync_resources.Payments.create`:
         ``Idempotency-Key`` авто-uuid4 (стабилен между ретраями), свой — ``idempotency_key``;
-        ``order_id`` уходит как есть."""
+        ``order_id`` уходит как есть. Имена полей проверяются по белому списку
+        (``TypeError`` на неизвестное имя) — тот же список, что в sync."""
+        check_params("payments.create", params, PAYMENT_FIELDS)
         key = _pop_idem_key(params)
         return Payment.model_validate(await self._http.request("/v1/payment", params, idempotency_key=key))
 
@@ -79,7 +89,11 @@ class Payments(_Base):
         on_error: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> BatchSubmitResult:
-        """Синоним ``client.refunds.create_batch``."""
+        """Пачка возвратов (до 5000). ``POST /v1/refund/batch``. КАНОНИЧЕСКИЙ путь.
+
+        На item обязательны ``reference`` и ``uuid``/``order_id`` инвойса. Устаревший синоним —
+        ``client.refunds.create_batch(...)`` (только в Python SDK, выдаёт ``DeprecationWarning``).
+        """
         body: Dict[str, Any] = {"refunds": refunds}
         if on_error is not None:
             body["on_error"] = on_error
@@ -178,6 +192,12 @@ class Payments(_Base):
 
 
 class Refunds(_Base):
+    """УСТАРЕВШАЯ группа (``client.refunds``). Канон — ``client.payments.refund_batch(...)``.
+
+    Дублирует ``Payments.refund_batch`` (тот же ``POST /v1/refund/batch``) и есть только
+    в Python SDK. Обращение к ``client.refunds`` выдаёт ``DeprecationWarning``.
+    """
+
     async def create_batch(
         self,
         refunds: List[Dict[str, Any]],
@@ -185,8 +205,8 @@ class Refunds(_Base):
         on_error: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> BatchSubmitResult:
-        """Пачка возвратов (до 5000). ``POST /v1/refund/batch``.
-        На item обязательны ``reference`` и ``uuid``/``order_id`` инвойса."""
+        """УСТАРЕЛО — используйте :meth:`Payments.refund_batch`. Пачка возвратов (до 5000).
+        ``POST /v1/refund/batch``; на item обязательны ``reference`` и ``uuid``/``order_id``."""
         body: Dict[str, Any] = {"refunds": refunds}
         if on_error is not None:
             body["on_error"] = on_error
@@ -197,6 +217,9 @@ class Refunds(_Base):
 
 class Payouts(_Base):
     async def create(self, **params: Any) -> Payout:
+        """``POST /v1/payout``. Имена полей проверяются по белому списку (``TypeError`` на
+        неизвестное имя) — тот же список, что в sync."""
+        check_params("payouts.create", params, PAYOUT_FIELDS)
         key = _pop_idem_key(params)
         return Payout.model_validate(await self._http.request("/v1/payout", params, idempotency_key=key))
 
@@ -287,6 +310,9 @@ class PaymentLinks(_Base):
     """Платёжные ссылки. Management-эндпоинты не используют ``Idempotency-Key``."""
 
     async def create(self, **params: Any) -> PaymentLinkCreated:
+        """``POST /v1/payment/link``. Имена полей проверяются по белому списку (``TypeError``
+        на неизвестное имя) — тот же список, что в sync."""
+        check_params("payment_links.create", params, PAYMENT_LINK_FIELDS, allow_idempotency_key=False)
         return PaymentLinkCreated.model_validate(await self._http.request("/v1/payment/link", params))
 
     async def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PaymentLink]:
@@ -310,7 +336,9 @@ class PaymentLinks(_Base):
 
 class Splits(_Base):
     async def create_rule(self, **params: Any) -> SplitRuleCreated:
-        """``{address, network}`` XOR ``{merchant_id}`` + ``percent`` (+ ``note``). ``POST /v1/split/rule``."""
+        """``{address, network}`` XOR ``{merchant_id}`` + ``percent`` (+ ``note``). ``POST /v1/split/rule``.
+        Имена полей проверяются по белому списку (``TypeError`` на неизвестное имя)."""
+        check_params("splits.create_rule", params, SPLIT_RULE_FIELDS, allow_idempotency_key=False)
         return SplitRuleCreated.model_validate(await self._http.request("/v1/split/rule", params))
 
     async def split_to_address(
@@ -356,7 +384,9 @@ class PayoutLinks(_Base):
     async def create(self, **params: Any) -> PayoutLinkCreated:
         """``POST /v1/payout/link``. Рекомендуем задавать ``expires_in_hours`` ЯВНО (1–720):
         при отсутствии/0 бэкенд клампит срок к 1 часу. ``claim_token``/``claim_url`` —
-        только в этом ответе. Идемпотентность — как у sync-версии."""
+        только в этом ответе. Идемпотентность — как у sync-версии. Имена полей проверяются
+        по белому списку (``TypeError`` на неизвестное имя) — тот же список, что в sync."""
+        check_params("payout_links.create", params, PAYOUT_LINK_FIELDS)
         key = _pop_idem_key(params)
         return PayoutLinkCreated.model_validate(
             await self._http.request("/v1/payout/link", params, idempotency_key=key)

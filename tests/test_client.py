@@ -1,6 +1,7 @@
 """Тесты sync и async клиентов через respx (мок httpx)."""
 
 import json
+import warnings
 
 import httpx
 import pytest
@@ -410,16 +411,66 @@ def test_refunds_create_batch_and_payments_alias():
         }})
     )
     client = make_sync()
-    sub = client.refunds.create_batch([{"uuid": "p1", "reference": "r-1", "amount": "5"}])
+    # client.refunds устарела, но продолжает работать — предупреждение здесь ожидаемо.
+    with pytest.warns(DeprecationWarning):
+        sub = client.refunds.create_batch([{"uuid": "p1", "reference": "r-1", "amount": "5"}])
     assert sub.kind == "refunds"
     body = json.loads(route.calls[0].request.content)
     assert body["refunds"][0]["reference"] == "r-1"
     assert "on_error" not in body, "on_error не шлётся, если не задан (серверный дефолт continue)"
 
-    # синоним из доки: payments.refund_batch — тот же эндпоинт
+    # канонический путь: payments.refund_batch — тот же эндпоинт, без предупреждения
     sub2 = client.payments.refund_batch([{"uuid": "p1", "reference": "r-2", "amount": "5"}])
     assert sub2.batch_id == "b2"
     assert route.call_count == 2
+
+
+# ── client.refunds: устаревший дубль payments.refund_batch ──
+
+
+def test_refunds_group_warns_deprecation():
+    """Обращение к client.refunds предупреждает и называет канонический путь."""
+    client = make_sync()
+    with pytest.warns(DeprecationWarning) as rec:
+        client.refunds
+    msg = str(rec[0].message)
+    assert "payments.refund_batch" in msg, "предупреждение называет замену"
+    assert "2.0" in msg, "названа версия, в которой группа исчезнет"
+
+
+def test_async_refunds_group_warns_deprecation():
+    client = AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None)
+    with pytest.warns(DeprecationWarning) as rec:
+        client.refunds
+    assert "payments.refund_batch" in str(rec[0].message)
+
+
+def test_payments_refund_batch_does_not_warn():
+    """Канонический путь молчит — иначе предупреждение обесценилось бы."""
+    client = make_sync()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        client.payments.refund_batch  # доступ к методу не предупреждает
+
+
+@respx.mock
+def test_deprecated_refunds_hits_same_endpoint_as_canonical():
+    """Оба имени — одна операция: тот же путь и то же тело."""
+    route = respx.post(f"{BASE}/v1/refund/batch").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "batch_id": "b9", "kind": "refunds", "count": 1, "status": "pending",
+        }})
+    )
+    client = make_sync()
+    items = [{"uuid": "p1", "reference": "r-1", "amount": "5"}]
+
+    with pytest.warns(DeprecationWarning):
+        client.refunds.create_batch(items)
+    client.payments.refund_batch(items)
+
+    old, new = (json.loads(c.request.content) for c in route.calls)
+    assert old == new
+    assert all(str(c.request.url).endswith("/v1/refund/batch") for c in route.calls)
 
 
 @respx.mock

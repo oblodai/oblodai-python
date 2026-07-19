@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import warnings
 from typing import Optional
 
 import httpx
@@ -76,6 +77,15 @@ def is_test_key(public_id: str) -> bool:
     return public_id.startswith(TEST_PUBLIC_ID_PREFIX)
 
 
+#: Текст предупреждения при обращении к устаревшей группе ``client.refunds``.
+_REFUNDS_DEPRECATED = (
+    "oblodai: client.refunds устарела и будет удалена в 2.0. Используйте "
+    "client.payments.refund_batch(...) — тот же эндпоинт POST /v1/refund/batch, "
+    "та же семантика и та же идемпотентность. Группа refunds есть только в Python SDK; "
+    "payments.refund_batch — канонический путь во всех SDK Oblodai."
+)
+
+
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -110,11 +120,13 @@ class OblodaiClient:
             public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
         )
         self.payments = _s.Payments(self._http)
-        self.refunds = _s.Refunds(self._http)
+        #: УСТАРЕЛО — доступ идёт через свойство ``refunds`` (см. ниже), которое предупреждает.
+        self._refunds = _s.Refunds(self._http)
         self.payouts = _s.Payouts(self._http)
         self.batches = _s.Batches(self._http)
         self.payment_links = _s.PaymentLinks(self._http)
-        #: Синоним ``payment_links`` (именование из пользовательской документации).
+        #: Документированный СИНОНИМ ``payment_links`` (тот же объект). Канон во всех SDK
+        #: Oblodai — ``payment_links``; ``links`` оставлен для совместимости и не будет удалён.
         self.links = self.payment_links
         self.payout_links = _s.PayoutLinks(self._http)
         self.splits = _s.Splits(self._http)
@@ -125,6 +137,20 @@ class OblodaiClient:
         self.rates = _s.Rates(self._http)
         #: ТОЛЬКО для тестовых ключей (``test_…``) — см. :class:`oblodai.resources.sync_resources.Sandbox`.
         self.sandbox = _s.Sandbox(self._http)
+
+    @property
+    def refunds(self) -> "_s.Refunds":
+        """УСТАРЕЛО. Канонический путь — :meth:`~oblodai.resources.sync_resources.Payments.refund_batch`.
+
+        ``client.refunds.create_batch(...)`` и ``client.payments.refund_batch(...)`` бьют в один
+        и тот же ``POST /v1/refund/batch`` с одним телом — это два имени одной операции. Группа
+        ``refunds`` при этом существует только в Python SDK: в остальных четырёх (TS, Go, Rust,
+        PHP) возвраты пачкой живут на платежах, поэтому код с ``client.refunds`` не переносится
+        между языками. Ничего не удалено — вызов работает как раньше, но выдаёт
+        :class:`DeprecationWarning`; удаление планируется в 2.0.
+        """
+        warnings.warn(_REFUNDS_DEPRECATED, DeprecationWarning, stacklevel=2)
+        return self._refunds
 
     @classmethod
     def from_env(cls, *, base_url: Optional[str] = None, **kwargs: object) -> "OblodaiClient":
@@ -177,11 +203,13 @@ class AsyncOblodaiClient:
             public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
         )
         self.payments = _a.Payments(self._http)
-        self.refunds = _a.Refunds(self._http)
+        #: УСТАРЕЛО — доступ идёт через свойство ``refunds`` (см. ниже), которое предупреждает.
+        self._refunds = _a.Refunds(self._http)
         self.payouts = _a.Payouts(self._http)
         self.batches = _a.Batches(self._http)
         self.payment_links = _a.PaymentLinks(self._http)
-        #: Синоним ``payment_links`` (именование из пользовательской документации).
+        #: Документированный СИНОНИМ ``payment_links`` (тот же объект). Канон во всех SDK
+        #: Oblodai — ``payment_links``; ``links`` оставлен для совместимости и не будет удалён.
         self.links = self.payment_links
         self.payout_links = _a.PayoutLinks(self._http)
         self.splits = _a.Splits(self._http)
@@ -192,6 +220,18 @@ class AsyncOblodaiClient:
         self.rates = _a.Rates(self._http)
         #: ТОЛЬКО для тестовых ключей (``test_…``) — см. :class:`oblodai.resources.async_resources.Sandbox`.
         self.sandbox = _a.Sandbox(self._http)
+
+    @property
+    def refunds(self) -> "_a.Refunds":
+        """УСТАРЕЛО. Канонический путь — :meth:`~oblodai.resources.async_resources.Payments.refund_batch`.
+
+        То же самое, что у синхронного клиента: ``client.refunds.create_batch(...)`` и
+        ``client.payments.refund_batch(...)`` — одна операция (``POST /v1/refund/batch``) под
+        двумя именами, и только второе имя есть в остальных SDK Oblodai. Вызов работает как
+        раньше, но выдаёт :class:`DeprecationWarning`; удаление планируется в 2.0.
+        """
+        warnings.warn(_REFUNDS_DEPRECATED, DeprecationWarning, stacklevel=2)
+        return self._refunds
 
     @classmethod
     def from_env(cls, *, base_url: Optional[str] = None, **kwargs: object) -> "AsyncOblodaiClient":

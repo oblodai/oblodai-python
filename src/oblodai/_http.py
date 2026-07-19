@@ -21,6 +21,7 @@ from ._transport import (
     parse_response,
     prepare_request,
     should_retry,
+    validate_base_url,
 )
 from .errors import OblodaiAPIError, OblodaiConnectionError, OblodaiTimeoutError
 
@@ -50,7 +51,8 @@ class SyncHTTPClient:
             raise ValueError("secret обязателен")
         self._public_id = public_id
         self._secret = secret
-        self._base_url = base_url
+        # https обязателен (кроме петлевых хостов): по http подпись X-Signature идёт открыто.
+        self._base_url = validate_base_url(base_url)
         self._retry = retry
         self._client = http_client or httpx.Client(timeout=timeout)
         self._owns_client = http_client is None
@@ -180,7 +182,8 @@ class AsyncHTTPClient:
             raise ValueError("secret обязателен")
         self._public_id = public_id
         self._secret = secret
-        self._base_url = base_url
+        # https обязателен (кроме петлевых хостов): по http подпись X-Signature идёт открыто.
+        self._base_url = validate_base_url(base_url)
         self._retry = retry
         self._client = http_client or httpx.AsyncClient(timeout=timeout)
         self._owns_client = http_client is None
