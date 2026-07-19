@@ -67,8 +67,10 @@ def prepare_request(
         # Компактный JSON — подписываем ровно эту строку и её же отправляем.
         body = json.dumps(payload if payload is not None else {}, separators=(",", ":"))
 
-    if signed and body is not None:
-        s = sign_request(secret, method, path, body)
+    if signed:
+        # Для подписанного GET тело пустое: каноническая строка та же —
+        # ``{ts}\nGET\n{path}\n`` (пустая строка после последнего \n).
+        s = sign_request(secret, method, path, body if body is not None else "")
         headers["X-Public-Id"] = public_id
         headers["X-Timestamp"] = s.timestamp
         headers["X-Signature"] = s.signature

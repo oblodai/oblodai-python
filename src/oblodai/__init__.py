@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from ._transport import RetryConfig
-from .client import AsyncOblodaiClient, OblodaiClient
+from .client import AsyncOblodaiClient, OblodaiClient, is_test_key
 from .errors import (
     OblodaiAPIError,
     OblodaiConnectionError,
@@ -17,12 +17,14 @@ from .errors import (
 from .signing import compute_webhook_signature, sign_request
 from .webhooks import construct_event, verify_webhook
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "OblodaiClient",
     "AsyncOblodaiClient",
     "RetryConfig",
+    # песочница
+    "is_test_key",
     # вебхуки
     "verify_webhook",
     "construct_event",

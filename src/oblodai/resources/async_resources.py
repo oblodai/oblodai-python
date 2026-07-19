@@ -29,6 +29,11 @@ from ..models import (
     PayoutLinkCreated,
     PayoutList,
     ReferralInfo,
+    SandboxDelivery,
+    SandboxDeposit,
+    SandboxFaucetResult,
+    SandboxReplayResult,
+    SandboxResetResult,
     ServiceMethod,
     SplitRule,
     SplitRuleCreated,
@@ -428,6 +433,50 @@ class Settings(_Base):
 
     async def enable_allowlist(self, enabled: bool) -> Any:
         return await self._http.request("/v1/api-allowlist/enable", {"enabled": enabled})
+
+
+class Sandbox(_Base):
+    """Песочница разработчика — ТОЛЬКО для тестовых ключей.
+    См. sync :class:`~oblodai.resources.sync_resources.Sandbox`: живой ключ получает
+    HTTP 403 ``sandbox.live_key``; не используйте эту группу в продакшн-коде."""
+
+    async def simulate_deposit(
+        self,
+        *,
+        invoice_id: str,
+        amount: Optional[str] = None,
+        confirmations: Optional[int] = None,
+        txid: Optional[str] = None,
+    ) -> SandboxDeposit:
+        """Имитирует он-чейн депозит в инвойс. ``POST /v1/sandbox/deposit``.
+        Семантика параметров — как у sync-версии."""
+        body = _clean(invoice_id=invoice_id, amount=amount, confirmations=confirmations, txid=txid)
+        return SandboxDeposit.model_validate(await self._http.request("/v1/sandbox/deposit", body))
+
+    async def faucet(
+        self, *, asset: str, amount: str, idempotency_key: Optional[str] = None
+    ) -> SandboxFaucetResult:
+        """Кран тестового баланса. ``POST /v1/sandbox/faucet``. ``amount`` ≤ 1000000 за вызов;
+        ``idempotency_key`` — поле ТЕЛА запроса (контракт эндпоинта), не заголовок."""
+        body = _clean(asset=asset, amount=amount, idempotency_key=idempotency_key)
+        return SandboxFaucetResult.model_validate(await self._http.request("/v1/sandbox/faucet", body))
+
+    async def reset(self) -> SandboxResetResult:
+        """Отменяет открытые инвойсы и обнуляет балансы (история сохраняется).
+        ``POST /v1/sandbox/reset``."""
+        return SandboxResetResult.model_validate(await self._http.request("/v1/sandbox/reset", {}))
+
+    async def list_webhooks(self) -> List[SandboxDelivery]:
+        """Недавние доставки вебхуков (до 50, новые первыми). Подписанный ``GET``
+        с пустым телом: ``{ts}\\nGET\\n/v1/sandbox/webhooks\\n``."""
+        data = await self._http.request("/v1/sandbox/webhooks", method="GET")
+        return [SandboxDelivery.model_validate(x) for x in data.get("deliveries", [])]
+
+    async def replay_webhook(self, delivery_id: str) -> SandboxReplayResult:
+        """Перепоставляет одну доставку в очередь. ``POST /v1/sandbox/webhooks/replay``."""
+        return SandboxReplayResult.model_validate(
+            await self._http.request("/v1/sandbox/webhooks/replay", {"delivery_id": delivery_id})
+        )
 
 
 class Rates(_Base):

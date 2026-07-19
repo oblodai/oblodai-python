@@ -390,6 +390,55 @@ class PaymentResolution(_Model):
     is_final: Optional[bool] = None
 
 
+# ─────────────────────────────── Песочница (v1.2.0) ───────────────────────────────
+
+
+class SandboxDeposit(_Model):
+    """Ответ ``POST /v1/sandbox/deposit`` — сымитированный он-чейн депозит в инвойс."""
+
+    invoice_id: str
+    txid: str
+    amount: str
+    confirmations: int
+
+
+class SandboxFaucetResult(_Model):
+    """Ответ ``POST /v1/sandbox/faucet`` — начисление тестового баланса."""
+
+    asset: str
+    amount: str
+    journal_id: str
+
+
+class SandboxResetResult(_Model):
+    """Ответ ``POST /v1/sandbox/reset``."""
+
+    invoices_cancelled: int
+    balances_zeroed: int
+
+
+class SandboxDelivery(_Model):
+    """Доставка вебхука в выдаче ``GET /v1/sandbox/webhooks`` (в отличие от
+    :class:`Delivery` содержит ``payload`` — сырое тело вебхука)."""
+
+    id: str
+    event_type: str
+    url: str
+    status: str
+    attempts: int
+    last_error: Optional[str] = None
+    payload: Optional[Any] = None  # сырой JSON вебхука
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SandboxReplayResult(_Model):
+    """Ответ ``POST /v1/sandbox/webhooks/replay``."""
+
+    delivery_id: str
+    requeued: bool
+
+
 # ─────────────────────────────── Вебхуки/настройки ───────────────────────────────
 
 

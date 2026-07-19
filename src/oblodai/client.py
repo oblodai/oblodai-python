@@ -60,6 +60,22 @@ def _bootstrap_env_logging() -> None:
 _bootstrap_env_logging()
 
 
+#: Префиксы тестовых (sandbox) учётных данных. Бизнес-эндпоинты с тестовым ключом работают
+#: без изменений — между тестом и продом меняется только ключ.
+TEST_PUBLIC_ID_PREFIX = "test_"
+TEST_SECRET_PREFIX = "oblodai_test_"
+
+
+def is_test_key(public_id: str) -> bool:
+    """``True``, если ``public_id`` — тестовый (sandbox) ключ (префикс ``test_``).
+
+    Тестовому public id соответствует секрет с префиксом ``oblodai_test_``. Только с таким
+    ключом доступна группа ``client.sandbox``; живой ключ на sandbox-эндпоинтах получает
+    HTTP 403 ``sandbox.live_key``.
+    """
+    return public_id.startswith(TEST_PUBLIC_ID_PREFIX)
+
+
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -107,6 +123,8 @@ class OblodaiClient:
         self.webhooks = _s.WebhooksResource(self._http)
         self.settings = _s.Settings(self._http)
         self.rates = _s.Rates(self._http)
+        #: ТОЛЬКО для тестовых ключей (``test_…``) — см. :class:`oblodai.resources.sync_resources.Sandbox`.
+        self.sandbox = _s.Sandbox(self._http)
 
     @classmethod
     def from_env(cls, *, base_url: Optional[str] = None, **kwargs: object) -> "OblodaiClient":
@@ -172,6 +190,8 @@ class AsyncOblodaiClient:
         self.webhooks = _a.WebhooksResource(self._http)
         self.settings = _a.Settings(self._http)
         self.rates = _a.Rates(self._http)
+        #: ТОЛЬКО для тестовых ключей (``test_…``) — см. :class:`oblodai.resources.async_resources.Sandbox`.
+        self.sandbox = _a.Sandbox(self._http)
 
     @classmethod
     def from_env(cls, *, base_url: Optional[str] = None, **kwargs: object) -> "AsyncOblodaiClient":

@@ -3,6 +3,31 @@
 Значимые изменения этого пакета. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [SemVer](https://semver.org/lang/ru/).
 
+## [1.2.0] — 2026-07-19
+
+### Добавлено
+- **Песочница разработчика — группа `client.sandbox`** (sync и async). Работает ТОЛЬКО
+  с тестовыми ключами (`test_…` / `oblodai_test_…`); бизнес-эндпоинты с тестовым ключом
+  не меняются — между тестом и продом меняется только ключ. Живой ключ на sandbox-эндпоинтах
+  получает HTTP 403 `sandbox.live_key`. Только для тестового кода. Методы:
+  - `sandbox.simulate_deposit(invoice_id=, amount=, confirmations=, txid=)` —
+    `POST /v1/sandbox/deposit`: имитация он-чейн депозита; без `amount` платится ровно
+    причитающееся, малое `confirmations` даёт «неподтверждённый» депозит, повтор с тем же
+    `txid` и бОльшим числом подтверждений углубляет его.
+  - `sandbox.faucet(asset=, amount=, idempotency_key=)` — `POST /v1/sandbox/faucet`:
+    тестовый баланс (≤ 1000000 за вызов); `idempotency_key` здесь — поле ТЕЛА запроса
+    (контракт эндпоинта), не заголовок.
+  - `sandbox.reset()` — `POST /v1/sandbox/reset`: отмена открытых инвойсов и обнуление
+    балансов (история сохраняется).
+  - `sandbox.list_webhooks()` — `GET /v1/sandbox/webhooks`: последние доставки вебхуков
+    (до 50, новые первыми), с `payload`.
+  - `sandbox.replay_webhook(delivery_id)` — `POST /v1/sandbox/webhooks/replay`.
+- **Подписанный GET.** Транспорт теперь умеет подписывать GET-запросы: та же каноническая
+  строка `{ts}\nGET\n{path}\n` с пустым телом (используется `sandbox.list_webhooks`).
+- **Хелпер `is_test_key(public_id)`** — `True`, если ключ тестовый (префикс `test_`).
+- Новые pydantic-модели: `SandboxDeposit`, `SandboxFaucetResult`, `SandboxResetResult`,
+  `SandboxDelivery` (с `payload`), `SandboxReplayResult`.
+
 ## [1.1.0] — 2026-07-15
 
 Требует обновлённого шлюза (заголовок `Idempotency-Key`). Не публикуйте/не обновляйтесь до его деплоя.

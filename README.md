@@ -2,7 +2,7 @@
 
 Официальный Python SDK для платёжного шлюза **Oblodai**: приём платежей, выплаты, массовые
 операции (батчи), платёжные и payout-ссылки, сплиты, счета на e-mail, статические кошельки,
-вебхуки. Синхронный и асинхронный клиенты, подпись запросов, разбор ответов в pydantic-модели,
+вебхуки, песочница разработчика. Синхронный и асинхронный клиенты, подпись запросов, разбор ответов в pydantic-модели,
 типизированные ошибки и автоматические повторы.
 
 > **v1.1.0 — ломающее изменение идемпотентности.** SDK больше **не подставляет** `order_id`.
@@ -277,6 +277,77 @@ client.payments.resolve(uuid=payment.uuid, action="accept")
 client.payments.resolve(uuid=payment.uuid, action="refund")   # address по умолчанию — адрес плательщика
 ```
 
+## Песочница / тестирование (v1.2.0)
+
+У шлюза есть песочница разработчика с **тестовыми ключами**: public id с префиксом `test_`,
+секрет с префиксом `oblodai_test_`. **Бизнес-эндпоинты не меняются** и с тестовым ключом
+работают ровно так же — интеграционный код одинаков для теста и прода, между ними меняется
+ТОЛЬКО ключ:
+
+```bash
+# тест
+export OBLODAI_PUBLIC_ID=test_...
+export OBLODAI_SECRET=oblodai_test_...
+# прод — тот же код, другой ключ
+export OBLODAI_PUBLIC_ID=oblodai_...
+export OBLODAI_SECRET=oblodai_live_...
+```
+
+Хелпер `is_test_key(public_id)` возвращает `True` для тестового ключа (префикс `test_`).
+
+Новое — группа `client.sandbox`: пять test-only эндпоинтов, которые заменяют действия
+покупателя («покупатель оплатил он-чейн» и т. п.). **Только для тестового кода** — в проде
+этих эндпоинтов нет, живой ключ получает HTTP 403 `sandbox.live_key`. Не зовите
+`client.sandbox.*` из продакшн-кода.
+
+```python
+from oblodai import OblodaiClient
+
+client = OblodaiClient(public_id="test_...", secret="oblodai_test_...")
+
+# 1. Обычный бизнес-код: создаём инвойс
+payment = client.payments.create(amount="10", currency="USD", order_id="t-1",
+                                 to_currency="USDT", network="tron")
+
+# 2. Вместо покупателя «платим он-чейн»
+client.sandbox.simulate_deposit(invoice_id=payment.uuid)   # ровно причитающееся, сразу подтверждено
+
+# 3. Обычный бизнес-код: убеждаемся, что инвойс оплачен
+assert client.payments.info(uuid=payment.uuid).payment_status == "paid"
+
+# 4. Кран тестового баланса (≤ 1000000 за вызов) — и гоняем выплату
+client.sandbox.faucet(asset="USDT", amount="1000")
+client.payouts.create(amount="25", currency="USDT", network="tron",
+                      address="T...", order_id="w-1")
+```
+
+Остальные методы группы:
+
+```python
+# недоплата / переплата / депозит «в пути»
+client.sandbox.simulate_deposit(invoice_id=..., amount="5")           # недоплата → wrong_amount
+client.sandbox.simulate_deposit(invoice_id=..., confirmations=1,      # приходит неподтверждённым
+                                txid="tx-1")
+client.sandbox.simulate_deposit(invoice_id=..., confirmations=20,     # повтор с ТЕМ ЖЕ txid
+                                txid="tx-1")                          # углубляет подтверждения
+
+client.sandbox.reset()               # отменить открытые инвойсы и обнулить балансы (история сохраняется)
+
+client.sandbox.list_webhooks()       # последние доставки вебхуков (до 50, новые первыми), с payload
+client.sandbox.replay_webhook(delivery_id)   # перепоставить одну доставку в очередь
+```
+
+Нюансы:
+
+- **«Мелкие» депозиты дозревают сами.** Депозит, отправленный с малым `confirmations`,
+  дозреет примерно через 10 минут — либо ускорьте это, повторив `simulate_deposit`
+  с тем же `txid` и бОльшим числом подтверждений.
+- **UTXO-сети (Bitcoin и т. п.)** ведут себя как в проде: авто-возврата переплаты нет
+  и адрес плательщика неизвестен — для возврата нужен явный `address`
+  (см. `payments.refund` / `payments.resolve`).
+- `sandbox.list_webhooks` — единственный **подписанный GET** в SDK: подпись считается по
+  той же канонической строке с пустым телом (`{ts}\nGET\n/v1/sandbox/webhooks\n`).
+
 ## Обзор методов
 
 ```python
@@ -351,6 +422,12 @@ client.settings.list_allowlist() / add_allowlist(cidr) / remove_allowlist(cidr) 
 
 # Курсы (публично, без ключа)
 client.rates.list("ETH")
+
+# Песочница (ТОЛЬКО тестовый ключ test_… — см. раздел выше)
+client.sandbox.simulate_deposit(invoice_id=..., amount=None, confirmations=None, txid=None)
+client.sandbox.faucet(asset="USDT", amount="1000")
+client.sandbox.reset()
+client.sandbox.list_webhooks() / replay_webhook(delivery_id)
 ```
 
 Асинхронный клиент имеет те же методы — с `await`.

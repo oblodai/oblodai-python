@@ -55,8 +55,14 @@ class SyncHTTPClient:
         self._client = http_client or httpx.Client(timeout=timeout)
         self._owns_client = http_client is None
 
-    def request(self, path: str, payload: Any = None, idempotency_key: Optional[str] = None) -> Any:
-        return self._execute(path, payload, signed=True, idempotency_key=idempotency_key)
+    def request(
+        self,
+        path: str,
+        payload: Any = None,
+        idempotency_key: Optional[str] = None,
+        method: str = "POST",
+    ) -> Any:
+        return self._execute(path, payload, signed=True, method=method, idempotency_key=idempotency_key)
 
     def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return self._execute(path, payload, signed=False, method=method)
@@ -179,8 +185,14 @@ class AsyncHTTPClient:
         self._client = http_client or httpx.AsyncClient(timeout=timeout)
         self._owns_client = http_client is None
 
-    async def request(self, path: str, payload: Any = None, idempotency_key: Optional[str] = None) -> Any:
-        return await self._execute(path, payload, signed=True, idempotency_key=idempotency_key)
+    async def request(
+        self,
+        path: str,
+        payload: Any = None,
+        idempotency_key: Optional[str] = None,
+        method: str = "POST",
+    ) -> Any:
+        return await self._execute(path, payload, signed=True, method=method, idempotency_key=idempotency_key)
 
     async def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return await self._execute(path, payload, signed=False, method=method)

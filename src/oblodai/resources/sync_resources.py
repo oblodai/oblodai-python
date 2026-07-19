@@ -31,6 +31,11 @@ from ..models import (
     PayoutLinkCreated,
     PayoutList,
     ReferralInfo,
+    SandboxDelivery,
+    SandboxDeposit,
+    SandboxFaucetResult,
+    SandboxReplayResult,
+    SandboxResetResult,
     ServiceMethod,
     SplitRule,
     SplitRuleCreated,
@@ -525,6 +530,67 @@ class Settings(_Base):
 
     def enable_allowlist(self, enabled: bool) -> Any:
         return self._http.request("/v1/api-allowlist/enable", {"enabled": enabled})
+
+
+class Sandbox(_Base):
+    """Песочница разработчика — ТОЛЬКО для тестовых ключей (``test_…`` / ``oblodai_test_…``).
+
+    Пять test-only эндпоинтов, заменяющих действия, которые в проде совершает покупатель
+    (он-чейн оплата и т. п.). Бизнес-эндпоинты с тестовым ключом работают БЕЗ изменений —
+    между тестом и продом меняется только ключ. Живой ключ на этих эндпоинтах получает
+    HTTP 403 ``sandbox.live_key``. Не используйте эту группу в продакшн-коде.
+    """
+
+    def simulate_deposit(
+        self,
+        *,
+        invoice_id: str,
+        amount: Optional[str] = None,
+        confirmations: Optional[int] = None,
+        txid: Optional[str] = None,
+    ) -> SandboxDeposit:
+        """Имитирует он-чейн депозит в инвойс. ``POST /v1/sandbox/deposit``.
+
+        ``amount`` не задан — оплачивается ровно причитающееся; другое значение даёт
+        недоплату/переплату. ``confirmations`` не задан/0 — депозит сразу полностью
+        подтверждён; малое число — приходит «в пути»; повтор с ТЕМ ЖЕ ``txid`` и бОльшим
+        числом подтверждений «углубляет» его. ``txid`` не задан — свежий; переиспользуйте
+        для теста идемпотентности/углубления.
+        """
+        body = _clean(invoice_id=invoice_id, amount=amount, confirmations=confirmations, txid=txid)
+        return SandboxDeposit.model_validate(self._http.request("/v1/sandbox/deposit", body))
+
+    def faucet(
+        self, *, asset: str, amount: str, idempotency_key: Optional[str] = None
+    ) -> SandboxFaucetResult:
+        """Начисляет тестовый баланс (кран), чтобы гонять выплаты/возвраты.
+        ``POST /v1/sandbox/faucet``.
+
+        ``amount`` ограничен 1000000 за вызов. ``idempotency_key`` здесь — поле ТЕЛА
+        запроса (так определено контрактом эндпоинта), а не заголовок ``Idempotency-Key``.
+        """
+        body = _clean(asset=asset, amount=amount, idempotency_key=idempotency_key)
+        return SandboxFaucetResult.model_validate(self._http.request("/v1/sandbox/faucet", body))
+
+    def reset(self) -> SandboxResetResult:
+        """Отменяет открытые инвойсы и обнуляет балансы (компенсирующая проводка,
+        история сохраняется). ``POST /v1/sandbox/reset``."""
+        return SandboxResetResult.model_validate(self._http.request("/v1/sandbox/reset", {}))
+
+    def list_webhooks(self) -> List[SandboxDelivery]:
+        """Недавние доставки вебхуков (до 50, новые первыми). ``GET /v1/sandbox/webhooks``.
+
+        Подписанный GET с ПУСТЫМ телом: каноническая строка —
+        ``{ts}\\nGET\\n/v1/sandbox/webhooks\\n`` (пустое тело после последнего ``\\n``).
+        """
+        data = self._http.request("/v1/sandbox/webhooks", method="GET")
+        return [SandboxDelivery.model_validate(x) for x in data.get("deliveries", [])]
+
+    def replay_webhook(self, delivery_id: str) -> SandboxReplayResult:
+        """Перепоставляет одну доставку в очередь. ``POST /v1/sandbox/webhooks/replay``."""
+        return SandboxReplayResult.model_validate(
+            self._http.request("/v1/sandbox/webhooks/replay", {"delivery_id": delivery_id})
+        )
 
 
 class Rates(_Base):
