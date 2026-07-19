@@ -247,6 +247,12 @@ class Payouts(_Base):
         return PayoutCalculation.model_validate(await self._http.request("/v1/payout/calculate", params))
 
     async def approve(self, uuid: str) -> Any:
+        """Одобряет ожидающую выплату. ``POST /v1/payout/approve``.
+
+        Переход состояния, а не создание: принимается только ``pending``, иначе 409
+        ``payout.not_pending``. Повторный approve не одобрит и не сдвинет деньги дважды,
+        поэтому заголовок идемпотентности не нужен и не шлётся. 409 ``payout.not_pending``
+        читайте как «уже одобрено» и уточняйте статус через :meth:`info`."""
         return await self._http.request("/v1/payout/approve", {"uuid": uuid})
 
     async def refund(self, **params: Any) -> Any:
@@ -332,19 +338,43 @@ class Splits(_Base):
 
 
 class PayoutLinks(_Base):
-    """Payout-ссылки («крипто-чеки»). ``/v1/payout/link*`` НЕ принимают ``Idempotency-Key`` —
-    дедупликация через per-link ``reference``. Требуют PAYOUT/API-ключ."""
+    """Payout-ссылки («крипто-чеки»). Создание ссылки РЕЗЕРВИРУЕТ баланс, поэтому
+    ``/v1/payout/link`` и ``/v1/payout/link/batch`` идут с заголовком ``Idempotency-Key``
+    (вычислен до цикла ретраев; свой — ``idempotency_key``).
+
+    Шлюз заголовок УВАЖАЕТ: повтор с тем же ключом реплеит первый ответ (та же ссылка, тот
+    же ``claim_token``, ``Idempotent-Replayed: true``), баланс дебетуется ровно один раз.
+    Без заголовка два одинаковых вызова создадут ДВЕ ссылки. Коды: 400
+    ``idempotency.key_reused`` (тот же ключ, другое тело), 400 ``idempotency.bad_key``,
+    409 ``idempotency.in_progress`` (параллельный повтор), 503 ``idempotency.unavailable``
+    (fail-closed; единственный ретраибельный), 409 ``payoutlink.duplicate_reference``
+    (раньше было 500).
+
+    Per-link ``reference`` — второй, durable слой: работает и без заголовка, и когда ответ
+    батча слишком велик для кэша (>256 КБ). Требуют PAYOUT/API-ключ."""
 
     async def create(self, **params: Any) -> PayoutLinkCreated:
         """``POST /v1/payout/link``. Рекомендуем задавать ``expires_in_hours`` ЯВНО (1–720):
         при отсутствии/0 бэкенд клампит срок к 1 часу. ``claim_token``/``claim_url`` —
-        только в этом ответе."""
-        return PayoutLinkCreated.model_validate(await self._http.request("/v1/payout/link", params))
+        только в этом ответе. Идемпотентность — как у sync-версии."""
+        key = _pop_idem_key(params)
+        return PayoutLinkCreated.model_validate(
+            await self._http.request("/v1/payout/link", params, idempotency_key=key)
+        )
 
-    async def create_batch(self, links: List[Dict[str, Any]]) -> PayoutLinkBatchResult:
-        """Пачка ссылок (до 500), index-aligned ответ. ``POST /v1/payout/link/batch``."""
+    async def create_batch(
+        self, links: List[Dict[str, Any]], *, idempotency_key: Optional[str] = None
+    ) -> PayoutLinkBatchResult:
+        """Пачка ссылок (до 500), index-aligned ответ. ``POST /v1/payout/link/batch``.
+        Резервирует средства — идёт с ``Idempotency-Key`` (авто-uuid4; свой — kwarg), и
+        шлюз его уважает. Частично упавшая пачка реплеится КАК ЕСТЬ (упавшие элементы под
+        тем же ключом НЕ переисполняются — шлите их НОВЫМ ключом), а ответ больше 256 КБ
+        не кэшируется и тогда повтор выполнится заново — поэтому на батчах обязательно
+        проставляйте per-item ``reference``."""
         return PayoutLinkBatchResult.model_validate(
-            await self._http.request("/v1/payout/link/batch", {"links": links})
+            await self._http.request(
+                "/v1/payout/link/batch", {"links": links}, idempotency_key=_idem_key(idempotency_key)
+            )
         )
 
     async def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PayoutLink]:
@@ -381,8 +411,22 @@ class Wallets(_Base):
             body["is_force_block"] = is_force_block
         return await self._http.request("/v1/wallet/block", body)
 
-    async def blocked_address_refund(self, *, uuid: str, address: str) -> Any:
-        return await self._http.request("/v1/wallet/blocked-address-refund", {"uuid": uuid, "address": address})
+    async def blocked_address_refund(
+        self, *, uuid: str, address: str, idempotency_key: Optional[str] = None
+    ) -> Any:
+        """Возврат с заблокированного адреса. ``POST /v1/wallet/blocked-address-refund``.
+
+        Once-only на уровне самого шлюза, без всяких заголовков: обработчик берёт
+        per-wallet advisory-lock и внутри лока возвращает уже созданную выплату по
+        детерминированному reference ``refund-wallet:<wallet_id>``. Повтор (в т.ч.
+        параллельный) отдаёт ТУ ЖЕ выплату; повтор с ДРУГИМ ``address`` вернёт первую
+        выплату на ПЕРВЫЙ адрес. Маршрут намеренно НЕ обёрнут в idempotency-middleware,
+        так что ``Idempotency-Key`` шлётся, но серверу не требуется."""
+        return await self._http.request(
+            "/v1/wallet/blocked-address-refund",
+            {"uuid": uuid, "address": address},
+            idempotency_key=_idem_key(idempotency_key),
+        )
 
     async def qr(self, address: str) -> Dict[str, str]:
         return await self._http.request("/v1/wallet/qr", {"address": address})

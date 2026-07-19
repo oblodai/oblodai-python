@@ -636,7 +636,7 @@ PAYOUT_LINK_VIEW = {
 
 
 @respx.mock
-def test_payout_link_create_no_idempotency_header():
+def test_payout_link_create_sends_idempotency_header():
     route = respx.post(f"{BASE}/v1/payout/link").mock(
         return_value=httpx.Response(200, json={"state": 0, "result": {
             **PAYOUT_LINK_VIEW,
@@ -654,8 +654,8 @@ def test_payout_link_create_no_idempotency_header():
     assert link.claim_url
 
     req = route.calls[0].request
-    assert "Idempotency-Key" not in req.headers, \
-        "/v1/payout/link не обёрнут в идемпотентность — дедуп по reference"
+    assert _uuid4_like(req.headers["Idempotency-Key"]), \
+        "создание ссылки резервирует деньги — ключ идемпотентности обязателен"
     assert "X-Signature" in req.headers, "management-эндпоинт подписывается"
     body = json.loads(req.content)
     assert body["expires_in_hours"] == 720
@@ -684,6 +684,229 @@ def test_payout_link_create_batch_index_aligned():
     assert res.results[0].link.batch_id == "pb1"
     assert res.results[1].ok is False
     assert res.results[1].error == "payoutlink.insufficient_funds"
+
+
+# ── Идемпотентность на резервирующих деньги вызовах (v1.2.0) ──
+#
+# payout/link, payout/link/batch и wallet/blocked-address-refund резервируют баланс.
+# Без ключа авто-ретрай по потерянному ответу создавал бы вторую профинансированную ссылку.
+
+PAYOUT_LINK_CREATED = httpx.Response(200, json={"state": 0, "result": {
+    **PAYOUT_LINK_VIEW, "claim_token": "tok", "claim_url": "https://pay.example/claim/tok",
+}})
+
+PAYOUT_LINK_BATCH_OK = httpx.Response(200, json={"state": 0, "result": {
+    "created": 1, "total": 1,
+    "results": [{"ok": True, "link": {**PAYOUT_LINK_VIEW, "batch_id": "pb1", "claim_token": "t1"}}],
+}})
+
+BLOCKED_REFUND_OK = httpx.Response(200, json={"state": 0, "result": {"uuid": "pay-1"}})
+
+RETRY_FAST = RetryConfig(max_attempts=3, initial_delay=0.001, max_delay=0.005)
+UNAVAILABLE = httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}})
+
+
+@respx.mock
+def test_payout_link_batch_sends_idempotency_key():
+    route = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
+    make_sync().payout_links.create_batch([
+        {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
+    ])
+    assert _uuid4_like(route.calls[0].request.headers["Idempotency-Key"])
+
+
+@respx.mock
+def test_blocked_address_refund_sends_idempotency_key():
+    route = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+    make_sync().wallets.blocked_address_refund(uuid="inv-1", address="T1")
+    assert _uuid4_like(route.calls[0].request.headers["Idempotency-Key"])
+
+
+@respx.mock
+def test_payout_link_create_key_stable_across_retries():
+    route = respx.post(f"{BASE}/v1/payout/link").mock(
+        side_effect=[UNAVAILABLE, PAYOUT_LINK_CREATED]
+    )
+    make_sync(retry=RETRY_FAST).payout_links.create(
+        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+    )
+    assert route.call_count == 2
+    assert (route.calls[0].request.headers["Idempotency-Key"]
+            == route.calls[1].request.headers["Idempotency-Key"]), \
+        "иначе повтор создал бы вторую профинансированную ссылку"
+
+
+@respx.mock
+def test_payout_link_batch_key_stable_across_retries():
+    route = respx.post(f"{BASE}/v1/payout/link/batch").mock(
+        side_effect=[UNAVAILABLE, PAYOUT_LINK_BATCH_OK]
+    )
+    make_sync(retry=RETRY_FAST).payout_links.create_batch([
+        {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
+    ])
+    assert route.call_count == 2
+    assert (route.calls[0].request.headers["Idempotency-Key"]
+            == route.calls[1].request.headers["Idempotency-Key"])
+
+
+@respx.mock
+def test_blocked_address_refund_key_stable_across_retries():
+    route = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(
+        side_effect=[UNAVAILABLE, BLOCKED_REFUND_OK]
+    )
+    make_sync(retry=RETRY_FAST).wallets.blocked_address_refund(uuid="inv-1", address="T1")
+    assert route.call_count == 2
+    assert (route.calls[0].request.headers["Idempotency-Key"]
+            == route.calls[1].request.headers["Idempotency-Key"])
+
+
+@respx.mock
+def test_payout_link_caller_key_goes_to_header_not_body():
+    create = respx.post(f"{BASE}/v1/payout/link").mock(return_value=PAYOUT_LINK_CREATED)
+    batch = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
+    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+    client = make_sync()
+
+    client.payout_links.create(
+        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+        idempotency_key="link-key-1",
+    )
+    client.payout_links.create_batch(
+        [{"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24}],
+        idempotency_key="batch-key-1",
+    )
+    client.wallets.blocked_address_refund(uuid="inv-1", address="T1", idempotency_key="refund-key-1")
+
+    req = create.calls[0].request
+    assert req.headers["Idempotency-Key"] == "link-key-1"
+    assert "idempotency_key" not in json.loads(req.content), \
+        "caller-ключ не должен утекать в подписанное тело"
+    assert batch.calls[0].request.headers["Idempotency-Key"] == "batch-key-1"
+    assert refund.calls[0].request.headers["Idempotency-Key"] == "refund-key-1"
+
+
+@respx.mock
+async def test_async_payout_link_key_stable_across_retries():
+    create = respx.post(f"{BASE}/v1/payout/link").mock(
+        side_effect=[UNAVAILABLE, PAYOUT_LINK_CREATED]
+    )
+    batch = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
+    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+
+    async with AsyncOblodaiClient(
+        public_id="p", secret="s", base_url=BASE, retry=RETRY_FAST,
+    ) as client:
+        await client.payout_links.create(
+            currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+        )
+        await client.payout_links.create_batch(
+            [{"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24}],
+            idempotency_key="async-batch-key",
+        )
+        await client.wallets.blocked_address_refund(uuid="inv-1", address="T1")
+
+    assert create.call_count == 2
+    assert (create.calls[0].request.headers["Idempotency-Key"]
+            == create.calls[1].request.headers["Idempotency-Key"])
+    assert batch.calls[0].request.headers["Idempotency-Key"] == "async-batch-key"
+    assert _uuid4_like(refund.calls[0].request.headers["Idempotency-Key"])
+
+
+# ── Шлюз УВАЖАЕТ Idempotency-Key на payout-ссылках (коды ответов middleware) ──
+#
+# /v1/payout/link и /v1/payout/link/batch обёрнуты в idempotency-middleware: повтор с тем же
+# ключом реплеит первый ответ и не резервирует баланс второй раз. Отсюда новые коды, которые
+# SDK обязан классифицировать правильно: 400/409 — терминальные (ретрай бессмыслен и вреден),
+# 503 idempotency.unavailable — временный (стор fail-closed, повтор с ТЕМ ЖЕ ключом безопасен).
+
+IDEM_UNAVAILABLE = httpx.Response(
+    503, json={"error": {"code": "idempotency.unavailable",
+                         "message": "idempotency store unavailable, retry"}}
+)
+
+
+@respx.mock
+def test_payout_link_retry_is_not_disabled_and_replays_same_key_on_idem_unavailable():
+    """503 idempotency.unavailable — ретраибелен, и повтор уходит с ТЕМ ЖЕ ключом.
+
+    Отключать авто-ретрай на этих маршрутах — деградация: сервер их дедуплицирует.
+    """
+    route = respx.post(f"{BASE}/v1/payout/link").mock(
+        side_effect=[IDEM_UNAVAILABLE, PAYOUT_LINK_CREATED]
+    )
+    link = make_sync(retry=RETRY_FAST).payout_links.create(
+        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+    )
+    assert link.claim_token == "tok"
+    assert route.call_count == 2, "503 от стора идемпотентности должен повторяться"
+    assert (route.calls[0].request.headers["Idempotency-Key"]
+            == route.calls[1].request.headers["Idempotency-Key"]), \
+        "ключ обязан пережить внутренний ретрай — иначе сервер не сможет дедуплицировать"
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (400, "idempotency.key_reused"),
+        (400, "idempotency.bad_key"),
+        (409, "idempotency.in_progress"),
+        (409, "payoutlink.duplicate_reference"),
+    ],
+)
+def test_payout_link_terminal_idempotency_codes_are_not_retried(status, code):
+    """400/409 от middleware и дубль reference — терминальны, ретраить их нельзя.
+
+    Дубль reference раньше приходил как 500 `internal`, и SDK крутил его вхолостую;
+    теперь это 409 payoutlink.duplicate_reference и цикл ретраев обрывается сразу.
+    """
+    route = respx.post(f"{BASE}/v1/payout/link").mock(
+        return_value=httpx.Response(status, json={"error": {"code": code, "message": "no"}})
+    )
+    with pytest.raises(OblodaiAPIError) as ei:
+        make_sync(retry=RETRY_FAST).payout_links.create(
+            currency="BTC", network="bitcoin", amount="0.005",
+            reference="bonus-42", expires_in_hours=24,
+        )
+    assert ei.value.code == code
+    assert ei.value.status == status
+    assert ei.value.is_retriable is False
+    assert route.call_count == 1, "терминальную ошибку SDK не повторяет"
+
+
+@respx.mock
+def test_payout_link_batch_terminal_duplicate_reference_not_retried():
+    route = respx.post(f"{BASE}/v1/payout/link/batch").mock(
+        return_value=httpx.Response(409, json={"error": {
+            "code": "payoutlink.duplicate_reference", "message": "exists"}})
+    )
+    with pytest.raises(OblodaiAPIError) as ei:
+        make_sync(retry=RETRY_FAST).payout_links.create_batch([
+            {"currency": "BTC", "network": "bitcoin", "amount": "0.005",
+             "reference": "bonus-42", "expires_in_hours": 24},
+        ])
+    assert ei.value.code == "payoutlink.duplicate_reference"
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_payout_link_replayed_response_is_returned_as_is():
+    """Реплей отдаёт ТУ ЖЕ ссылку и тот же claim_token (+ заголовок Idempotent-Replayed)."""
+    replayed = httpx.Response(
+        200,
+        headers={"Idempotent-Replayed": "true"},
+        json={"state": 0, "result": {
+            **PAYOUT_LINK_VIEW, "claim_token": "tok",
+            "claim_url": "https://pay.example/claim/tok",
+        }},
+    )
+    respx.post(f"{BASE}/v1/payout/link").mock(side_effect=[PAYOUT_LINK_CREATED, replayed])
+    client = make_sync()
+    args = dict(currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24)
+    first = client.payout_links.create(**args, idempotency_key="same-key")
+    second = client.payout_links.create(**args, idempotency_key="same-key")
+    assert first.link_id == second.link_id
+    assert first.claim_token == second.claim_token
 
 
 @respx.mock
@@ -973,4 +1196,4 @@ async def test_async_batches_and_payout_links():
             currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
         )
         assert link.claim_token == "t"
-    assert "Idempotency-Key" not in link_route.calls[0].request.headers
+    assert _uuid4_like(link_route.calls[0].request.headers["Idempotency-Key"])

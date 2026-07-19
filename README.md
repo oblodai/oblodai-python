@@ -134,7 +134,8 @@ except OblodaiAPIError as e:
     if e.code == "payout.insufficient_funds":
         ...  # недостаточно средств
     elif e.code == "payout.funds_maturing":
-        ...  # средства ещё дозревают — временно, e.is_retriable == True
+        ...  # средства ещё дозревают: e.is_retriable == False — сами не повторяем,
+             # ждём снятия холда и вызываем позже (см. «Повторы (retry) и идемпотентность»)
     print(e.code, e.status, e.message)
 ```
 
@@ -167,7 +168,8 @@ client = OblodaiClient(
 
 **Как устроена защита от дублей (v1.1.0).** На создающих вызовах (`payments.create`,
 `payments.refund`, `payments.resolve`, `payouts.create`, `payouts.create_mass`, все
-`create_batch`, `account.transfer_to_personal`) SDK генерирует заголовок `Idempotency-Key`
+`create_batch`, `account.transfer_to_personal`, `payout_links.create`,
+`payout_links.create_batch`, `wallets.blocked_address_refund`) SDK генерирует заголовок `Idempotency-Key`
 (uuid4) **один раз до цикла ретраев** — все внутренние повторы уходят с одним и тем же ключом,
 поэтому таймаут/обрыв сети не создаст дубль счёта или перевода. В подпись запроса заголовок не
 входит.
@@ -182,8 +184,35 @@ client.payments.create(amount="10", currency="USD", order_id="ord-1",
   (в v1.0.x при пустом `order_id` подставлялся `idem-<uuid>`). Это ваш бизнес-идентификатор:
   задавайте его явно и сохраняйте ДО вызова, чтобы потом найти платёж через `payments.info`.
 - **Выплаты:** `order_id` обязателен всегда (требование API).
-- **Payout-ссылки (`payout_links.*`)** заголовок не используют — там дедупликация через
-  per-link `reference` (см. ниже).
+- **Payout-ссылки (`payout_links.create` / `create_batch`)** резервируют деньги, поэтому с
+  v1.2.0 тоже уходят с `Idempotency-Key`, и шлюз его **уважает**: повтор с тем же ключом
+  реплеит первый ответ (та же ссылка, тот же `claim_token`, в ответе `Idempotent-Replayed:
+  true`), а баланс дебетуется **ровно один раз**. Без заголовка два одинаковых вызова
+  создадут ДВЕ ссылки. Per-link `reference` остаётся вторым, durable слоем защиты — он
+  работает и без заголовка, и когда ответ батча слишком велик для кэша (см. ниже).
+- **`wallets.blocked_address_refund`** защищён иначе и сильнее: шлюз сам строит
+  детерминированный reference `refund-wallet:<wallet_id>`, берёт per-wallet advisory-lock и
+  внутри лока возвращает уже созданную выплату. Повтор — в том числе параллельный и вообще
+  без заголовков — отдаёт ТУ ЖЕ выплату, вторая не создаётся. Оговорка: повтор с ДРУГИМ
+  `address` вернёт первую выплату на ПЕРВЫЙ адрес (адрес в reference не входит).
+- **`payouts.approve`** заголовка не требует: это переход состояния, принимается только
+  `pending`, иначе 409 `payout.not_pending`. Читайте этот 409 как «уже одобрено», а не как
+  сбой, и уточняйте статус через `payouts.info`.
+
+### Коды ответов идемпотентности (payout-ссылки)
+
+| Код | HTTP | Когда | Ретраится SDK |
+|---|---|---|---|
+| `idempotency.key_reused` | 400 | тот же ключ с ДРУГИМ телом запроса | нет |
+| `idempotency.bad_key` | 400 | ключ длиннее 255 символов | нет |
+| `idempotency.in_progress` | 409 | параллельный повтор, пока первый ещё выполняется | нет |
+| `idempotency.unavailable` | 503 | стор идемпотентности недоступен (fail-closed by design) | **да** |
+| `payoutlink.duplicate_reference` | 409 | `reference` уже занят (раньше отдавался 500) | нет |
+
+Классификация в SDK (`OblodaiAPIError.is_retriable`) этому соответствует: `4xx` (включая
+оба 409 и оба 400) — терминальные, `5xx`/`429` — временные. Смена 500 → 409 на дубле
+`reference` важна именно поэтому: раньше SDK крутил бесполезные ретраи, теперь ошибка
+сразу возвращается вызывающему.
 
 ## Новое в v1.1.0
 
@@ -239,7 +268,8 @@ client.payment_links.checkout(link.link_id, amount="10", currency="USD", network
 ```python
 link = client.payout_links.create(
     currency="USDT", network="tron", amount="25",
-    reference="bonus-42",        # ключ дедупликации (Idempotency-Key здесь не используется)
+    reference="bonus-42",        # durable-дедуп между вызовами; внутренние ретраи закрыты
+                                 # заголовком Idempotency-Key, который шлюз уважает
     expires_in_hours=720,        # задавайте ЯВНО: при 0/отсутствии срок клампится к 1 часу
     email="user@example.com",    # опционально: письмо с кнопкой «Получить средства»
 )
@@ -254,6 +284,12 @@ client.payout_links.cancel(link.link_id)         # только funded → во�
 client.payout_links.claim_info(token)                    # GET /v1/claim/{token}
 client.payout_links.claim(token, address="T...", memo=None)
 ```
+
+**Батчи ссылок — ставьте `reference` на каждый item.** Ответ размером больше 256 КБ шлюз
+не кэширует, и тогда повтор с тем же `Idempotency-Key` выполнится ЗАНОВО; уникальный
+`reference` — тот слой, который в этом случае всё равно отобьёт дубль (409
+`payoutlink.duplicate_reference`). Ещё одна особенность: частично упавшая пачка реплеится
+КАК ЕСТЬ — упавшие элементы под тем же ключом не переисполняются, отправьте их НОВЫМ ключом.
 
 ### Сплиты
 
@@ -393,9 +429,15 @@ client.sandbox.replay_webhook(delivery_id)   # перепоставить одн
 
 Нюансы:
 
-- **«Мелкие» депозиты дозревают сами.** Депозит, отправленный с малым `confirmations`,
-  дозреет примерно через 10 минут — либо ускорьте это, повторив `simulate_deposit`
-  с тем же `txid` и бОльшим числом подтверждений.
+- **«Мелкие» депозиты сами НЕ дозревают.** Депозит с `confirmations` меньше требуемого
+  оставляет инвойс в `confirm_check` **навсегда**: песочница не переэмитит транзакцию и
+  ничего не досчитает в фоне. Единственный способ довести инвойс до `paid` — повторить
+  `simulate_deposit` с **тем же `txid`** и бОльшим `confirmations`.
+- **~10 минут — это про другое.** Это maturity-**холд на выплате**: свежепришедшие средства
+  какое-то время нельзя выводить, и `payouts.create` до истечения холда падает с
+  `payout.funds_maturing`. Холд снимается фоновым джобом по возрасту средств
+  (в песочнице — 10 минут по умолчанию, настраивается на стороне шлюза). К глубине
+  подтверждений инвойса этот таймер отношения не имеет.
 - **UTXO-сети (Bitcoin и т. п.)** ведут себя как в проде: авто-возврата переплаты нет
   и адрес плательщика неизвестен — для возврата нужен явный `address`
   (см. `payments.refund` / `payments.resolve`).
@@ -435,7 +477,7 @@ client.payouts.info(order_id="payout-1")
 client.payouts.history(...)
 client.payouts.services()
 client.payouts.calculate(...)
-client.payouts.approve(uuid)
+client.payouts.approve(uuid)                     # повтор → 409 payout.not_pending = «уже одобрено»
 client.payouts.refund(...)
 client.payouts.get_fee_config() / set_fee_config(bool)
 client.payouts.get_refund_fee_config() / set_refund_fee_config(bool)
@@ -458,7 +500,8 @@ client.splits.list_rules() / delete_rule(rule_id) / get_config() / set_config(re
 # Кошельки
 client.wallets.create(currency="USDT", network="tron", order_id="client-42")
 client.wallets.block(address="T...")
-client.wallets.blocked_address_refund(uuid="...", address="T...")
+client.wallets.blocked_address_refund(uuid="...", address="T...")   # once-only на шлюзе: повтор
+                                                                    # вернёт ТУ ЖЕ выплату
 client.wallets.qr("T...")
 
 # Аккаунт
