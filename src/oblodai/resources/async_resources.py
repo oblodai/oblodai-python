@@ -37,6 +37,7 @@ from ..models import (
     ServiceMethod,
     SplitRule,
     SplitRuleCreated,
+    TransferToUserResult,
     Wallet,
     WebhookRegistration,
 )
@@ -88,6 +89,18 @@ class Payments(_Base):
 
     async def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(await self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
+
+    async def public_get(self, payment_id: str) -> Payment:
+        """ПУБЛИЧНО (без подписи): состояние инвойса для кастомной страницы оплаты.
+        ``GET /v1/pay/{id}``. В статусе ``select`` дополнительно приходит ``accepted``."""
+        return Payment.model_validate(await self._http.request_public(f"/v1/pay/{payment_id}", method="GET"))
+
+    async def public_select(self, payment_id: str, *, currency: str, network: str) -> Payment:
+        """ПУБЛИЧНО (без подписи): выбор валюты+сети для валюто-агностичного инвойса.
+        ``POST /v1/pay/{id}/select``. Ответ — финализированный платёж."""
+        return Payment.model_validate(
+            await self._http.request_public(f"/v1/pay/{payment_id}/select", {"currency": currency, "network": network})
+        )
 
     async def history(
         self, *, limit: Optional[int] = None, offset: Optional[int] = None, status: Optional[str] = None
@@ -387,6 +400,41 @@ class AccountResource(_Base):
         """Идемпотентность — заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``)."""
         key = _pop_idem_key(params)
         return await self._http.request("/v1/transfer/to-personal", params, idempotency_key=key)
+
+    async def transfer_to_user(
+        self,
+        *,
+        to_user_id: str,
+        amount: str,
+        currency: str,
+        order_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> TransferToUserResult:
+        """Внутренний перевод без комиссии пользователю платформы. ``POST /v1/transfer/to-user``.
+        ``to_user_id`` — id пользователя (UUID), НЕ username. Идемпотентность — лестница
+        как у прочих денежных эндпоинтов: заголовок ``Idempotency-Key`` (авто-uuid4;
+        свой — ``idempotency_key``), иначе ``order_id``, иначе подпись запроса."""
+        body = _clean(to_user_id=to_user_id, amount=amount, currency=currency, order_id=order_id)
+        return TransferToUserResult.model_validate(
+            await self._http.request("/v1/transfer/to-user", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    async def transfer_batch(
+        self,
+        transfers: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Пачка переводов to-user (до 5000). ``POST /v1/transfer/batch``. Каждый item —
+        тело обычного :meth:`transfer_to_user`; результаты — через
+        ``client.batches.info(batch_id)``."""
+        body: Dict[str, Any] = {"transfers": transfers}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            await self._http.request("/v1/transfer/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     async def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}

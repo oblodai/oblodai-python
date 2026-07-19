@@ -277,6 +277,60 @@ client.payments.resolve(uuid=payment.uuid, action="accept")
 client.payments.resolve(uuid=payment.uuid, action="refund")   # address по умолчанию — адрес плательщика
 ```
 
+## Внутренние переводы (v1.2.0)
+
+Перевод БЕЗ комиссии с баланса мерчанта на личный кошелёк **пользователя платформы**
+(деньги не уходят он-чейн — это внутренняя проводка). `to_user_id` — id пользователя
+платформы (UUID-строка), **НЕ username**: username резолвится в id через публичный
+профиль кабинета. Требуется PAYOUT/API-ключ.
+
+```python
+res = client.account.transfer_to_user(
+    to_user_id="5c3f6a1e-...",     # UUID пользователя платформы
+    amount="50", currency="USDT",
+    order_id="salary-2026-07",     # опционально — ваш бизнес-идентификатор
+)
+print(res.recipient_balance)       # новый баланс получателя
+
+# зарплатная пачка (до 5000 переводов) — обработка в фоне
+sub = client.account.transfer_batch(
+    [
+        {"to_user_id": "5c3f6a1e-...", "amount": "50", "currency": "USDT"},
+        {"to_user_id": "9d1e2b4c-...", "amount": "70", "currency": "USDT"},
+    ],
+    on_error="continue",
+)
+info = client.batches.info(sub.batch_id)   # прогресс и по-элементные результаты
+```
+
+Идемпотентность — та же лестница, что у остальных денежных эндпоинтов: заголовок
+`Idempotency-Key` (SDK шлёт авто-uuid4, стабильный между ретраями; свой — kwarg
+`idempotency_key`), иначе шлюз берёт `order_id`, иначе — подпись запроса.
+
+## Свой (кастомный) checkout (v1.2.0)
+
+Публичные (без подписи и без ключа) эндпоинты инвойса — чтобы собрать **свою страницу
+оплаты** вместо hosted-страницы шлюза: показать адрес/QR/сумму, дать покупателю выбрать
+валюту и опрашивать статус прямо из браузера.
+
+```python
+# состояние инвойса (без секрета мерчанта — можно звать из браузера)
+state = client.payments.public_get(payment.uuid)          # GET /v1/pay/{id}
+print(state.payment_status, state.address, state.amount_remaining)
+
+# валюто-агностичный инвойс (payment_status == "select"): покупатель выбирает метод
+for m in state.accepted or []:                            # методы на выбор
+    print(m.currency, m.network)
+finalized = client.payments.public_select(payment.uuid,   # POST /v1/pay/{id}/select
+                                          currency="USDT", network="tron")
+print(finalized.address, finalized.payer_amount)          # курс зафиксирован, адрес выделен
+```
+
+`public_get` возвращает только покупательские поля (без `additional_data` и
+`payer_email`); `public_select` фиксирует курс, выделяет депозитный адрес и переводит
+инвойс из `select` в `created`. Та же публичная семья, что `payment_links.public_get` /
+`checkout` и `payout_links.claim*`.
+
 ## Песочница / тестирование (v1.2.0)
 
 У шлюза есть песочница разработчика с **тестовыми ключами**: public id с префиксом `test_`,
@@ -367,6 +421,8 @@ client.payments.set_accepted([...]) / list_accepted()
 client.payments.set_discount(...) / list_discounts()
 client.payments.set_accuracy(...) / get_accuracy()
 client.payments.set_autorefund(...) / get_autorefund()
+client.payments.public_get(payment_id)                     # публично, без подписи — свой checkout
+client.payments.public_select(payment_id, currency=..., network=...)   # публично, без подписи
 
 # Возвраты пачкой
 client.refunds.create_batch([...], on_error="continue")
@@ -409,6 +465,8 @@ client.wallets.qr("T...")
 client.account.balance()
 client.account.referral()
 client.account.transfer_to_personal(amount="50", currency="USDT")
+client.account.transfer_to_user(to_user_id="...", amount="50", currency="USDT")  # UUID, не username
+client.account.transfer_batch([...], on_error="continue")  # результаты — batches.info(batch_id)
 client.account.vrcs(enabled=True)
 
 # Вебхуки
@@ -441,7 +499,7 @@ client.sandbox.list_webhooks() / replay_webhook(delivery_id)
   обязателен.
 - **Секрет — только на сервере.** SDK серверный; не встраивайте ключ в клиентские приложения.
   Исключение — публичные методы (`payout_links.claim*`, `payment_links.public_get/checkout`,
-  `rates.*`): они не подписываются и ключей не требуют.
+  `payments.public_get/public_select`, `rates.*`): они не подписываются и ключей не требуют.
 - **Модели игнорируют неописанные поля** — дополнительные поля в ответе API не сломают разбор.
 
 ## Лицензия

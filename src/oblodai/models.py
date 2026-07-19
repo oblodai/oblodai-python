@@ -51,6 +51,9 @@ class Payment(_Model):
     payer_address: Optional[str] = None
     refund_status: Optional[str] = None  # "none" | "partial" | "full"
     refunds: Optional[List[Dict[str, Any]]] = None
+    # v1.2.0: только в публичном ``GET /v1/pay/{id}`` для валюто-агностичного инвойса в статусе
+    # ``select`` — методы (валюта+сеть), из которых покупатель выбирает на странице оплаты.
+    accepted: Optional[List["AcceptedMethod"]] = None
 
 
 class Paginate(_Model):
@@ -388,6 +391,19 @@ class PaymentResolution(_Model):
     address: Optional[str] = None
     status: Optional[str] = None
     is_final: Optional[bool] = None
+
+
+# ─────────────────────────────── Внутренние переводы (v1.2.0) ───────────────────────────────
+
+
+class TransferToUserResult(_Model):
+    """Ответ ``POST /v1/transfer/to-user`` — внутренний перевод без комиссии
+    на личный кошелёк пользователя платформы."""
+
+    currency: str
+    amount: str
+    to_user_id: str
+    recipient_balance: str
 
 
 # ─────────────────────────────── Песочница (v1.2.0) ───────────────────────────────

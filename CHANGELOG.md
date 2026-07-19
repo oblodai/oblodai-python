@@ -27,6 +27,27 @@
 - **Хелпер `is_test_key(public_id)`** — `True`, если ключ тестовый (префикс `test_`).
 - Новые pydantic-модели: `SandboxDeposit`, `SandboxFaucetResult`, `SandboxResetResult`,
   `SandboxDelivery` (с `payload`), `SandboxReplayResult`.
+- **Внутренние переводы пользователю платформы** (sync и async, PAYOUT/API-ключ):
+  - `account.transfer_to_user(to_user_id=, amount=, currency=, order_id=)` —
+    `POST /v1/transfer/to-user`: перевод БЕЗ комиссии с баланса мерчанта на личный
+    кошелёк пользователя платформы. `to_user_id` — id пользователя (UUID-строка),
+    НЕ username. Идемпотентность — лестница как у прочих денежных эндпоинтов:
+    заголовок `Idempotency-Key` (авто-uuid4, стабилен между ретраями; свой —
+    `idempotency_key`), иначе `order_id`, иначе подпись запроса. Модель ответа —
+    `TransferToUserResult` (`currency`, `amount`, `to_user_id`, `recipient_balance`).
+  - `account.transfer_batch([...], on_error=)` — `POST /v1/transfer/batch`:
+    зарплатная пачка переводов to-user (до 5000); результаты — через
+    `batches.info(batch_id)`.
+- **Публичные эндпоинты инвойса для кастомного checkout** (sync и async, без подписи
+  и без ключа — можно звать из браузера):
+  - `payments.public_get(payment_id)` — `GET /v1/pay/{id}`: покупательское состояние
+    инвойса (адрес, сумма, QR, статус, срок); для валюто-агностичного инвойса
+    в статусе `select` дополнительно приходит `accepted` — методы на выбор
+    (новое поле `Payment.accepted`).
+  - `payments.public_select(payment_id, currency=, network=)` —
+    `POST /v1/pay/{id}/select`: покупатель выбирает валюту+сеть; фиксирует курс,
+    выделяет депозитный адрес, переводит инвойс из `select` в `created`.
+    Ответ — обычная модель `Payment`.
 
 ## [1.1.0] — 2026-07-15
 

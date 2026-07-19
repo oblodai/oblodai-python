@@ -767,6 +767,183 @@ async def test_async_payout_link_claim_unsigned():
     assert json.loads(route.calls[0].request.content) == {"address": "T..."}
 
 
+# ─────────────────────── Переводы to-user + публичный /v1/pay (v1.2.0) ───────────────────────
+
+
+TRANSFER_TO_USER_OK = httpx.Response(200, json={"state": 0, "result": {
+    "currency": "USDT", "amount": "50", "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+    "recipient_balance": "150",
+}})
+
+PAY_PUBLIC_SELECT_STATE = {
+    "uuid": "p42", "order_id": "o42", "amount": "25.00", "currency": "USD",
+    "payment_status": "select", "url": "https://pay.example/p42",
+    "accepted": [
+        {"currency": "USDT", "network": "tron"},
+        {"currency": "BTC", "network": "bitcoin"},
+    ],
+}
+
+PAY_PUBLIC_FINALIZED = {
+    "uuid": "p42", "order_id": "o42", "amount": "25.00", "currency": "USD",
+    "payment_status": "check", "address": "TDeposit1", "network": "tron",
+    "payer_currency": "USDT", "payer_amount": "25.10",
+}
+
+
+@respx.mock
+def test_transfer_to_user_signed_with_idempotency_key():
+    route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
+    client = make_sync()
+    res = client.account.transfer_to_user(
+        to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
+    )
+    assert res.to_user_id == "5c3f6a1e-0000-0000-0000-000000000001"
+    assert res.recipient_balance == "150"
+
+    req = route.calls[0].request
+    assert "X-Signature" in req.headers, "денежный эндпоинт подписывается"
+    assert _uuid4_like(req.headers["Idempotency-Key"]), \
+        "лестница идемпотентности: SDK шлёт заголовок (авто-uuid4), как payouts.create"
+    body = json.loads(req.content)
+    assert body == {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+                    "amount": "50", "currency": "USDT"}
+    assert "order_id" not in body, "order_id опционален и не подставляется"
+
+
+@respx.mock
+def test_transfer_to_user_caller_key_and_order_id():
+    route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
+    client = make_sync()
+    client.account.transfer_to_user(
+        to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
+        order_id="salary-7", idempotency_key="tr-key-1",
+    )
+    req = route.calls[0].request
+    assert req.headers["Idempotency-Key"] == "tr-key-1"
+    body = json.loads(req.content)
+    assert body["order_id"] == "salary-7"
+    assert "idempotency_key" not in body, "caller-ключ не утекает в подписанное тело"
+
+
+@respx.mock
+def test_transfer_batch_submits_and_sends_idempotency_key():
+    route = respx.post(f"{BASE}/v1/transfer/batch").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "batch_id": "tb1", "kind": "transfers", "count": 2, "status": "pending",
+        }})
+    )
+    client = make_sync()
+    sub = client.account.transfer_batch(
+        [
+            {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001", "amount": "50", "currency": "USDT"},
+            {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000002", "amount": "70", "currency": "USDT"},
+        ],
+        on_error="continue",
+    )
+    assert sub.batch_id == "tb1"
+    assert sub.kind == "transfers"
+
+    req = route.calls[0].request
+    body = json.loads(req.content)
+    assert body["on_error"] == "continue"
+    assert [x["to_user_id"] for x in body["transfers"]] == [
+        "5c3f6a1e-0000-0000-0000-000000000001", "5c3f6a1e-0000-0000-0000-000000000002",
+    ]
+    assert _uuid4_like(req.headers["Idempotency-Key"]), "submit-батч обёрнут в идемпотентность"
+
+
+@respx.mock
+def test_pay_public_get_unsigned():
+    route = respx.get(f"{BASE}/v1/pay/p42").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": PAY_PUBLIC_SELECT_STATE})
+    )
+    client = make_sync()
+    payment = client.payments.public_get("p42")
+    assert payment.payment_status == "select"
+    assert payment.accepted[0].currency == "USDT"
+    assert payment.accepted[0].network == "tron"
+
+    req = route.calls[0].request
+    assert req.method == "GET"
+    assert "X-Signature" not in req.headers, "публичный /v1/pay/{id} не подписывается"
+    assert "X-Public-Id" not in req.headers
+
+
+@respx.mock
+def test_pay_public_select_unsigned():
+    route = respx.post(f"{BASE}/v1/pay/p42/select").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": PAY_PUBLIC_FINALIZED})
+    )
+    client = make_sync()
+    payment = client.payments.public_select("p42", currency="USDT", network="tron")
+    assert payment.payment_status == "check"
+    assert payment.address == "TDeposit1"
+    assert payment.payer_currency == "USDT"
+
+    req = route.calls[0].request
+    assert req.method == "POST"
+    assert "X-Signature" not in req.headers, "публичный select не подписывается"
+    assert "Idempotency-Key" not in req.headers
+    assert json.loads(req.content) == {"currency": "USDT", "network": "tron"}
+
+
+@respx.mock
+async def test_async_transfer_to_user_signed_with_idempotency_key():
+    route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
+    async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
+        res = await client.account.transfer_to_user(
+            to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
+            idempotency_key="a-tr-key",
+        )
+    assert res.currency == "USDT"
+    req = route.calls[0].request
+    assert "X-Signature" in req.headers
+    assert req.headers["Idempotency-Key"] == "a-tr-key"
+    assert json.loads(req.content) == {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+                                       "amount": "50", "currency": "USDT"}
+
+
+@respx.mock
+async def test_async_transfer_batch():
+    route = respx.post(f"{BASE}/v1/transfer/batch").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": {
+            "batch_id": "tb2", "kind": "transfers", "count": 1, "status": "pending",
+        }})
+    )
+    async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
+        sub = await client.account.transfer_batch(
+            [{"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001", "amount": "5", "currency": "USDT"}]
+        )
+    assert sub.batch_id == "tb2"
+    req = route.calls[0].request
+    body = json.loads(req.content)
+    assert "on_error" not in body, "on_error не шлётся, если не задан (серверный дефолт continue)"
+    assert _uuid4_like(req.headers["Idempotency-Key"])
+
+
+@respx.mock
+async def test_async_pay_public_get_and_select_unsigned():
+    get_route = respx.get(f"{BASE}/v1/pay/p42").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": PAY_PUBLIC_SELECT_STATE})
+    )
+    select_route = respx.post(f"{BASE}/v1/pay/p42/select").mock(
+        return_value=httpx.Response(200, json={"state": 0, "result": PAY_PUBLIC_FINALIZED})
+    )
+    async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
+        state = await client.payments.public_get("p42")
+        assert state.payment_status == "select"
+        assert state.accepted[1].network == "bitcoin"
+
+        payment = await client.payments.public_select("p42", currency="USDT", network="tron")
+    assert payment.address == "TDeposit1"
+    assert get_route.calls[0].request.method == "GET"
+    assert "X-Signature" not in get_route.calls[0].request.headers
+    req = select_route.calls[0].request
+    assert "X-Signature" not in req.headers, "публичные /v1/pay/* не подписываются"
+    assert json.loads(req.content) == {"currency": "USDT", "network": "tron"}
+
+
 @respx.mock
 async def test_async_batches_and_payout_links():
     respx.post(f"{BASE}/v1/payout/batch").mock(

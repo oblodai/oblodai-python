@@ -39,6 +39,7 @@ from ..models import (
     ServiceMethod,
     SplitRule,
     SplitRuleCreated,
+    TransferToUserResult,
     Wallet,
     WebhookRegistration,
 )
@@ -101,6 +102,29 @@ class Payments(_Base):
 
     def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
         return Payment.model_validate(self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
+
+    def public_get(self, payment_id: str) -> Payment:
+        """ПУБЛИЧНО (без подписи): состояние инвойса для СВОЕЙ (кастомной) страницы оплаты.
+        ``GET /v1/pay/{id}`` — та же публичная семья, что ``/v1/link/{id}`` и claim.
+
+        Возвращает только покупательские поля (адрес, сумма, QR, статус, срок) — без
+        секрета мерчанта, поэтому метод можно звать прямо из браузера. Для
+        валюто-агностичного инвойса в статусе ``select`` дополнительно приходит
+        ``accepted`` — методы (валюта+сеть) на выбор; финализация — :meth:`public_select`.
+        """
+        return Payment.model_validate(self._http.request_public(f"/v1/pay/{payment_id}", method="GET"))
+
+    def public_select(self, payment_id: str, *, currency: str, network: str) -> Payment:
+        """ПУБЛИЧНО (без подписи): покупатель выбирает валюту+сеть для валюто-агностичного
+        инвойса на кастомной странице оплаты. ``POST /v1/pay/{id}/select``.
+
+        Фиксирует курс, выделяет депозитный адрес и переводит инвойс из ``select`` в
+        ``created``. Пара должна входить в accepted-набор мерчанта (или полный каталог,
+        если набор не настроен). Ответ — финализированный платёж (обычная модель).
+        """
+        return Payment.model_validate(
+            self._http.request_public(f"/v1/pay/{payment_id}/select", {"currency": currency, "network": network})
+        )
 
     def history(
         self, *, limit: Optional[int] = None, offset: Optional[int] = None, status: Optional[str] = None
@@ -484,6 +508,51 @@ class AccountResource(_Base):
         """
         key = _pop_idem_key(params)
         return self._http.request("/v1/transfer/to-personal", params, idempotency_key=key)
+
+    def transfer_to_user(
+        self,
+        *,
+        to_user_id: str,
+        amount: str,
+        currency: str,
+        order_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> TransferToUserResult:
+        """Внутренний перевод БЕЗ комиссии с баланса мерчанта на личный кошелёк
+        пользователя платформы. ``POST /v1/transfer/to-user`` (PAYOUT/API-ключ).
+
+        ``to_user_id`` — id пользователя платформы (UUID-строка), НЕ username: username
+        резолвится в id через публичный профиль кабинета. Идемпотентность — та же
+        лестница, что у остальных денежных эндпоинтов: заголовок ``Idempotency-Key``
+        (SDK шлёт авто-uuid4, стабильный между ретраями; свой — ``idempotency_key``),
+        иначе шлюз берёт ``order_id``, иначе — подпись запроса.
+        """
+        body = _clean(to_user_id=to_user_id, amount=amount, currency=currency, order_id=order_id)
+        return TransferToUserResult.model_validate(
+            self._http.request("/v1/transfer/to-user", body, idempotency_key=_idem_key(idempotency_key))
+        )
+
+    def transfer_batch(
+        self,
+        transfers: List[Dict[str, Any]],
+        *,
+        on_error: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> BatchSubmitResult:
+        """Ставит пачку внутренних переводов to-user (до 5000). ``POST /v1/transfer/batch``.
+
+        Каждый item — тело обычного :meth:`transfer_to_user` (``to_user_id``, ``amount``,
+        ``currency``, опционально ``order_id``). ``on_error`` — ``"continue"``
+        (по умолчанию) или ``"stop"``. Обработка в фоне: прогресс и по-элементные
+        результаты — через ``client.batches.info(batch_id)``. Идемпотентность —
+        заголовком ``Idempotency-Key`` (авто-uuid4; свой — ``idempotency_key``).
+        """
+        body: Dict[str, Any] = {"transfers": transfers}
+        if on_error is not None:
+            body["on_error"] = on_error
+        return BatchSubmitResult.model_validate(
+            self._http.request("/v1/transfer/batch", body, idempotency_key=_idem_key(idempotency_key))
+        )
 
     def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
         body = {} if enabled is None else {"enabled": enabled}
