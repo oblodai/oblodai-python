@@ -69,7 +69,8 @@ def verify_webhook(
         if age > max_age_seconds:
             logger.warning(
                 "oblodai: webhook verify failed: stale timestamp (age %ds > %ds)",
-                int(age), max_age_seconds,
+                int(age),
+                max_age_seconds,
             )
             raise OblodaiSignatureError(
                 f"Вебхук слишком старый: возраст {int(age)}с > {max_age_seconds}с"

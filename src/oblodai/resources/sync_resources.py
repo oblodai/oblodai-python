@@ -16,7 +16,6 @@ from .._params import (
 )
 from ..models import (
     Currency,
-    AcceptedMethod,
     AutoWithdrawRule,
     Balance,
     BatchInfo,
@@ -78,7 +77,9 @@ class Payments(_Base):
         """
         check_params("payments.create", params, PAYMENT_FIELDS)
         key = _pop_idem_key(params)
-        return Payment.model_validate(self._http.request("/v1/payment", params, idempotency_key=key))
+        return Payment.model_validate(
+            self._http.request("/v1/payment", params, idempotency_key=key)
+        )
 
     def create_batch(
         self,
@@ -99,7 +100,9 @@ class Payments(_Base):
         if on_error is not None:
             body["on_error"] = on_error
         return BatchSubmitResult.model_validate(
-            self._http.request("/v1/payment/batch", body, idempotency_key=_idem_key(idempotency_key))
+            self._http.request(
+                "/v1/payment/batch", body, idempotency_key=_idem_key(idempotency_key)
+            )
         )
 
     def refund_batch(
@@ -127,7 +130,9 @@ class Payments(_Base):
         )
 
     def info(self, *, uuid: Optional[str] = None, order_id: Optional[str] = None) -> Payment:
-        return Payment.model_validate(self._http.request("/v1/payment/info", _lookup(uuid, order_id)))
+        return Payment.model_validate(
+            self._http.request("/v1/payment/info", _lookup(uuid, order_id))
+        )
 
     def public_get(self, payment_id: str) -> Payment:
         """ПУБЛИЧНО (без подписи): состояние инвойса для СВОЕЙ (кастомной) страницы оплаты.
@@ -138,7 +143,9 @@ class Payments(_Base):
         валюто-агностичного инвойса в статусе ``select`` дополнительно приходит
         ``accepted`` — методы (валюта+сеть) на выбор; финализация — :meth:`public_select`.
         """
-        return Payment.model_validate(self._http.request_public(f"/v1/pay/{payment_id}", method="GET"))
+        return Payment.model_validate(
+            self._http.request_public(f"/v1/pay/{payment_id}", method="GET")
+        )
 
     def public_select(self, payment_id: str, *, currency: str, network: str) -> Payment:
         """ПУБЛИЧНО (без подписи): покупатель выбирает валюту+сеть для валюто-агностичного
@@ -149,14 +156,22 @@ class Payments(_Base):
         если набор не настроен). Ответ — финализированный платёж (обычная модель).
         """
         return Payment.model_validate(
-            self._http.request_public(f"/v1/pay/{payment_id}/select", {"currency": currency, "network": network})
+            self._http.request_public(
+                f"/v1/pay/{payment_id}/select", {"currency": currency, "network": network}
+            )
         )
 
     def history(
-        self, *, limit: Optional[int] = None, offset: Optional[int] = None, status: Optional[str] = None
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        status: Optional[str] = None,
     ) -> PaymentList:
         return PaymentList.model_validate(
-            self._http.request("/v1/payment/history", _clean(limit=limit, offset=offset, status=status))
+            self._http.request(
+                "/v1/payment/history", _clean(limit=limit, offset=offset, status=status)
+            )
         )
 
     def services(self) -> List[ServiceMethod]:
@@ -199,14 +214,26 @@ class Payments(_Base):
         Требует PAYOUT/API-ключ. Идемпотентность — заголовком ``Idempotency-Key``
         (авто-uuid4, стабилен между ретраями; свой — ``idempotency_key``).
         """
-        body = _clean(uuid=uuid, order_id=order_id, action=action, address=address,
-                      network=network, reference=reference)
+        body = _clean(
+            uuid=uuid,
+            order_id=order_id,
+            action=action,
+            address=address,
+            network=network,
+            reference=reference,
+        )
         return PaymentResolution.model_validate(
-            self._http.request("/v1/payment/resolve", body, idempotency_key=_idem_key(idempotency_key))
+            self._http.request(
+                "/v1/payment/resolve", body, idempotency_key=_idem_key(idempotency_key)
+            )
         )
 
     def send_email(
-        self, *, uuid: Optional[str] = None, order_id: Optional[str] = None, email: Optional[str] = None
+        self,
+        *,
+        uuid: Optional[str] = None,
+        order_id: Optional[str] = None,
+        email: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Отправляет покупателю письмо-счёт с кнопкой «Оплатить». ``POST /v1/payment/send-email``.
 
@@ -327,10 +354,16 @@ class Payouts(_Base):
         return Payout.model_validate(self._http.request("/v1/payout/info", _lookup(uuid, order_id)))
 
     def history(
-        self, *, limit: Optional[int] = None, offset: Optional[int] = None, status: Optional[str] = None
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        status: Optional[str] = None,
     ) -> PayoutList:
         return PayoutList.model_validate(
-            self._http.request("/v1/payout/history", _clean(limit=limit, offset=offset, status=status))
+            self._http.request(
+                "/v1/payout/history", _clean(limit=limit, offset=offset, status=status)
+            )
         )
 
     def services(self) -> List[ServiceMethod]:
@@ -360,17 +393,23 @@ class Payouts(_Base):
         return self._http.request("/v1/payout/fee-config/get", {})
 
     def set_fee_config(self, fee_on_recipient: bool) -> Any:
-        return self._http.request("/v1/payout/fee-config/set", {"fee_on_recipient": fee_on_recipient})
+        return self._http.request(
+            "/v1/payout/fee-config/set", {"fee_on_recipient": fee_on_recipient}
+        )
 
     def get_refund_fee_config(self) -> Dict[str, Any]:
         return self._http.request("/v1/payout/refund-fee-config/get", {})
 
     def set_refund_fee_config(self, fee_on_customer: bool) -> Any:
-        return self._http.request("/v1/payout/refund-fee-config/set", {"fee_on_customer": fee_on_customer})
+        return self._http.request(
+            "/v1/payout/refund-fee-config/set", {"fee_on_customer": fee_on_customer}
+        )
 
 
 class Batches(_Base):
-    def info(self, batch_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None) -> BatchInfo:
+    def info(
+        self, batch_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> BatchInfo:
         """Прогресс и по-элементные результаты пачки. ``POST /v1/batch/info``.
 
         ``limit`` ≤ 0 или > 500 сервер заменяет на 100. ``info.done`` — ``True``, когда
@@ -403,16 +442,22 @@ class PaymentLinks(_Base):
         Management-эндпоинт не двигает деньги, поэтому ``idempotency_key`` здесь не
         принимается.
         """
-        check_params("payment_links.create", params, PAYMENT_LINK_FIELDS, allow_idempotency_key=False)
+        check_params(
+            "payment_links.create", params, PAYMENT_LINK_FIELDS, allow_idempotency_key=False
+        )
         return PaymentLinkCreated.model_validate(self._http.request("/v1/payment/link", params))
 
-    def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PaymentLink]:
+    def list(
+        self, *, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> List[PaymentLink]:
         data = self._http.request("/v1/payment/link/list", _clean(limit=limit, offset=offset))
         return [PaymentLink.model_validate(x) for x in data.get("items", [])]
 
     def info(self, link_id: str) -> PaymentLinkInfo:
         """Ссылка + платежи по ней. ``POST /v1/payment/link/info``."""
-        return PaymentLinkInfo.model_validate(self._http.request("/v1/payment/link/info", {"link_id": link_id}))
+        return PaymentLinkInfo.model_validate(
+            self._http.request("/v1/payment/link/info", {"link_id": link_id})
+        )
 
     def toggle(self, link_id: str, active: bool) -> Dict[str, Any]:
         return self._http.request("/v1/payment/link/toggle", {"link_id": link_id, "active": active})
@@ -427,7 +472,9 @@ class PaymentLinks(_Base):
         Поля: ``amount``, ``currency``, ``network``, ``payer_email``. Закреплённые на ссылке
         валюта/сеть побеждают. Лимит: 30 инвойсов/мин на ссылку. Ответ — обычный платёж.
         """
-        return Payment.model_validate(self._http.request_public(f"/v1/link/{link_id}/checkout", params))
+        return Payment.model_validate(
+            self._http.request_public(f"/v1/link/{link_id}/checkout", params)
+        )
 
 
 class Splits(_Base):
@@ -452,9 +499,13 @@ class Splits(_Base):
         self, *, address: str, network: str, percent: float, note: Optional[str] = None
     ) -> SplitRuleCreated:
         """Правило «доля на внешний адрес» (необратимо при возвратах). Обёртка над :meth:`create_rule`."""
-        return self.create_rule(**_clean(address=address, network=network, percent=percent, note=note))
+        return self.create_rule(
+            **_clean(address=address, network=network, percent=percent, note=note)
+        )
 
-    def split_to_merchant(self, *, merchant_id: str, percent: float, note: Optional[str] = None) -> SplitRuleCreated:
+    def split_to_merchant(
+        self, *, merchant_id: str, percent: float, note: Optional[str] = None
+    ) -> SplitRuleCreated:
         """Правило «доля аккаунту на платформе» (обратимо: возврат отзовёт долю). Обёртка над :meth:`create_rule`."""
         return self.create_rule(**_clean(merchant_id=merchant_id, percent=percent, note=note))
 
@@ -547,27 +598,39 @@ class PayoutLinks(_Base):
         """
         return PayoutLinkBatchResult.model_validate(
             self._http.request(
-                "/v1/payout/link/batch", {"links": links}, idempotency_key=_idem_key(idempotency_key)
+                "/v1/payout/link/batch",
+                {"links": links},
+                idempotency_key=_idem_key(idempotency_key),
             )
         )
 
-    def list(self, *, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PayoutLink]:
+    def list(
+        self, *, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> List[PayoutLink]:
         data = self._http.request("/v1/payout/link/list", _clean(limit=limit, offset=offset))
         return [PayoutLink.model_validate(x) for x in data.get("links", [])]
 
     def info(self, link_id: str) -> PayoutLink:
         """Состояние ссылки (после claim содержит ``payout_id`` и ``claim_address``). ``POST /v1/payout/link/info``."""
-        return PayoutLink.model_validate(self._http.request("/v1/payout/link/info", {"link_id": link_id}))
+        return PayoutLink.model_validate(
+            self._http.request("/v1/payout/link/info", {"link_id": link_id})
+        )
 
     def cancel(self, link_id: str) -> PayoutLink:
         """Отменяет непорученную (``funded``) ссылку и возвращает резерв. ``POST /v1/payout/link/cancel``."""
-        return PayoutLink.model_validate(self._http.request("/v1/payout/link/cancel", {"link_id": link_id}))
+        return PayoutLink.model_validate(
+            self._http.request("/v1/payout/link/cancel", {"link_id": link_id})
+        )
 
     def claim_info(self, token: str) -> PayoutLinkClaimInfo:
         """ПУБЛИЧНО (без подписи): данные ссылки для страницы claim. ``GET /v1/claim/{token}``."""
-        return PayoutLinkClaimInfo.model_validate(self._http.request_public(f"/v1/claim/{token}", method="GET"))
+        return PayoutLinkClaimInfo.model_validate(
+            self._http.request_public(f"/v1/claim/{token}", method="GET")
+        )
 
-    def claim(self, token: str, *, address: str, memo: Optional[str] = None) -> PayoutLinkClaimResult:
+    def claim(
+        self, token: str, *, address: str, memo: Optional[str] = None
+    ) -> PayoutLinkClaimResult:
         """ПУБЛИЧНО (без подписи): забрать средства на ``address``. ``POST /v1/claim/{token}``.
 
         ``memo`` — dest tag/comment для сетей, где он нужен (TON и т. п.). Повторный claim с
@@ -576,7 +639,9 @@ class PayoutLinks(_Base):
         body: Dict[str, Any] = {"address": address}
         if memo is not None:
             body["memo"] = memo
-        return PayoutLinkClaimResult.model_validate(self._http.request_public(f"/v1/claim/{token}", body))
+        return PayoutLinkClaimResult.model_validate(
+            self._http.request_public(f"/v1/claim/{token}", body)
+        )
 
 
 class Wallets(_Base):
@@ -655,7 +720,9 @@ class AccountResource(_Base):
         """
         body = _clean(to_user_id=to_user_id, amount=amount, currency=currency, order_id=order_id)
         return TransferToUserResult.model_validate(
-            self._http.request("/v1/transfer/to-user", body, idempotency_key=_idem_key(idempotency_key))
+            self._http.request(
+                "/v1/transfer/to-user", body, idempotency_key=_idem_key(idempotency_key)
+            )
         )
 
     def transfer_batch(
@@ -677,7 +744,9 @@ class AccountResource(_Base):
         if on_error is not None:
             body["on_error"] = on_error
         return BatchSubmitResult.model_validate(
-            self._http.request("/v1/transfer/batch", body, idempotency_key=_idem_key(idempotency_key))
+            self._http.request(
+                "/v1/transfer/batch", body, idempotency_key=_idem_key(idempotency_key)
+            )
         )
 
     def vrcs(self, enabled: Optional[bool] = None) -> Dict[str, Any]:

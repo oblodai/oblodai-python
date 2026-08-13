@@ -117,7 +117,12 @@ class OblodaiClient:
         http_client: Optional[httpx.Client] = None,
     ) -> None:
         self._http = SyncHTTPClient(
-            public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
+            public_id,
+            secret,
+            base_url=base_url,
+            timeout=timeout,
+            retry=retry,
+            http_client=http_client,
         )
         self.payments = _s.Payments(self._http)
         #: УСТАРЕЛО — доступ идёт через свойство ``refunds`` (см. ниже), которое предупреждает.
@@ -200,7 +205,12 @@ class AsyncOblodaiClient:
         http_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         self._http = AsyncHTTPClient(
-            public_id, secret, base_url=base_url, timeout=timeout, retry=retry, http_client=http_client
+            public_id,
+            secret,
+            base_url=base_url,
+            timeout=timeout,
+            retry=retry,
+            http_client=http_client,
         )
         self.payments = _a.Payments(self._http)
         #: УСТАРЕЛО — доступ идёт через свойство ``refunds`` (см. ниже), которое предупреждает.

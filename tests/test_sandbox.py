@@ -12,19 +12,34 @@ BASE = "https://api.test"
 
 
 def make_sync(retry=None):
-    return OblodaiClient(public_id="test_pub1", secret="oblodai_test_sec1", base_url=BASE, retry=retry)
+    return OblodaiClient(
+        public_id="test_pub1", secret="oblodai_test_sec1", base_url=BASE, retry=retry
+    )
 
 
-DEPOSIT_OK = httpx.Response(200, json={"state": 0, "result": {
-    "invoice_id": "11111111-1111-1111-1111-111111111111",
-    "txid": "sandbox-tx-1", "amount": "10.00", "confirmations": 0,
-}})
+DEPOSIT_OK = httpx.Response(
+    200,
+    json={
+        "state": 0,
+        "result": {
+            "invoice_id": "11111111-1111-1111-1111-111111111111",
+            "txid": "sandbox-tx-1",
+            "amount": "10.00",
+            "confirmations": 0,
+        },
+    },
+)
 
 DELIVERY = {
-    "id": "d1", "event_type": "payment", "url": "https://shop.example/cb",
-    "status": "delivered", "attempts": 1, "last_error": None,
+    "id": "d1",
+    "event_type": "payment",
+    "url": "https://shop.example/cb",
+    "status": "delivered",
+    "attempts": 1,
+    "last_error": None,
     "payload": {"type": "payment", "status": "paid", "order_id": "o1"},
-    "created_at": "2026-07-19T10:00:00Z", "updated_at": "2026-07-19T10:00:01Z",
+    "created_at": "2026-07-19T10:00:00Z",
+    "updated_at": "2026-07-19T10:00:01Z",
 }
 
 
@@ -50,26 +65,49 @@ def test_simulate_deposit_minimal_body_and_unwrap():
 @respx.mock
 def test_simulate_deposit_full_params():
     route = respx.post(f"{BASE}/v1/sandbox/deposit").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "invoice_id": "inv-1", "txid": "tx-repeat", "amount": "5.00", "confirmations": 2,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "invoice_id": "inv-1",
+                    "txid": "tx-repeat",
+                    "amount": "5.00",
+                    "confirmations": 2,
+                },
+            },
+        )
     )
     client = make_sync()
     dep = client.sandbox.simulate_deposit(
-        invoice_id="inv-1", amount="5.00", confirmations=2, txid="tx-repeat",
+        invoice_id="inv-1",
+        amount="5.00",
+        confirmations=2,
+        txid="tx-repeat",
     )
     assert dep.confirmations == 2
     assert json.loads(route.calls[0].request.content) == {
-        "invoice_id": "inv-1", "amount": "5.00", "confirmations": 2, "txid": "tx-repeat",
+        "invoice_id": "inv-1",
+        "amount": "5.00",
+        "confirmations": 2,
+        "txid": "tx-repeat",
     }
 
 
 @respx.mock
 def test_faucet_idempotency_key_is_body_field_not_header():
     route = respx.post(f"{BASE}/v1/sandbox/faucet").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "asset": "USDT", "amount": "1000", "journal_id": "j1",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "asset": "USDT",
+                    "amount": "1000",
+                    "journal_id": "j1",
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.sandbox.faucet(asset="USDT", amount="1000", idempotency_key="fc-1")
@@ -84,9 +122,16 @@ def test_faucet_idempotency_key_is_body_field_not_header():
 @respx.mock
 def test_reset_empty_body():
     route = respx.post(f"{BASE}/v1/sandbox/reset").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "invoices_cancelled": 3, "balances_zeroed": 2,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "invoices_cancelled": 3,
+                    "balances_zeroed": 2,
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.sandbox.reset()
@@ -119,9 +164,16 @@ def test_list_webhooks_signed_get_empty_body():
 @respx.mock
 def test_replay_webhook():
     route = respx.post(f"{BASE}/v1/sandbox/webhooks/replay").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "delivery_id": "d1", "requeued": True,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "delivery_id": "d1",
+                    "requeued": True,
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.sandbox.replay_webhook("d1")
@@ -132,11 +184,19 @@ def test_replay_webhook():
 @respx.mock
 def test_live_key_gets_403_sandbox_live_key():
     respx.post(f"{BASE}/v1/sandbox/faucet").mock(
-        return_value=httpx.Response(403, json={"error": {
-            "code": "sandbox.live_key", "message": "sandbox endpoints require a test key",
-        }})
+        return_value=httpx.Response(
+            403,
+            json={
+                "error": {
+                    "code": "sandbox.live_key",
+                    "message": "sandbox endpoints require a test key",
+                }
+            },
+        )
     )
-    client = OblodaiClient(public_id="live_pub", secret="oblodai_live_sec", base_url=BASE, retry=None)
+    client = OblodaiClient(
+        public_id="live_pub", secret="oblodai_live_sec", base_url=BASE, retry=None
+    )
     with pytest.raises(OblodaiAPIError) as ei:
         client.sandbox.faucet(asset="USDT", amount="1")
     assert ei.value.code == "sandbox.live_key"
@@ -157,15 +217,24 @@ def test_is_test_key():
 async def test_async_simulate_deposit_and_faucet():
     dep_route = respx.post(f"{BASE}/v1/sandbox/deposit").mock(return_value=DEPOSIT_OK)
     respx.post(f"{BASE}/v1/sandbox/faucet").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "asset": "BTC", "amount": "0.5", "journal_id": "j2",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "asset": "BTC",
+                    "amount": "0.5",
+                    "journal_id": "j2",
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(
         public_id="test_pub1", secret="oblodai_test_sec1", base_url=BASE, retry=None
     ) as client:
         dep = await client.sandbox.simulate_deposit(
-            invoice_id="11111111-1111-1111-1111-111111111111", confirmations=1,
+            invoice_id="11111111-1111-1111-1111-111111111111",
+            confirmations=1,
         )
         fc = await client.sandbox.faucet(asset="BTC", amount="0.5")
 
@@ -181,9 +250,16 @@ async def test_async_list_webhooks_signed_get_and_replay():
         return_value=httpx.Response(200, json={"state": 0, "result": {"deliveries": [DELIVERY]}})
     )
     respx.post(f"{BASE}/v1/sandbox/webhooks/replay").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "delivery_id": "d1", "requeued": True,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "delivery_id": "d1",
+                    "requeued": True,
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(
         public_id="test_pub1", secret="oblodai_test_sec1", base_url=BASE, retry=None
@@ -203,9 +279,16 @@ async def test_async_list_webhooks_signed_get_and_replay():
 @respx.mock
 async def test_async_reset():
     respx.post(f"{BASE}/v1/sandbox/reset").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "invoices_cancelled": 0, "balances_zeroed": 0,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "invoices_cancelled": 0,
+                    "balances_zeroed": 0,
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(
         public_id="test_pub1", secret="oblodai_test_sec1", base_url=BASE, retry=None

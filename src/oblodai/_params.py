@@ -23,73 +23,83 @@ from typing import Any, Dict, FrozenSet, Iterable
 _SDK_KWARGS: FrozenSet[str] = frozenset({"idempotency_key"})
 
 # POST /v1/payment — payapi.PaymentRequest
-PAYMENT_FIELDS: FrozenSet[str] = frozenset({
-    "amount",
-    "currency",
-    "order_id",
-    "network",
-    "to_currency",
-    "lifetime",
-    "subtract",
-    "accuracy_payment_percent",
-    "url_callback",
-    "url_return",
-    "url_success",
-    "additional_data",
-    "payer_email",
-    "theme",
-    "is_payment_multiple",
-    "is_refresh",
-})
+PAYMENT_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "amount",
+        "currency",
+        "order_id",
+        "network",
+        "to_currency",
+        "lifetime",
+        "subtract",
+        "accuracy_payment_percent",
+        "url_callback",
+        "url_return",
+        "url_success",
+        "additional_data",
+        "payer_email",
+        "theme",
+        "is_payment_multiple",
+        "is_refresh",
+    }
+)
 
 # POST /v1/payout — payapi.PayoutRequest
-PAYOUT_FIELDS: FrozenSet[str] = frozenset({
-    "amount",
-    "currency",
-    "order_id",
-    "address",
-    "network",
-    "is_subtract",
-    "memo",
-    "url_callback",
-    "from_currency",
-    "source",
-})
+PAYOUT_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "amount",
+        "currency",
+        "order_id",
+        "address",
+        "network",
+        "is_subtract",
+        "memo",
+        "url_callback",
+        "from_currency",
+        "source",
+    }
+)
 
 # POST /v1/payout/link — payapi.PayoutLinkItem
-PAYOUT_LINK_FIELDS: FrozenSet[str] = frozenset({
-    "currency",
-    "network",
-    "amount",
-    "reference",
-    "title",
-    "note",
-    "email",
-    "expires_in_hours",
-})
+PAYOUT_LINK_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "currency",
+        "network",
+        "amount",
+        "reference",
+        "title",
+        "note",
+        "email",
+        "expires_in_hours",
+    }
+)
 
 # POST /v1/payment/link — payapi.PaymentLinkCreateRequest
-PAYMENT_LINK_FIELDS: FrozenSet[str] = frozenset({
-    "title",
-    "description",
-    "amount_mode",
-    "currency",
-    "amount_fixed",
-    "amount_min",
-    "amount_max",
-    "pinned_currency",
-    "pinned_network",
-    "expires_in",
-})
+PAYMENT_LINK_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "title",
+        "description",
+        "amount_mode",
+        "currency",
+        "amount_fixed",
+        "amount_min",
+        "amount_max",
+        "pinned_currency",
+        "pinned_network",
+        "expires_in",
+    }
+)
 
 # POST /v1/split/rule — payapi.SplitRuleRequest
-SPLIT_RULE_FIELDS: FrozenSet[str] = frozenset({
-    "address",
-    "network",
-    "merchant_id",
-    "percent",
-    "note",
-})
+SPLIT_RULE_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "address",
+        "network",
+        "merchant_id",
+        "percent",
+        "note",
+    }
+)
 
 
 def _suggest(name: str, allowed: Iterable[str]) -> str:

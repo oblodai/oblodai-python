@@ -64,7 +64,9 @@ class SyncHTTPClient:
         idempotency_key: Optional[str] = None,
         method: str = "POST",
     ) -> Any:
-        return self._execute(path, payload, signed=True, method=method, idempotency_key=idempotency_key)
+        return self._execute(
+            path, payload, signed=True, method=method, idempotency_key=idempotency_key
+        )
 
     def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return self._execute(path, payload, signed=False, method=method)
@@ -99,14 +101,17 @@ class SyncHTTPClient:
                     prep.method, prep.url, headers=prep.headers, content=prep.body
                 )
             except httpx.TimeoutException as e:
-                err: OblodaiConnectionError = OblodaiTimeoutError(
-                    f"Таймаут запроса {path}", e
-                )
+                err: OblodaiConnectionError = OblodaiTimeoutError(f"Таймаут запроса {path}", e)
                 if self._retry and attempt < attempts:
                     delay = backoff_delay(attempt, self._retry)
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000), "network timeout", attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        "network timeout",
+                        attempt + 1,
+                        attempts,
                     )
                     time.sleep(delay)
                     continue
@@ -117,7 +122,12 @@ class SyncHTTPClient:
                     delay = backoff_delay(attempt, self._retry)
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000), "network", attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        "network",
+                        attempt + 1,
+                        attempts,
                     )
                     time.sleep(delay)
                     continue
@@ -125,13 +135,9 @@ class SyncHTTPClient:
                 raise OblodaiConnectionError(f"Сетевая ошибка при запросе {path}", e)
 
             elapsed_ms = int((time.monotonic() - started) * 1000)
-            logger.debug(
-                "oblodai: <- %d %s %s %dms", resp.status_code, method, path, elapsed_ms
-            )
+            logger.debug("oblodai: <- %d %s %s %dms", resp.status_code, method, path, elapsed_ms)
             try:
-                return parse_response(
-                    resp.status_code, resp.text, resp.headers.get("Retry-After")
-                )
+                return parse_response(resp.status_code, resp.text, resp.headers.get("Retry-After"))
             except OblodaiAPIError as api_err:
                 if self._retry and should_retry(api_err, attempt, attempts):
                     # Уважаем Retry-After от сервера (напр. 429), иначе — собственный backoff.
@@ -145,8 +151,12 @@ class SyncHTTPClient:
                     )
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000),
-                        _retry_reason(api_err.status), attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        _retry_reason(api_err.status),
+                        attempt + 1,
+                        attempts,
                     )
                     time.sleep(delay)
                     continue
@@ -195,7 +205,9 @@ class AsyncHTTPClient:
         idempotency_key: Optional[str] = None,
         method: str = "POST",
     ) -> Any:
-        return await self._execute(path, payload, signed=True, method=method, idempotency_key=idempotency_key)
+        return await self._execute(
+            path, payload, signed=True, method=method, idempotency_key=idempotency_key
+        )
 
     async def request_public(self, path: str, payload: Any = None, method: str = "POST") -> Any:
         return await self._execute(path, payload, signed=False, method=method)
@@ -234,7 +246,12 @@ class AsyncHTTPClient:
                     delay = backoff_delay(attempt, self._retry)
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000), "network timeout", attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        "network timeout",
+                        attempt + 1,
+                        attempts,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -245,7 +262,12 @@ class AsyncHTTPClient:
                     delay = backoff_delay(attempt, self._retry)
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000), "network", attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        "network",
+                        attempt + 1,
+                        attempts,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -253,13 +275,9 @@ class AsyncHTTPClient:
                 raise OblodaiConnectionError(f"Сетевая ошибка при запросе {path}", e)
 
             elapsed_ms = int((time.monotonic() - started) * 1000)
-            logger.debug(
-                "oblodai: <- %d %s %s %dms", resp.status_code, method, path, elapsed_ms
-            )
+            logger.debug("oblodai: <- %d %s %s %dms", resp.status_code, method, path, elapsed_ms)
             try:
-                return parse_response(
-                    resp.status_code, resp.text, resp.headers.get("Retry-After")
-                )
+                return parse_response(resp.status_code, resp.text, resp.headers.get("Retry-After"))
             except OblodaiAPIError as api_err:
                 if self._retry and should_retry(api_err, attempt, attempts):
                     # Уважаем Retry-After от сервера (напр. 429), иначе — собственный backoff.
@@ -273,8 +291,12 @@ class AsyncHTTPClient:
                     )
                     logger.warning(
                         "oblodai: retrying %s %s in %dms (%s; attempt %d/%d)",
-                        method, path, int(delay * 1000),
-                        _retry_reason(api_err.status), attempt + 1, attempts,
+                        method,
+                        path,
+                        int(delay * 1000),
+                        _retry_reason(api_err.status),
+                        attempt + 1,
+                        attempts,
                     )
                     await asyncio.sleep(delay)
                     continue

@@ -51,7 +51,9 @@ class OblodaiAPIError(OblodaiError):
         return False
 
     def __repr__(self) -> str:  # pragma: no cover - для отладки
-        return f"OblodaiAPIError(code={self.code!r}, status={self.status}, message={self.message!r})"
+        return (
+            f"OblodaiAPIError(code={self.code!r}, status={self.status}, message={self.message!r})"
+        )
 
 
 class OblodaiConnectionError(OblodaiError):

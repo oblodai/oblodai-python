@@ -27,10 +27,19 @@ def make_sync(retry=None):
 @respx.mock
 def test_sync_signs_and_unwraps():
     route = respx.post(f"{BASE}/v1/payment").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
-            "payment_status": "check",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "uuid": "p1",
+                    "order_id": "o1",
+                    "amount": "10.00",
+                    "currency": "USD",
+                    "payment_status": "check",
+                },
+            },
+        )
     )
     client = make_sync()
     payment = client.payments.create(amount="10", currency="USD", order_id="o1")
@@ -47,7 +56,9 @@ def test_sync_signs_and_unwraps():
 @respx.mock
 def test_sync_api_error():
     respx.post(f"{BASE}/v1/payout").mock(
-        return_value=httpx.Response(409, json={"error": {"code": "payout.insufficient_funds", "message": "no"}})
+        return_value=httpx.Response(
+            409, json={"error": {"code": "payout.insufficient_funds", "message": "no"}}
+        )
     )
     client = make_sync()
     with pytest.raises(OblodaiAPIError) as ei:
@@ -61,7 +72,9 @@ def test_sync_api_error():
 def test_sync_retries_503_then_success():
     route = respx.post(f"{BASE}/v1/balance").mock(
         side_effect=[
-            httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}}),
+            httpx.Response(
+                503, json={"error": {"code": "gateway.unavailable", "message": "later"}}
+            ),
             httpx.Response(200, json={"state": 0, "result": {"balance": {"merchant": []}}}),
         ]
     )
@@ -74,7 +87,9 @@ def test_sync_retries_503_then_success():
 @respx.mock
 def test_sync_does_not_retry_400():
     route = respx.post(f"{BASE}/v1/balance").mock(
-        return_value=httpx.Response(400, json={"error": {"code": "request.bad_json", "message": "bad"}})
+        return_value=httpx.Response(
+            400, json={"error": {"code": "request.bad_json", "message": "bad"}}
+        )
     )
     client = make_sync(retry=RetryConfig(max_attempts=3, initial_delay=0.001))
     with pytest.raises(OblodaiAPIError) as ei:
@@ -86,7 +101,9 @@ def test_sync_does_not_retry_400():
 @respx.mock
 def test_sync_public_rate_no_signature():
     route = respx.post(f"{BASE}/v1/exchange-rate/list").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": [{"from": "ETH", "to": "USDT", "course": "3450"}]})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": [{"from": "ETH", "to": "USDT", "course": "3450"}]}
+        )
     )
     client = make_sync()
     rates = client.rates.list("ETH")
@@ -98,7 +115,9 @@ def test_sync_public_rate_no_signature():
 @respx.mock
 def test_sync_webhook_register_no_envelope():
     respx.post(f"{BASE}/v1/webhooks").mock(
-        return_value=httpx.Response(201, json={"endpoint_id": "e1", "url": "https://x", "secret": "s1"})
+        return_value=httpx.Response(
+            201, json={"endpoint_id": "e1", "url": "https://x", "secret": "s1"}
+        )
     )
     client = make_sync()
     reg = client.webhooks.register("https://x")
@@ -123,12 +142,28 @@ def test_from_env(monkeypatch):
 @respx.mock
 def test_sync_currencies_public_get():
     route = respx.get(f"{BASE}/v1/currencies").mock(
-        return_value=httpx.Response(200, json={"currencies": [
-            {"symbol": "USDT", "decimals": 6, "networks": [
-                {"network": "tron", "kind": "token", "contract": "T...", "min_confirmations": 20,
-                 "available": True, "deposit_available": True, "payout_available": True},
-            ]},
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "currencies": [
+                    {
+                        "symbol": "USDT",
+                        "decimals": 6,
+                        "networks": [
+                            {
+                                "network": "tron",
+                                "kind": "token",
+                                "contract": "T...",
+                                "min_confirmations": 20,
+                                "available": True,
+                                "deposit_available": True,
+                                "payout_available": True,
+                            },
+                        ],
+                    },
+                ]
+            },
+        )
     )
     client = make_sync()
     cur = client.rates.currencies()
@@ -141,8 +176,9 @@ def test_sync_currencies_public_get():
 @respx.mock
 def test_sync_429_surfaces_body_message():
     respx.post(f"{BASE}/v1/balance").mock(
-        return_value=httpx.Response(429, json={"state": 1, "message": "rate limit exceeded"},
-                                    headers={"Retry-After": "60"})
+        return_value=httpx.Response(
+            429, json={"state": 1, "message": "rate limit exceeded"}, headers={"Retry-After": "60"}
+        )
     )
     client = make_sync(retry=None)
     with pytest.raises(OblodaiAPIError) as ei:
@@ -156,8 +192,11 @@ def test_sync_429_surfaces_body_message():
 def test_sync_429_honors_retry_after_and_retries():
     route = respx.post(f"{BASE}/v1/balance").mock(
         side_effect=[
-            httpx.Response(429, json={"state": 1, "message": "rate limit exceeded"},
-                          headers={"Retry-After": "0"}),
+            httpx.Response(
+                429,
+                json={"state": 1, "message": "rate limit exceeded"},
+                headers={"Retry-After": "0"},
+            ),
             httpx.Response(200, json={"state": 0, "result": {"balance": {"merchant": []}}}),
         ]
     )
@@ -170,16 +209,44 @@ def test_sync_429_honors_retry_after_and_retries():
 @respx.mock
 def test_sync_mass_payout_partial():
     respx.post(f"{BASE}/v1/payout/mass").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"items": [
-            {"uuid": "u1", "order_id": "p-1", "status": "process", "is_final": False, "success": True},
-            {"order_id": "p-2", "success": False, "message": "insufficient"},
-        ]}})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "items": [
+                        {
+                            "uuid": "u1",
+                            "order_id": "p-1",
+                            "status": "process",
+                            "is_final": False,
+                            "success": True,
+                        },
+                        {"order_id": "p-2", "success": False, "message": "insufficient"},
+                    ]
+                },
+            },
+        )
     )
     client = make_sync()
-    res = client.payouts.create_mass([
-        {"amount": "25", "currency": "USDT", "network": "tron", "address": "T1", "order_id": "p-1"},
-        {"amount": "10", "currency": "USDT", "network": "tron", "address": "T2", "order_id": "p-2"},
-    ])
+    res = client.payouts.create_mass(
+        [
+            {
+                "amount": "25",
+                "currency": "USDT",
+                "network": "tron",
+                "address": "T1",
+                "order_id": "p-1",
+            },
+            {
+                "amount": "10",
+                "currency": "USDT",
+                "network": "tron",
+                "address": "T2",
+                "order_id": "p-2",
+            },
+        ]
+    )
     assert res.items[0].success is True
     assert res.items[1].success is False
     assert res.items[1].message == "insufficient"
@@ -191,11 +258,23 @@ def test_sync_mass_payout_partial():
 @respx.mock
 async def test_async_signs_and_unwraps():
     route = respx.post(f"{BASE}/v1/payment").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "uuid": "pa", "order_id": "oa", "amount": "10.00", "currency": "USD", "payment_status": "check",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "uuid": "pa",
+                    "order_id": "oa",
+                    "amount": "10.00",
+                    "currency": "USD",
+                    "payment_status": "check",
+                },
+            },
+        )
     )
-    async with AsyncOblodaiClient(public_id="pub_1", secret="sec_1", base_url=BASE, retry=None) as client:
+    async with AsyncOblodaiClient(
+        public_id="pub_1", secret="sec_1", base_url=BASE, retry=None
+    ) as client:
         payment = await client.payments.create(amount="10", currency="USD", order_id="oa")
     assert payment.uuid == "pa"
     assert route.calls[0].request.headers["X-Public-Id"] == "pub_1"
@@ -210,7 +289,9 @@ async def test_async_retries_503():
         ]
     )
     async with AsyncOblodaiClient(
-        public_id="p", secret="s", base_url=BASE,
+        public_id="p",
+        secret="s",
+        base_url=BASE,
         retry=RetryConfig(max_attempts=3, initial_delay=0.001, max_delay=0.005),
     ) as client:
         bal = await client.account.balance()
@@ -221,7 +302,9 @@ async def test_async_retries_503():
 @respx.mock
 async def test_async_api_error():
     respx.post(f"{BASE}/v1/payout").mock(
-        return_value=httpx.Response(409, json={"error": {"code": "payout.funds_maturing", "message": "wait"}})
+        return_value=httpx.Response(
+            409, json={"error": {"code": "payout.funds_maturing", "message": "wait"}}
+        )
     )
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
         with pytest.raises(OblodaiAPIError) as ei:
@@ -233,14 +316,24 @@ async def test_async_api_error():
 # ─────────────────────── Идемпотентность v1.1.0 (Idempotency-Key) ───────────────────────
 
 
-PAYMENT_OK = httpx.Response(200, json={"state": 0, "result": {
-    "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
-    "payment_status": "check",
-}})
+PAYMENT_OK = httpx.Response(
+    200,
+    json={
+        "state": 0,
+        "result": {
+            "uuid": "p1",
+            "order_id": "o1",
+            "amount": "10.00",
+            "currency": "USD",
+            "payment_status": "check",
+        },
+    },
+)
 
 
 def _uuid4_like(value: str) -> bool:
     import uuid as _uuid
+
     try:
         return str(_uuid.UUID(value)) == value
     except (ValueError, AttributeError):
@@ -263,7 +356,9 @@ def test_payment_sends_idempotency_key_header_and_no_order_id_injection():
 def test_payment_idempotency_key_stable_across_retries():
     route = respx.post(f"{BASE}/v1/payment").mock(
         side_effect=[
-            httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}}),
+            httpx.Response(
+                503, json={"error": {"code": "gateway.unavailable", "message": "later"}}
+            ),
             PAYMENT_OK,
         ]
     )
@@ -287,8 +382,9 @@ def test_payment_caller_idempotency_key_goes_to_header_not_body():
 
     req = route.calls[0].request
     assert req.headers["Idempotency-Key"] == "my-key-1"
-    assert "idempotency_key" not in json.loads(req.content), \
+    assert "idempotency_key" not in json.loads(req.content), (
         "caller-ключ не должен утекать в подписанное тело"
+    )
 
 
 @respx.mock
@@ -317,14 +413,25 @@ def test_transfer_to_personal_sends_idempotency_key():
 @respx.mock
 def test_payout_create_sends_idempotency_key_and_strips_caller_key():
     route = respx.post(f"{BASE}/v1/payout").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "uuid": "u1", "order_id": "w-1", "amount": "5", "currency": "USDT",
-            "address": "T...", "status": "check",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "uuid": "u1",
+                    "order_id": "w-1",
+                    "amount": "5",
+                    "currency": "USDT",
+                    "address": "T...",
+                    "status": "check",
+                },
+            },
+        )
     )
     client = make_sync()
-    client.payouts.create(amount="5", currency="USDT", address="T...", order_id="w-1",
-                          idempotency_key="payout-key")
+    client.payouts.create(
+        amount="5", currency="USDT", address="T...", order_id="w-1", idempotency_key="payout-key"
+    )
 
     req = route.calls[0].request
     assert req.headers["Idempotency-Key"] == "payout-key"
@@ -360,19 +467,25 @@ async def test_async_payment_idempotency_key_header():
 async def test_async_payment_idempotency_key_stable_across_retries():
     route = respx.post(f"{BASE}/v1/payment").mock(
         side_effect=[
-            httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}}),
+            httpx.Response(
+                503, json={"error": {"code": "gateway.unavailable", "message": "later"}}
+            ),
             PAYMENT_OK,
         ]
     )
     async with AsyncOblodaiClient(
-        public_id="p", secret="s", base_url=BASE,
+        public_id="p",
+        secret="s",
+        base_url=BASE,
         retry=RetryConfig(max_attempts=3, initial_delay=0.001, max_delay=0.005),
     ) as client:
         await client.payments.create(amount="10", currency="USD")
 
     assert route.call_count == 2
-    assert (route.calls[0].request.headers["Idempotency-Key"]
-            == route.calls[1].request.headers["Idempotency-Key"])
+    assert (
+        route.calls[0].request.headers["Idempotency-Key"]
+        == route.calls[1].request.headers["Idempotency-Key"]
+    )
 
 
 # ─────────────────────── Батчи (v1.1.0) ───────────────────────
@@ -381,9 +494,18 @@ async def test_async_payment_idempotency_key_stable_across_retries():
 @respx.mock
 def test_payment_create_batch():
     route = respx.post(f"{BASE}/v1/payment/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b1", "kind": "payments", "count": 2, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b1",
+                    "kind": "payments",
+                    "count": 2,
+                    "status": "pending",
+                },
+            },
+        )
     )
     client = make_sync()
     sub = client.payments.create_batch(
@@ -406,9 +528,18 @@ def test_payment_create_batch():
 @respx.mock
 def test_refunds_create_batch_and_payments_alias():
     route = respx.post(f"{BASE}/v1/refund/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b2", "kind": "refunds", "count": 1, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b2",
+                    "kind": "refunds",
+                    "count": 1,
+                    "status": "pending",
+                },
+            },
+        )
     )
     client = make_sync()
     # client.refunds устарела, но продолжает работать — предупреждение здесь ожидаемо.
@@ -457,9 +588,18 @@ def test_payments_refund_batch_does_not_warn():
 def test_deprecated_refunds_hits_same_endpoint_as_canonical():
     """Оба имени — одна операция: тот же путь и то же тело."""
     route = respx.post(f"{BASE}/v1/refund/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b9", "kind": "refunds", "count": 1, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b9",
+                    "kind": "refunds",
+                    "count": 1,
+                    "status": "pending",
+                },
+            },
+        )
     )
     client = make_sync()
     items = [{"uuid": "p1", "reference": "r-1", "amount": "5"}]
@@ -476,29 +616,61 @@ def test_deprecated_refunds_hits_same_endpoint_as_canonical():
 @respx.mock
 def test_payouts_create_batch_sends_idempotency_key():
     route = respx.post(f"{BASE}/v1/payout/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b3", "kind": "payouts", "count": 1, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b3",
+                    "kind": "payouts",
+                    "count": 1,
+                    "status": "pending",
+                },
+            },
+        )
     )
     client = make_sync()
-    client.payouts.create_batch([{"amount": "5", "currency": "USDT", "address": "T1", "order_id": "w-1"}],
-                                idempotency_key="batch-key")
+    client.payouts.create_batch(
+        [{"amount": "5", "currency": "USDT", "address": "T1", "order_id": "w-1"}],
+        idempotency_key="batch-key",
+    )
     assert route.calls[0].request.headers["Idempotency-Key"] == "batch-key"
 
 
 @respx.mock
 def test_batches_info_done_property():
     route = respx.post(f"{BASE}/v1/batch/info").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b1", "kind": "payments", "status": "completed", "on_error": "continue",
-            "total": 2, "succeeded": 1, "failed": 1,
-            "created_at": "2026-07-15T10:00:00Z", "updated_at": "2026-07-15T10:01:00Z",
-            "items": [
-                {"idx": 0, "status": "succeeded", "order_id": "a-1",
-                 "result": {"uuid": "p1", "order_id": "a-1"}},
-                {"idx": 1, "status": "failed", "order_id": "a-2", "error": "payment.unknown_currency"},
-            ],
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b1",
+                    "kind": "payments",
+                    "status": "completed",
+                    "on_error": "continue",
+                    "total": 2,
+                    "succeeded": 1,
+                    "failed": 1,
+                    "created_at": "2026-07-15T10:00:00Z",
+                    "updated_at": "2026-07-15T10:01:00Z",
+                    "items": [
+                        {
+                            "idx": 0,
+                            "status": "succeeded",
+                            "order_id": "a-1",
+                            "result": {"uuid": "p1", "order_id": "a-1"},
+                        },
+                        {
+                            "idx": 1,
+                            "status": "failed",
+                            "order_id": "a-2",
+                            "error": "payment.unknown_currency",
+                        },
+                    ],
+                },
+            },
+        )
     )
     client = make_sync()
     info = client.batches.info("b1", limit=100, offset=0)
@@ -519,24 +691,59 @@ def test_batches_info_done_property():
 @respx.mock
 def test_payment_links_crud():
     respx.post(f"{BASE}/v1/payment/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "link_id": "l1", "url": "https://pay.example/link/l1",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "link_id": "l1",
+                    "url": "https://pay.example/link/l1",
+                },
+            },
+        )
     )
     respx.post(f"{BASE}/v1/payment/link/list").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"items": [
-            {"link_id": "l1", "title": "Донат", "amount_mode": "open", "currency": "USD",
-             "active": True, "url": "https://pay.example/link/l1", "created_at": "2026-07-15T00:00:00Z"},
-        ]}})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "items": [
+                        {
+                            "link_id": "l1",
+                            "title": "Донат",
+                            "amount_mode": "open",
+                            "currency": "USD",
+                            "active": True,
+                            "url": "https://pay.example/link/l1",
+                            "created_at": "2026-07-15T00:00:00Z",
+                        },
+                    ]
+                },
+            },
+        )
     )
     respx.post(f"{BASE}/v1/payment/link/info").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "link_id": "l1", "amount_mode": "open", "currency": "USD", "active": True,
-            "payments": [{"uuid": "p1", "status": "paid", "amount": "10", "currency": "USD"}],
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "link_id": "l1",
+                    "amount_mode": "open",
+                    "currency": "USD",
+                    "active": True,
+                    "payments": [
+                        {"uuid": "p1", "status": "paid", "amount": "10", "currency": "USD"}
+                    ],
+                },
+            },
+        )
     )
     toggle_route = respx.post(f"{BASE}/v1/payment/link/toggle").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"link_id": "l1", "active": False}})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": {"link_id": "l1", "active": False}}
+        )
     )
     client = make_sync()
 
@@ -560,10 +767,20 @@ def test_payment_links_crud():
 @respx.mock
 def test_payment_link_public_checkout_unsigned():
     route = respx.post(f"{BASE}/v1/link/l1/checkout").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "uuid": "p9", "order_id": "gen-1", "amount": "10.00", "currency": "USD",
-            "payment_status": "check", "url": "https://pay.example/p9",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "uuid": "p9",
+                    "order_id": "gen-1",
+                    "amount": "10.00",
+                    "currency": "USD",
+                    "payment_status": "check",
+                    "url": "https://pay.example/p9",
+                },
+            },
+        )
     )
     client = make_sync()
     payment = client.payment_links.checkout("l1", amount="10", currency="USD", network="tron")
@@ -579,15 +796,37 @@ def test_payment_link_public_checkout_unsigned():
 @respx.mock
 def test_splits_rules_and_config():
     rule_route = respx.post(f"{BASE}/v1/split/rule").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"rule_id": "sr1", "percent": 10.0}})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": {"rule_id": "sr1", "percent": 10.0}}
+        )
     )
     respx.post(f"{BASE}/v1/split/rule/list").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"items": [
-            {"rule_id": "sr1", "percent": 10.0, "active": True, "note": "партнёр А",
-             "address": "T...", "network": "tron", "reversible": False},
-            {"rule_id": "sr2", "percent": 5.0, "active": True,
-             "merchant_id": "m2", "reversible": True},
-        ]}})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "items": [
+                        {
+                            "rule_id": "sr1",
+                            "percent": 10.0,
+                            "active": True,
+                            "note": "партнёр А",
+                            "address": "T...",
+                            "network": "tron",
+                            "reversible": False,
+                        },
+                        {
+                            "rule_id": "sr2",
+                            "percent": 5.0,
+                            "active": True,
+                            "merchant_id": "m2",
+                            "reversible": True,
+                        },
+                    ]
+                },
+            },
+        )
     )
     del_route = respx.post(f"{BASE}/v1/split/rule/delete").mock(
         return_value=httpx.Response(200, json={"state": 0, "result": {"deleted": True}})
@@ -626,9 +865,17 @@ def test_splits_rules_and_config():
 @respx.mock
 def test_send_email():
     route = respx.post(f"{BASE}/v1/payment/send-email").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "sent": True, "email": "buyer@example.com", "uuid": "p1",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "sent": True,
+                    "email": "buyer@example.com",
+                    "uuid": "p1",
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.payments.send_email(uuid="p1", email="buyer@example.com")
@@ -642,10 +889,19 @@ def test_send_email():
 @respx.mock
 def test_resolve_accept():
     route = respx.post(f"{BASE}/v1/payment/resolve").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "payment_uuid": "p1", "order_id": "ord-1", "resolution": "accepted",
-            "amount_kept": "48.5", "currency": "USDT",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "payment_uuid": "p1",
+                    "order_id": "ord-1",
+                    "resolution": "accepted",
+                    "amount_kept": "48.5",
+                    "currency": "USDT",
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.payments.resolve(order_id="ord-1", action="accept")
@@ -659,15 +915,28 @@ def test_resolve_accept():
 @respx.mock
 def test_resolve_refund():
     route = respx.post(f"{BASE}/v1/payment/resolve").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "payment_uuid": "p1", "order_id": "ord-1", "resolution": "refunded",
-            "uuid": "r-payout-1", "amount": "48.5", "currency": "USDT",
-            "address": "0xPayer", "status": "check", "is_final": False,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "payment_uuid": "p1",
+                    "order_id": "ord-1",
+                    "resolution": "refunded",
+                    "uuid": "r-payout-1",
+                    "amount": "48.5",
+                    "currency": "USDT",
+                    "address": "0xPayer",
+                    "status": "check",
+                    "is_final": False,
+                },
+            },
+        )
     )
     client = make_sync()
-    res = client.payments.resolve(uuid="p1", action="refund", reference="rf-1",
-                                  idempotency_key="res-key")
+    res = client.payments.resolve(
+        uuid="p1", action="refund", reference="rf-1", idempotency_key="res-key"
+    )
     assert res.resolution == "refunded"
     assert res.uuid == "r-payout-1"
     assert res.is_final is False
@@ -680,33 +949,50 @@ def test_resolve_refund():
 
 
 PAYOUT_LINK_VIEW = {
-    "link_id": "pl1", "status": "funded", "amount": "0.005", "currency": "BTC",
-    "network": "bitcoin", "title": "Bonus", "expires_at": "2026-08-14T17:00:00Z",
-    "created_at": "2026-07-15T17:00:00Z", "reference": "bonus-42",
+    "link_id": "pl1",
+    "status": "funded",
+    "amount": "0.005",
+    "currency": "BTC",
+    "network": "bitcoin",
+    "title": "Bonus",
+    "expires_at": "2026-08-14T17:00:00Z",
+    "created_at": "2026-07-15T17:00:00Z",
+    "reference": "bonus-42",
 }
 
 
 @respx.mock
 def test_payout_link_create_sends_idempotency_header():
     route = respx.post(f"{BASE}/v1/payout/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            **PAYOUT_LINK_VIEW,
-            "claim_token": "Xk3v" + "a" * 39,
-            "claim_url": "https://pay.example/claim/Xk3v",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    **PAYOUT_LINK_VIEW,
+                    "claim_token": "Xk3v" + "a" * 39,
+                    "claim_url": "https://pay.example/claim/Xk3v",
+                },
+            },
+        )
     )
     client = make_sync()
     link = client.payout_links.create(
-        currency="BTC", network="bitcoin", amount="0.005",
-        reference="bonus-42", title="Bonus", expires_in_hours=720,
+        currency="BTC",
+        network="bitcoin",
+        amount="0.005",
+        reference="bonus-42",
+        title="Bonus",
+        expires_in_hours=720,
     )
     assert link.status == "funded"
     assert link.claim_token.startswith("Xk3v")
     assert link.claim_url
 
     req = route.calls[0].request
-    assert _uuid4_like(req.headers["Idempotency-Key"]), \
+    assert _uuid4_like(req.headers["Idempotency-Key"]), (
         "создание ссылки резервирует деньги — ключ идемпотентности обязателен"
+    )
     assert "X-Signature" in req.headers, "management-эндпоинт подписывается"
     body = json.loads(req.content)
     assert body["expires_in_hours"] == 720
@@ -716,20 +1002,35 @@ def test_payout_link_create_sends_idempotency_header():
 @respx.mock
 def test_payout_link_create_batch_index_aligned():
     respx.post(f"{BASE}/v1/payout/link/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "created": 1, "total": 2,
-            "results": [
-                {"ok": True, "link": {**PAYOUT_LINK_VIEW, "batch_id": "pb1", "claim_token": "t1"}},
-                {"ok": False, "error": "payoutlink.insufficient_funds",
-                 "message": "available balance is less than the link amount"},
-            ],
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "created": 1,
+                    "total": 2,
+                    "results": [
+                        {
+                            "ok": True,
+                            "link": {**PAYOUT_LINK_VIEW, "batch_id": "pb1", "claim_token": "t1"},
+                        },
+                        {
+                            "ok": False,
+                            "error": "payoutlink.insufficient_funds",
+                            "message": "available balance is less than the link amount",
+                        },
+                    ],
+                },
+            },
+        )
     )
     client = make_sync()
-    res = client.payout_links.create_batch([
-        {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
-        {"currency": "BTC", "network": "bitcoin", "amount": "1000", "expires_in_hours": 24},
-    ])
+    res = client.payout_links.create_batch(
+        [
+            {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
+            {"currency": "BTC", "network": "bitcoin", "amount": "1000", "expires_in_hours": 24},
+        ]
+    )
     assert res.created == 1 and res.total == 2
     assert res.results[0].ok is True
     assert res.results[0].link.batch_id == "pb1"
@@ -742,33 +1043,56 @@ def test_payout_link_create_batch_index_aligned():
 # payout/link, payout/link/batch и wallet/blocked-address-refund резервируют баланс.
 # Без ключа авто-ретрай по потерянному ответу создавал бы вторую профинансированную ссылку.
 
-PAYOUT_LINK_CREATED = httpx.Response(200, json={"state": 0, "result": {
-    **PAYOUT_LINK_VIEW, "claim_token": "tok", "claim_url": "https://pay.example/claim/tok",
-}})
+PAYOUT_LINK_CREATED = httpx.Response(
+    200,
+    json={
+        "state": 0,
+        "result": {
+            **PAYOUT_LINK_VIEW,
+            "claim_token": "tok",
+            "claim_url": "https://pay.example/claim/tok",
+        },
+    },
+)
 
-PAYOUT_LINK_BATCH_OK = httpx.Response(200, json={"state": 0, "result": {
-    "created": 1, "total": 1,
-    "results": [{"ok": True, "link": {**PAYOUT_LINK_VIEW, "batch_id": "pb1", "claim_token": "t1"}}],
-}})
+PAYOUT_LINK_BATCH_OK = httpx.Response(
+    200,
+    json={
+        "state": 0,
+        "result": {
+            "created": 1,
+            "total": 1,
+            "results": [
+                {"ok": True, "link": {**PAYOUT_LINK_VIEW, "batch_id": "pb1", "claim_token": "t1"}}
+            ],
+        },
+    },
+)
 
 BLOCKED_REFUND_OK = httpx.Response(200, json={"state": 0, "result": {"uuid": "pay-1"}})
 
 RETRY_FAST = RetryConfig(max_attempts=3, initial_delay=0.001, max_delay=0.005)
-UNAVAILABLE = httpx.Response(503, json={"error": {"code": "gateway.unavailable", "message": "later"}})
+UNAVAILABLE = httpx.Response(
+    503, json={"error": {"code": "gateway.unavailable", "message": "later"}}
+)
 
 
 @respx.mock
 def test_payout_link_batch_sends_idempotency_key():
     route = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
-    make_sync().payout_links.create_batch([
-        {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
-    ])
+    make_sync().payout_links.create_batch(
+        [
+            {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
+        ]
+    )
     assert _uuid4_like(route.calls[0].request.headers["Idempotency-Key"])
 
 
 @respx.mock
 def test_blocked_address_refund_sends_idempotency_key():
-    route = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+    route = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(
+        return_value=BLOCKED_REFUND_OK
+    )
     make_sync().wallets.blocked_address_refund(uuid="inv-1", address="T1")
     assert _uuid4_like(route.calls[0].request.headers["Idempotency-Key"])
 
@@ -779,12 +1103,16 @@ def test_payout_link_create_key_stable_across_retries():
         side_effect=[UNAVAILABLE, PAYOUT_LINK_CREATED]
     )
     make_sync(retry=RETRY_FAST).payout_links.create(
-        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+        currency="BTC",
+        network="bitcoin",
+        amount="0.005",
+        expires_in_hours=24,
     )
     assert route.call_count == 2
-    assert (route.calls[0].request.headers["Idempotency-Key"]
-            == route.calls[1].request.headers["Idempotency-Key"]), \
-        "иначе повтор создал бы вторую профинансированную ссылку"
+    assert (
+        route.calls[0].request.headers["Idempotency-Key"]
+        == route.calls[1].request.headers["Idempotency-Key"]
+    ), "иначе повтор создал бы вторую профинансированную ссылку"
 
 
 @respx.mock
@@ -792,12 +1120,16 @@ def test_payout_link_batch_key_stable_across_retries():
     route = respx.post(f"{BASE}/v1/payout/link/batch").mock(
         side_effect=[UNAVAILABLE, PAYOUT_LINK_BATCH_OK]
     )
-    make_sync(retry=RETRY_FAST).payout_links.create_batch([
-        {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
-    ])
+    make_sync(retry=RETRY_FAST).payout_links.create_batch(
+        [
+            {"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24},
+        ]
+    )
     assert route.call_count == 2
-    assert (route.calls[0].request.headers["Idempotency-Key"]
-            == route.calls[1].request.headers["Idempotency-Key"])
+    assert (
+        route.calls[0].request.headers["Idempotency-Key"]
+        == route.calls[1].request.headers["Idempotency-Key"]
+    )
 
 
 @respx.mock
@@ -807,31 +1139,41 @@ def test_blocked_address_refund_key_stable_across_retries():
     )
     make_sync(retry=RETRY_FAST).wallets.blocked_address_refund(uuid="inv-1", address="T1")
     assert route.call_count == 2
-    assert (route.calls[0].request.headers["Idempotency-Key"]
-            == route.calls[1].request.headers["Idempotency-Key"])
+    assert (
+        route.calls[0].request.headers["Idempotency-Key"]
+        == route.calls[1].request.headers["Idempotency-Key"]
+    )
 
 
 @respx.mock
 def test_payout_link_caller_key_goes_to_header_not_body():
     create = respx.post(f"{BASE}/v1/payout/link").mock(return_value=PAYOUT_LINK_CREATED)
     batch = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
-    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(
+        return_value=BLOCKED_REFUND_OK
+    )
     client = make_sync()
 
     client.payout_links.create(
-        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+        currency="BTC",
+        network="bitcoin",
+        amount="0.005",
+        expires_in_hours=24,
         idempotency_key="link-key-1",
     )
     client.payout_links.create_batch(
         [{"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24}],
         idempotency_key="batch-key-1",
     )
-    client.wallets.blocked_address_refund(uuid="inv-1", address="T1", idempotency_key="refund-key-1")
+    client.wallets.blocked_address_refund(
+        uuid="inv-1", address="T1", idempotency_key="refund-key-1"
+    )
 
     req = create.calls[0].request
     assert req.headers["Idempotency-Key"] == "link-key-1"
-    assert "idempotency_key" not in json.loads(req.content), \
+    assert "idempotency_key" not in json.loads(req.content), (
         "caller-ключ не должен утекать в подписанное тело"
+    )
     assert batch.calls[0].request.headers["Idempotency-Key"] == "batch-key-1"
     assert refund.calls[0].request.headers["Idempotency-Key"] == "refund-key-1"
 
@@ -842,13 +1184,21 @@ async def test_async_payout_link_key_stable_across_retries():
         side_effect=[UNAVAILABLE, PAYOUT_LINK_CREATED]
     )
     batch = respx.post(f"{BASE}/v1/payout/link/batch").mock(return_value=PAYOUT_LINK_BATCH_OK)
-    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(return_value=BLOCKED_REFUND_OK)
+    refund = respx.post(f"{BASE}/v1/wallet/blocked-address-refund").mock(
+        return_value=BLOCKED_REFUND_OK
+    )
 
     async with AsyncOblodaiClient(
-        public_id="p", secret="s", base_url=BASE, retry=RETRY_FAST,
+        public_id="p",
+        secret="s",
+        base_url=BASE,
+        retry=RETRY_FAST,
     ) as client:
         await client.payout_links.create(
-            currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+            currency="BTC",
+            network="bitcoin",
+            amount="0.005",
+            expires_in_hours=24,
         )
         await client.payout_links.create_batch(
             [{"currency": "BTC", "network": "bitcoin", "amount": "0.005", "expires_in_hours": 24}],
@@ -857,8 +1207,10 @@ async def test_async_payout_link_key_stable_across_retries():
         await client.wallets.blocked_address_refund(uuid="inv-1", address="T1")
 
     assert create.call_count == 2
-    assert (create.calls[0].request.headers["Idempotency-Key"]
-            == create.calls[1].request.headers["Idempotency-Key"])
+    assert (
+        create.calls[0].request.headers["Idempotency-Key"]
+        == create.calls[1].request.headers["Idempotency-Key"]
+    )
     assert batch.calls[0].request.headers["Idempotency-Key"] == "async-batch-key"
     assert _uuid4_like(refund.calls[0].request.headers["Idempotency-Key"])
 
@@ -871,8 +1223,13 @@ async def test_async_payout_link_key_stable_across_retries():
 # 503 idempotency.unavailable — временный (стор fail-closed, повтор с ТЕМ ЖЕ ключом безопасен).
 
 IDEM_UNAVAILABLE = httpx.Response(
-    503, json={"error": {"code": "idempotency.unavailable",
-                         "message": "idempotency store unavailable, retry"}}
+    503,
+    json={
+        "error": {
+            "code": "idempotency.unavailable",
+            "message": "idempotency store unavailable, retry",
+        }
+    },
 )
 
 
@@ -886,13 +1243,17 @@ def test_payout_link_retry_is_not_disabled_and_replays_same_key_on_idem_unavaila
         side_effect=[IDEM_UNAVAILABLE, PAYOUT_LINK_CREATED]
     )
     link = make_sync(retry=RETRY_FAST).payout_links.create(
-        currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+        currency="BTC",
+        network="bitcoin",
+        amount="0.005",
+        expires_in_hours=24,
     )
     assert link.claim_token == "tok"
     assert route.call_count == 2, "503 от стора идемпотентности должен повторяться"
-    assert (route.calls[0].request.headers["Idempotency-Key"]
-            == route.calls[1].request.headers["Idempotency-Key"]), \
-        "ключ обязан пережить внутренний ретрай — иначе сервер не сможет дедуплицировать"
+    assert (
+        route.calls[0].request.headers["Idempotency-Key"]
+        == route.calls[1].request.headers["Idempotency-Key"]
+    ), "ключ обязан пережить внутренний ретрай — иначе сервер не сможет дедуплицировать"
 
 
 @respx.mock
@@ -916,8 +1277,11 @@ def test_payout_link_terminal_idempotency_codes_are_not_retried(status, code):
     )
     with pytest.raises(OblodaiAPIError) as ei:
         make_sync(retry=RETRY_FAST).payout_links.create(
-            currency="BTC", network="bitcoin", amount="0.005",
-            reference="bonus-42", expires_in_hours=24,
+            currency="BTC",
+            network="bitcoin",
+            amount="0.005",
+            reference="bonus-42",
+            expires_in_hours=24,
         )
     assert ei.value.code == code
     assert ei.value.status == status
@@ -928,14 +1292,22 @@ def test_payout_link_terminal_idempotency_codes_are_not_retried(status, code):
 @respx.mock
 def test_payout_link_batch_terminal_duplicate_reference_not_retried():
     route = respx.post(f"{BASE}/v1/payout/link/batch").mock(
-        return_value=httpx.Response(409, json={"error": {
-            "code": "payoutlink.duplicate_reference", "message": "exists"}})
+        return_value=httpx.Response(
+            409, json={"error": {"code": "payoutlink.duplicate_reference", "message": "exists"}}
+        )
     )
     with pytest.raises(OblodaiAPIError) as ei:
-        make_sync(retry=RETRY_FAST).payout_links.create_batch([
-            {"currency": "BTC", "network": "bitcoin", "amount": "0.005",
-             "reference": "bonus-42", "expires_in_hours": 24},
-        ])
+        make_sync(retry=RETRY_FAST).payout_links.create_batch(
+            [
+                {
+                    "currency": "BTC",
+                    "network": "bitcoin",
+                    "amount": "0.005",
+                    "reference": "bonus-42",
+                    "expires_in_hours": 24,
+                },
+            ]
+        )
     assert ei.value.code == "payoutlink.duplicate_reference"
     assert route.call_count == 1
 
@@ -946,10 +1318,14 @@ def test_payout_link_replayed_response_is_returned_as_is():
     replayed = httpx.Response(
         200,
         headers={"Idempotent-Replayed": "true"},
-        json={"state": 0, "result": {
-            **PAYOUT_LINK_VIEW, "claim_token": "tok",
-            "claim_url": "https://pay.example/claim/tok",
-        }},
+        json={
+            "state": 0,
+            "result": {
+                **PAYOUT_LINK_VIEW,
+                "claim_token": "tok",
+                "claim_url": "https://pay.example/claim/tok",
+            },
+        },
     )
     respx.post(f"{BASE}/v1/payout/link").mock(side_effect=[PAYOUT_LINK_CREATED, replayed])
     client = make_sync()
@@ -966,15 +1342,30 @@ def test_payout_link_list_info_cancel():
         return_value=httpx.Response(200, json={"state": 0, "result": {"links": [PAYOUT_LINK_VIEW]}})
     )
     respx.post(f"{BASE}/v1/payout/link/info").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            **PAYOUT_LINK_VIEW, "status": "claimed",
-            "payout_id": "po1", "claim_address": "bc1q...",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    **PAYOUT_LINK_VIEW,
+                    "status": "claimed",
+                    "payout_id": "po1",
+                    "claim_address": "bc1q...",
+                },
+            },
+        )
     )
     cancel_route = respx.post(f"{BASE}/v1/payout/link/cancel").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            **PAYOUT_LINK_VIEW, "status": "cancelled",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    **PAYOUT_LINK_VIEW,
+                    "status": "cancelled",
+                },
+            },
+        )
     )
     client = make_sync()
 
@@ -994,10 +1385,21 @@ def test_payout_link_list_info_cancel():
 @respx.mock
 def test_payout_link_claim_info_public_get_unsigned():
     route = respx.get(f"{BASE}/v1/claim/tok123").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "status": "funded", "amount": "0.005", "currency": "BTC", "network": "bitcoin",
-            "title": "Bonus", "expires_at": "2026-08-14T17:00:00Z", "claimable": True,
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "status": "funded",
+                    "amount": "0.005",
+                    "currency": "BTC",
+                    "network": "bitcoin",
+                    "title": "Bonus",
+                    "expires_at": "2026-08-14T17:00:00Z",
+                    "claimable": True,
+                },
+            },
+        )
     )
     client = make_sync()
     info = client.payout_links.claim_info("tok123")
@@ -1011,10 +1413,20 @@ def test_payout_link_claim_info_public_get_unsigned():
 @respx.mock
 def test_payout_link_claim_public_post_unsigned():
     route = respx.post(f"{BASE}/v1/claim/tok123").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "status": "claimed", "payout_id": "po1", "amount": "0.005",
-            "currency": "BTC", "network": "bitcoin", "address": "bc1q...",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "status": "claimed",
+                    "payout_id": "po1",
+                    "amount": "0.005",
+                    "currency": "BTC",
+                    "network": "bitcoin",
+                    "address": "bc1q...",
+                },
+            },
+        )
     )
     client = make_sync()
     res = client.payout_links.claim("tok123", address="bc1q...", memo="m1")
@@ -1029,10 +1441,20 @@ def test_payout_link_claim_public_post_unsigned():
 @respx.mock
 async def test_async_payout_link_claim_unsigned():
     route = respx.post(f"{BASE}/v1/claim/tok9").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "status": "claimed", "payout_id": "po2", "amount": "1", "currency": "USDT",
-            "network": "tron", "address": "T...",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "status": "claimed",
+                    "payout_id": "po2",
+                    "amount": "1",
+                    "currency": "USDT",
+                    "network": "tron",
+                    "address": "T...",
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
         res = await client.payout_links.claim("tok9", address="T...")
@@ -1044,14 +1466,26 @@ async def test_async_payout_link_claim_unsigned():
 # ─────────────────────── Переводы to-user + публичный /v1/pay (v1.2.0) ───────────────────────
 
 
-TRANSFER_TO_USER_OK = httpx.Response(200, json={"state": 0, "result": {
-    "currency": "USDT", "amount": "50", "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
-    "recipient_balance": "150",
-}})
+TRANSFER_TO_USER_OK = httpx.Response(
+    200,
+    json={
+        "state": 0,
+        "result": {
+            "currency": "USDT",
+            "amount": "50",
+            "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+            "recipient_balance": "150",
+        },
+    },
+)
 
 PAY_PUBLIC_SELECT_STATE = {
-    "uuid": "p42", "order_id": "o42", "amount": "25.00", "currency": "USD",
-    "payment_status": "select", "url": "https://pay.example/p42",
+    "uuid": "p42",
+    "order_id": "o42",
+    "amount": "25.00",
+    "currency": "USD",
+    "payment_status": "select",
+    "url": "https://pay.example/p42",
     "accepted": [
         {"currency": "USDT", "network": "tron"},
         {"currency": "BTC", "network": "bitcoin"},
@@ -1059,9 +1493,15 @@ PAY_PUBLIC_SELECT_STATE = {
 }
 
 PAY_PUBLIC_FINALIZED = {
-    "uuid": "p42", "order_id": "o42", "amount": "25.00", "currency": "USD",
-    "payment_status": "check", "address": "TDeposit1", "network": "tron",
-    "payer_currency": "USDT", "payer_amount": "25.10",
+    "uuid": "p42",
+    "order_id": "o42",
+    "amount": "25.00",
+    "currency": "USD",
+    "payment_status": "check",
+    "address": "TDeposit1",
+    "network": "tron",
+    "payer_currency": "USDT",
+    "payer_amount": "25.10",
 }
 
 
@@ -1070,18 +1510,24 @@ def test_transfer_to_user_signed_with_idempotency_key():
     route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
     client = make_sync()
     res = client.account.transfer_to_user(
-        to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
+        to_user_id="5c3f6a1e-0000-0000-0000-000000000001",
+        amount="50",
+        currency="USDT",
     )
     assert res.to_user_id == "5c3f6a1e-0000-0000-0000-000000000001"
     assert res.recipient_balance == "150"
 
     req = route.calls[0].request
     assert "X-Signature" in req.headers, "денежный эндпоинт подписывается"
-    assert _uuid4_like(req.headers["Idempotency-Key"]), \
+    assert _uuid4_like(req.headers["Idempotency-Key"]), (
         "лестница идемпотентности: SDK шлёт заголовок (авто-uuid4), как payouts.create"
+    )
     body = json.loads(req.content)
-    assert body == {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
-                    "amount": "50", "currency": "USDT"}
+    assert body == {
+        "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+        "amount": "50",
+        "currency": "USDT",
+    }
     assert "order_id" not in body, "order_id опционален и не подставляется"
 
 
@@ -1090,8 +1536,11 @@ def test_transfer_to_user_caller_key_and_order_id():
     route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
     client = make_sync()
     client.account.transfer_to_user(
-        to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
-        order_id="salary-7", idempotency_key="tr-key-1",
+        to_user_id="5c3f6a1e-0000-0000-0000-000000000001",
+        amount="50",
+        currency="USDT",
+        order_id="salary-7",
+        idempotency_key="tr-key-1",
     )
     req = route.calls[0].request
     assert req.headers["Idempotency-Key"] == "tr-key-1"
@@ -1103,15 +1552,32 @@ def test_transfer_to_user_caller_key_and_order_id():
 @respx.mock
 def test_transfer_batch_submits_and_sends_idempotency_key():
     route = respx.post(f"{BASE}/v1/transfer/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "tb1", "kind": "transfers", "count": 2, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "tb1",
+                    "kind": "transfers",
+                    "count": 2,
+                    "status": "pending",
+                },
+            },
+        )
     )
     client = make_sync()
     sub = client.account.transfer_batch(
         [
-            {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001", "amount": "50", "currency": "USDT"},
-            {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000002", "amount": "70", "currency": "USDT"},
+            {
+                "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+                "amount": "50",
+                "currency": "USDT",
+            },
+            {
+                "to_user_id": "5c3f6a1e-0000-0000-0000-000000000002",
+                "amount": "70",
+                "currency": "USDT",
+            },
         ],
         on_error="continue",
     )
@@ -1122,7 +1588,8 @@ def test_transfer_batch_submits_and_sends_idempotency_key():
     body = json.loads(req.content)
     assert body["on_error"] == "continue"
     assert [x["to_user_id"] for x in body["transfers"]] == [
-        "5c3f6a1e-0000-0000-0000-000000000001", "5c3f6a1e-0000-0000-0000-000000000002",
+        "5c3f6a1e-0000-0000-0000-000000000001",
+        "5c3f6a1e-0000-0000-0000-000000000002",
     ]
     assert _uuid4_like(req.headers["Idempotency-Key"]), "submit-батч обёрнут в идемпотентность"
 
@@ -1167,27 +1634,47 @@ async def test_async_transfer_to_user_signed_with_idempotency_key():
     route = respx.post(f"{BASE}/v1/transfer/to-user").mock(return_value=TRANSFER_TO_USER_OK)
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
         res = await client.account.transfer_to_user(
-            to_user_id="5c3f6a1e-0000-0000-0000-000000000001", amount="50", currency="USDT",
+            to_user_id="5c3f6a1e-0000-0000-0000-000000000001",
+            amount="50",
+            currency="USDT",
             idempotency_key="a-tr-key",
         )
     assert res.currency == "USDT"
     req = route.calls[0].request
     assert "X-Signature" in req.headers
     assert req.headers["Idempotency-Key"] == "a-tr-key"
-    assert json.loads(req.content) == {"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
-                                       "amount": "50", "currency": "USDT"}
+    assert json.loads(req.content) == {
+        "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+        "amount": "50",
+        "currency": "USDT",
+    }
 
 
 @respx.mock
 async def test_async_transfer_batch():
     route = respx.post(f"{BASE}/v1/transfer/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "tb2", "kind": "transfers", "count": 1, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "tb2",
+                    "kind": "transfers",
+                    "count": 1,
+                    "status": "pending",
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
         sub = await client.account.transfer_batch(
-            [{"to_user_id": "5c3f6a1e-0000-0000-0000-000000000001", "amount": "5", "currency": "USDT"}]
+            [
+                {
+                    "to_user_id": "5c3f6a1e-0000-0000-0000-000000000001",
+                    "amount": "5",
+                    "currency": "USDT",
+                }
+            ]
         )
     assert sub.batch_id == "tb2"
     req = route.calls[0].request
@@ -1221,20 +1708,48 @@ async def test_async_pay_public_get_and_select_unsigned():
 @respx.mock
 async def test_async_batches_and_payout_links():
     respx.post(f"{BASE}/v1/payout/batch").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b9", "kind": "payouts", "count": 1, "status": "pending",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b9",
+                    "kind": "payouts",
+                    "count": 1,
+                    "status": "pending",
+                },
+            },
+        )
     )
     respx.post(f"{BASE}/v1/batch/info").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "batch_id": "b9", "kind": "payouts", "status": "processing",
-            "total": 1, "succeeded": 0, "failed": 0, "items": [],
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "batch_id": "b9",
+                    "kind": "payouts",
+                    "status": "processing",
+                    "total": 1,
+                    "succeeded": 0,
+                    "failed": 0,
+                    "items": [],
+                },
+            },
+        )
     )
     link_route = respx.post(f"{BASE}/v1/payout/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            **PAYOUT_LINK_VIEW, "claim_token": "t", "claim_url": "u",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    **PAYOUT_LINK_VIEW,
+                    "claim_token": "t",
+                    "claim_url": "u",
+                },
+            },
+        )
     )
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:
         sub = await client.payouts.create_batch(
@@ -1244,7 +1759,10 @@ async def test_async_batches_and_payout_links():
         assert info.done is False
 
         link = await client.payout_links.create(
-            currency="BTC", network="bitcoin", amount="0.005", expires_in_hours=24,
+            currency="BTC",
+            network="bitcoin",
+            amount="0.005",
+            expires_in_hours=24,
         )
         assert link.claim_token == "t"
     assert _uuid4_like(link_route.calls[0].request.headers["Idempotency-Key"])

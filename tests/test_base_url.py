@@ -15,14 +15,17 @@ from oblodai import AsyncOblodaiClient, OblodaiClient
 # ── http на внешний хост — ошибка ──
 
 
-@pytest.mark.parametrize("bad", [
-    "http://api.oblodai.com",
-    "http://api.oblodai.com:8095",
-    "http://192.168.1.10:8095",       # частная сеть — всё ещё не петля
-    "http://10.0.0.5",
-    "http://127.0.0.1.evil.com",      # петлевой адрес лишь в начале имени
-    "http://localhost.evil.com",      # и суффикс тоже не спасает
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "http://api.oblodai.com",
+        "http://api.oblodai.com:8095",
+        "http://192.168.1.10:8095",  # частная сеть — всё ещё не петля
+        "http://10.0.0.5",
+        "http://127.0.0.1.evil.com",  # петлевой адрес лишь в начале имени
+        "http://localhost.evil.com",  # и суффикс тоже не спасает
+    ],
+)
 def test_plain_http_external_host_rejected(bad):
     with pytest.raises(ValueError) as sync_exc:
         OblodaiClient(public_id="p", secret="s", base_url=bad)
@@ -50,14 +53,17 @@ def test_other_schemes_rejected():
 # ── http на петлю — можно ──
 
 
-@pytest.mark.parametrize("ok", [
-    "http://localhost:8095",          # наш локальный стенд
-    "http://localhost",
-    "http://127.0.0.1:8095",
-    "http://127.0.0.2:8095",          # вся 127.0.0.0/8 — петля
-    "http://[::1]:8095",
-    "http://dev.localhost:3000",
-])
+@pytest.mark.parametrize(
+    "ok",
+    [
+        "http://localhost:8095",  # наш локальный стенд
+        "http://localhost",
+        "http://127.0.0.1:8095",
+        "http://127.0.0.2:8095",  # вся 127.0.0.0/8 — петля
+        "http://[::1]:8095",
+        "http://dev.localhost:3000",
+    ],
+)
 def test_plain_http_loopback_allowed(ok):
     client = OblodaiClient(public_id="p", secret="s", base_url=ok)
     assert client._http._base_url == ok, "URL сохраняется как передан, без нормализации"
@@ -68,10 +74,19 @@ def test_plain_http_loopback_allowed(ok):
 def test_loopback_stand_actually_works():
     """Локальный стенд по http продолжает обслуживаться — правило его не ломает."""
     route = respx.post("http://localhost:8095/v1/payment").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
-            "payment_status": "check",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "uuid": "p1",
+                    "order_id": "o1",
+                    "amount": "10.00",
+                    "currency": "USD",
+                    "payment_status": "check",
+                },
+            },
+        )
     )
     client = OblodaiClient(
         public_id="test_p", secret="oblodai_test_s", base_url="http://localhost:8095", retry=None
@@ -85,13 +100,16 @@ def test_loopback_stand_actually_works():
 # ── https — можно ──
 
 
-@pytest.mark.parametrize("ok", [
-    "https://api.oblodai.com",
-    "https://api.oblodai.com/",
-    "https://api.test",
-    "HTTPS://api.oblodai.com",        # схема разбирается без учёта регистра
-    "https://localhost:8095",
-])
+@pytest.mark.parametrize(
+    "ok",
+    [
+        "https://api.oblodai.com",
+        "https://api.oblodai.com/",
+        "https://api.test",
+        "HTTPS://api.oblodai.com",  # схема разбирается без учёта регистра
+        "https://localhost:8095",
+    ],
+)
 def test_https_allowed(ok):
     OblodaiClient(public_id="p", secret="s", base_url=ok)
     AsyncOblodaiClient(public_id="p", secret="s", base_url=ok)

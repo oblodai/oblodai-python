@@ -27,17 +27,36 @@ def make_sync():
 
 
 def _payment_ok():
-    return httpx.Response(200, json={"state": 0, "result": {
-        "uuid": "p1", "order_id": "o1", "amount": "10.00", "currency": "USD",
-        "payment_status": "check",
-    }})
+    return httpx.Response(
+        200,
+        json={
+            "state": 0,
+            "result": {
+                "uuid": "p1",
+                "order_id": "o1",
+                "amount": "10.00",
+                "currency": "USD",
+                "payment_status": "check",
+            },
+        },
+    )
 
 
 def _payout_ok():
-    return httpx.Response(200, json={"state": 0, "result": {
-        "uuid": "w1", "order_id": "o1", "amount": "5", "currency": "USDT",
-        "address": "T...", "status": "check",
-    }})
+    return httpx.Response(
+        200,
+        json={
+            "state": 0,
+            "result": {
+                "uuid": "w1",
+                "order_id": "o1",
+                "amount": "5",
+                "currency": "USDT",
+                "address": "T...",
+                "status": "check",
+            },
+        },
+    )
 
 
 # ─────────────────────── Неизвестное поле → TypeError ───────────────────────
@@ -60,7 +79,7 @@ def test_payment_typo_message_suggests_and_lists():
     msg = str(ei.value)
     assert "payments.create()" in msg
     assert "'lifetme'" in msg
-    assert "'lifetime'" in msg          # подсказка «возможно, имелось в виду»
+    assert "'lifetime'" in msg  # подсказка «возможно, имелось в виду»
     assert "Допустимые поля" in msg
     assert "accuracy_payment_percent" in msg
 
@@ -88,10 +107,19 @@ def test_payout_typo_raises():
 @respx.mock
 def test_payout_link_typo_raises():
     route = respx.post(f"{BASE}/v1/payout/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "link_id": "l1", "status": "funded", "amount": "25",
-            "currency": "USDT", "network": "tron",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "link_id": "l1",
+                    "status": "funded",
+                    "amount": "25",
+                    "currency": "USDT",
+                    "network": "tron",
+                },
+            },
+        )
     )
     with pytest.raises(TypeError) as ei:
         make_sync().payout_links.create(
@@ -116,7 +144,9 @@ def test_payment_link_typo_raises():
 @respx.mock
 def test_split_rule_typo_raises():
     route = respx.post(f"{BASE}/v1/split/rule").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}}
+        )
     )
     with pytest.raises(TypeError) as ei:
         make_sync().splits.create_rule(address="T...", network="tron", percnt=10)
@@ -141,13 +171,15 @@ def test_payment_all_known_fields_pass_through():
     body = {f: "x" for f in PAYMENT_FIELDS}
     make_sync().payments.create(**body)
     sent = json.loads(route.calls[0].request.content)
-    assert sent == body                      # тело байт-в-байт то же, что передали
+    assert sent == body  # тело байт-в-байт то же, что передали
 
 
 @respx.mock
 def test_payment_idempotency_key_still_header_only():
     route = respx.post(f"{BASE}/v1/payment").mock(return_value=_payment_ok())
-    make_sync().payments.create(amount="10", currency="USD", order_id="o1", idempotency_key="my-key")
+    make_sync().payments.create(
+        amount="10", currency="USD", order_id="o1", idempotency_key="my-key"
+    )
     req = route.calls[0].request
     assert req.headers["Idempotency-Key"] == "my-key"
     assert "idempotency_key" not in json.loads(req.content)
@@ -164,10 +196,19 @@ def test_payout_all_known_fields_pass_through():
 @respx.mock
 def test_payout_link_all_known_fields_pass_through():
     route = respx.post(f"{BASE}/v1/payout/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "link_id": "l1", "status": "funded", "amount": "25",
-            "currency": "USDT", "network": "tron",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "link_id": "l1",
+                    "status": "funded",
+                    "amount": "25",
+                    "currency": "USDT",
+                    "network": "tron",
+                },
+            },
+        )
     )
     body = {f: "x" for f in PAYOUT_LINK_FIELDS}
     make_sync().payout_links.create(**body)
@@ -187,7 +228,9 @@ def test_payment_link_all_known_fields_pass_through():
 @respx.mock
 def test_split_rule_all_known_fields_pass_through():
     route = respx.post(f"{BASE}/v1/split/rule").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}}
+        )
     )
     body = {f: "x" for f in SPLIT_RULE_FIELDS}
     make_sync().splits.create_rule(**body)
@@ -198,13 +241,18 @@ def test_split_rule_all_known_fields_pass_through():
 def test_split_helpers_still_work():
     """Обёртки ``split_to_*`` строят тело сами — они не должны спотыкаться о проверку."""
     route = respx.post(f"{BASE}/v1/split/rule").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}})
+        return_value=httpx.Response(
+            200, json={"state": 0, "result": {"rule_id": "r1", "percent": 10}}
+        )
     )
     client = make_sync()
     client.splits.split_to_address(address="T...", network="tron", percent=10, note="партнёр А")
     client.splits.split_to_merchant(merchant_id="m2", percent=5)
     assert json.loads(route.calls[0].request.content) == {
-        "address": "T...", "network": "tron", "percent": 10, "note": "партнёр А"
+        "address": "T...",
+        "network": "tron",
+        "percent": 10,
+        "note": "партнёр А",
     }
     assert json.loads(route.calls[1].request.content) == {"merchant_id": "m2", "percent": 5}
 
@@ -266,10 +314,19 @@ async def test_async_payment_known_fields_pass_through():
 @respx.mock
 async def test_async_payout_link_known_fields_pass_through():
     route = respx.post(f"{BASE}/v1/payout/link").mock(
-        return_value=httpx.Response(200, json={"state": 0, "result": {
-            "link_id": "l1", "status": "funded", "amount": "25",
-            "currency": "USDT", "network": "tron",
-        }})
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": 0,
+                "result": {
+                    "link_id": "l1",
+                    "status": "funded",
+                    "amount": "25",
+                    "currency": "USDT",
+                    "network": "tron",
+                },
+            },
+        )
     )
     body = {f: "x" for f in PAYOUT_LINK_FIELDS}
     async with AsyncOblodaiClient(public_id="p", secret="s", base_url=BASE, retry=None) as client:

@@ -12,7 +12,7 @@ import json
 import logging
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
 from .errors import OblodaiAPIError
