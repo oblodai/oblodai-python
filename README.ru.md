@@ -1,6 +1,25 @@
-# Oblodai Python SDK
+<div align="center">
 
-> [Read in English →](README.md)
+<a href="https://oblodai.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/oblodai/.github/main/brand/logo-white.svg">
+    <img src="https://raw.githubusercontent.com/oblodai/.github/main/brand/logo-black.svg" alt="oblodai" height="52">
+  </picture>
+</a>
+
+<h3>Официальный Python SDK платёжного шлюза <a href="https://oblodai.com">oblodai</a></h3>
+
+Приём платежей, выплаты, платёжные ссылки, сплиты, статические кошельки, вебхуки — один API-ключ.
+
+<a href="https://pypi.org/project/oblodai/"><img src="https://img.shields.io/pypi/v/oblodai?style=flat-square&label=PyPI" alt="PyPI"></a>
+<a href="https://pypi.org/project/oblodai/"><img src="https://img.shields.io/pypi/pyversions/oblodai?style=flat-square" alt="Python versions"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="License: MIT"></a>
+
+[Документация](https://docs.oblodai.com) · [Кабинет](https://my.oblodai.com) · [Read in English →](README.md)
+
+</div>
+
+---
 
 Официальный Python SDK для платёжного шлюза **Oblodai**: приём платежей, выплаты, массовые
 операции (батчи), платёжные и payout-ссылки, сплиты, счета на e-mail, статические кошельки,
