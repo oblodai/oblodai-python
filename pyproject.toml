@@ -38,6 +38,7 @@ Issues = "https://github.com/oblodai/oblodai-python/issues"
 dev = [
     "pytest>=7",
     "pytest-asyncio>=0.23",
+    "ruff==0.14.0",
     "respx>=0.20",
 ]
 
@@ -47,3 +48,9 @@ packages = ["src/oblodai"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+# Единая ширина строки во всём орге (как rustfmt/prettier). Версия ruff
+# запинена в dev-зависимостях и CI: формат меняется между релизами.
+line-length = 100
+target-version = "py39"
