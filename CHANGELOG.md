@@ -1,9 +1,64 @@
 # Changelog
 
+## 1.3.0 — 2026-08-25
+
+Rewrite generated from the gateway's contract snapshot. The 1.x line signed four fields and got a
+401 from the current gateway on every call; nothing of it is left.
+
+- Fixed: requests are signed with the five-field recipe (`ts\nMETHOD\nrequestURI\nidempotencyKey\nbody`)
+  over path + raw query, with an EMPTY idempotency slot when no key is sent. 1.x returned 401 on
+  every call.
+- Fixed: models, statuses, pagination and parameter names match the current API vocabulary; field
+  names are exactly the wire's `snake_case`, amounts are decimal strings everywhere.
+- Added: every merchant route (107) — cancel/validate, batches, documents, fee configs, split
+  opt-in, secret rotation, payer-facing checkout and claim endpoints, merchant provisioning.
+- Added: an asynchronous client (`from oblodai.aio import AsyncOblodai`) beside the synchronous one.
+  Both drive the same I/O-free core: signing, envelope decoding, the retry decision, idempotency and
+  clock-skew correction are shared code, so the two clients cannot drift apart.
+- Added: lazy `Page` lists — `.first()` for one page, iteration for every page, `.all(max_items=…)`
+  to collect; nothing is requested until the result is consumed.
+- Added: retries driven by the gateway's own `retryable` flag; transport failures and envelope-less
+  proxy answers are re-sent only when repeating is safe (read-only routes, or writes carrying an
+  Idempotency-Key). `Retry-After` wins over the backoff; per-attempt `timeout_ms` and a whole-call
+  `deadline_ms`.
+- Added: automatic idempotency keys on create routes, reused across that call's retries; a caller
+  key on a route the gateway does not deduplicate is refused (`sdk.idempotency_unsupported`) instead
+  of pretending a re-send is safe.
+- Added: clock-skew correction — a 401 `merchant.bad_signature`/`auth.bad_timestamp` re-signs once
+  with the server's `Date`, and the offset is kept only if that attempt got past authentication.
+- Added: dual key pairs (payment + payout) picked per route; `batches.info` retries a
+  `merchant.wrong_key_kind` with the payout key.
+- Added: `oblodai.webhooks` — `verify`, `verify_delivery`, `parse`, `is_stale`; raw-byte
+  verification, rotation-aware (`previous_secret`, `X-Webhook-Signature-Prev`), no client needed.
+  Accepts any header shape (`dict`, `email.message.Message`, `httpx.Headers`, ASGI pairs).
+- Added: an `OblodaiError` hierarchy (`ValidationError`, `AuthenticationError`, `PermissionError`,
+  `NotFoundError`, `ConflictError`/`IdempotencyConflictError`, `RateLimitError`, `UnavailableError`,
+  `InternalError`, `TransportError`, `ConfigError`, `SignatureError`) carrying `code`, `http_status`,
+  `retryable`, `retry_after`, `request_id`, `field` and `synthetic`. `to_dict()` never leaks the raw
+  body.
+- Added: `contract/` ships the gateway's export (routes, schemas, enums, 468 error codes, signing
+  vectors, golden bodies, real signed webhook deliveries). `scripts/codegen.py` generates the route
+  registry, enums, error codes and request `TypedDict`s; `scripts/gen_async.py` mirrors the resource
+  layer for the async client; `scripts/check_drift.py` fails CI when either is stale.
+- Added: three test tiers — unit (signing and webhook vectors, retry/idempotency/skew/URL rules),
+  contract (every route hits the right method, path, auth and idempotency header; every golden body
+  matches its model key-for-key) and live (a real gateway).
+- Changed: `httpx` is the only runtime dependency (`pydantic` is gone); Python >= 3.9; the package
+  ships `py.typed` and passes `mypy --strict`.
+- Changed: `client.payment_links` / `client.payout_links` are the namespace names, and every method
+  is `snake_case` (`send_email`, `rotate_secret`, `create_sandbox`, `refund_blocked_deposit`, …).
+- Removed: `**kwargs` field whitelists on create methods — bodies are dicts typed by the generated
+  `TypedDict`s, so a typo is caught by the type checker instead of a hand-kept list.
+
 Значимые изменения этого пакета. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [SemVer](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## Earlier releases
+
+The entries below document the 1.0-1.2 line and are kept in their original language. They describe
+an implementation 1.3.0 replaced wholesale; nothing in them still applies to the current package.
+
+## [1.2.1 — unreleased, superseded by 1.3.0]
 
 ### Добавлено
 - **Проверка имён полей на create-методах — защита от «тихой» опечатки в денежном поле.**
