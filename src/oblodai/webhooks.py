@@ -1,108 +1,189 @@
-"""Проверка входящих вебхуков.
+"""Webhook verification - usable on its own, no client and no API key required::
 
-Подпись вебхука отличается от подписи запроса (см. ``signing``). Секрет — из ``POST /v1/webhooks``,
-а не ключ API.
+    from oblodai import webhooks
+    event = webhooks.verify(raw_body, request.headers, secret=endpoint_secret)
+
+Deliveries are signed as::
+
+    X-Webhook-Timestamp: <unix seconds>
+    X-Webhook-Signature: hex(HMAC-SHA256(secret, "<ts>." + raw_body))
+    X-Webhook-Signature-Prev: same, with the previous secret - only during a rotation overlap
+    X-Webhook-Event: invoice.<status> | payout.<status> | wallet.paid
+    X-Webhook-Id: stable per delivery (identical across retries) - use it as your idempotency key
+    X-Webhook-Event-Time: unix seconds when the state change committed (order events by it)
+
+Always verify over the RAW request bytes; a re-serialized parse will not match.
 """
 
 from __future__ import annotations
 
-import hmac
 import json
 import time
-from typing import Any, Mapping, Optional, Union
+from dataclasses import dataclass
+from typing import Any, List, Mapping, Optional, Tuple, Union
 
-from ._transport import logger
-from .errors import OblodaiSignatureError
-from .signing import compute_webhook_signature
+from .contract.models.webhooks import WebhookEvent
+from .core.errors import SignatureError
+from .core.signing import sign_webhook
+from .core.util import HeaderSource, constant_time_equal, header_value
+
+__all__ = [
+    "HEADER_WEBHOOK_EVENT",
+    "HEADER_WEBHOOK_EVENT_TIME",
+    "HEADER_WEBHOOK_ID",
+    "HEADER_WEBHOOK_SIGNATURE",
+    "HEADER_WEBHOOK_SIGNATURE_PREV",
+    "HEADER_WEBHOOK_TIMESTAMP",
+    "SignatureError",
+    "WebhookDeliveryInfo",
+    "is_stale",
+    "parse",
+    "verify",
+    "verify_delivery",
+]
+
+HEADER_WEBHOOK_TIMESTAMP = "X-Webhook-Timestamp"
+HEADER_WEBHOOK_SIGNATURE = "X-Webhook-Signature"
+HEADER_WEBHOOK_SIGNATURE_PREV = "X-Webhook-Signature-Prev"
+HEADER_WEBHOOK_EVENT = "X-Webhook-Event"
+HEADER_WEBHOOK_ID = "X-Webhook-Id"
+HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
+
+RawBody = Union[str, bytes, bytearray]
 
 
-def verify_webhook(
+@dataclass(frozen=True)
+class WebhookDeliveryInfo:
+    """A verified delivery: the event plus the advisory headers worth keeping."""
+
+    event: WebhookEvent
+    #: ``X-Webhook-Timestamp`` - unix seconds when this attempt was sent.
+    sent_at: int
+    #: ``X-Webhook-Id`` - stable across retries of the same delivery; use it to deduplicate.
+    id: Optional[str] = None
+    #: ``X-Webhook-Event`` - ``invoice.<status>`` | ``payout.<status>`` | ``wallet.paid``.
+    event_type: Optional[str] = None
+    #: ``X-Webhook-Event-Time`` - unix seconds when the state change committed.
+    event_time: Optional[int] = None
+
+
+def verify(
+    raw_body: RawBody,
+    headers: HeaderSource,
+    *,
     secret: str,
-    raw_body: Union[str, bytes],
-    headers: Mapping[str, str],
-    max_age_seconds: int = 300,
-    now: Optional[float] = None,
-) -> bool:
-    """Проверяет подпись и свежесть вебхука.
+    previous_secret: Optional[str] = None,
+    tolerance_sec: int = 300,
+    now: Optional[int] = None,
+) -> WebhookEvent:
+    """Verify the signature and freshness, then parse.
 
-    Возвращает ``True`` при успехе, иначе бросает :class:`OblodaiSignatureError`.
-
-    ВАЖНО: ``raw_body`` должен быть СЫРЫМ телом запроса (str или bytes) — тем же, что пришло по сети.
-    Не передавайте пересериализованный JSON: подпись считается по байтам.
-
-    Пробные тела (``"is_test": true``) НЕ подписаны — их этой функцией проверять не нужно.
-
-    :param secret: секрет из ``POST /v1/webhooks``
-    :param raw_body: сырое тело запроса
-    :param headers: заголовки запроса (регистронезависимый доступ поддерживается)
-    :param max_age_seconds: окно свежести для replay-защиты (0 — отключить). По умолчанию 300.
-    :param now: текущее время в секундах (для тестов)
+    Raises :class:`~oblodai.SignatureError`; never returns an unverified body.
     """
-    ts = _get_header(headers, "X-Webhook-Timestamp")
-    sig = _get_header(headers, "X-Webhook-Signature")
+    return verify_delivery(
+        raw_body,
+        headers,
+        secret=secret,
+        previous_secret=previous_secret,
+        tolerance_sec=tolerance_sec,
+        now=now,
+    ).event
 
-    if not ts or not sig:
-        logger.warning("oblodai: webhook verify failed: missing timestamp or signature")
-        raise OblodaiSignatureError("Отсутствует timestamp или signature вебхука")
 
-    expected = compute_webhook_signature(secret, ts, raw_body)
+def verify_delivery(
+    raw_body: RawBody,
+    headers: HeaderSource,
+    *,
+    secret: str,
+    previous_secret: Optional[str] = None,
+    tolerance_sec: int = 300,
+    now: Optional[int] = None,
+) -> WebhookDeliveryInfo:
+    """Like :func:`verify`, and also returns the delivery id, event type and times.
+
+    ``previous_secret`` keeps deliveries queued before a rotation verifiable: they stay signed with
+    the outgoing secret for their whole retry life (~26 h), so keep it that long after rotating.
+    ``tolerance_sec=0`` disables the freshness window.
+    """
+    ts_raw = header_value(headers, HEADER_WEBHOOK_TIMESTAMP)
+    signature = header_value(headers, HEADER_WEBHOOK_SIGNATURE)
+    if not ts_raw or not signature:
+        raise SignatureError(
+            "webhook.missing_header",
+            f"missing {HEADER_WEBHOOK_TIMESTAMP} or {HEADER_WEBHOOK_SIGNATURE}",
+        )
     try:
-        matches = hmac.compare_digest(expected, sig)
-    except TypeError:
-        # Легитимная подпись — hex в ASCII. Заголовок с не-ASCII символами не может совпасть;
-        # hmac.compare_digest на таких строках бросает TypeError — превращаем его в штатную
-        # ошибку подписи (fail-closed, с задокументированным типом исключения).
-        logger.warning("oblodai: webhook verify failed: non-ascii signature header")
-        raise OblodaiSignatureError("Некорректная подпись вебхука (не-ASCII символы)")
-    if not matches:
-        logger.warning("oblodai: webhook verify failed: bad signature")
-        raise OblodaiSignatureError("Подпись вебхука не совпадает")
+        ts = int(ts_raw)
+    except ValueError:
+        raise SignatureError(
+            "webhook.bad_signature", "timestamp header is not an integer"
+        ) from None
 
-    if max_age_seconds > 0:
-        try:
-            ts_val = int(ts)
-        except ValueError:
-            logger.warning("oblodai: webhook verify failed: invalid timestamp")
-            raise OblodaiSignatureError("Некорректный timestamp вебхука")
-        current = now if now is not None else time.time()
-        age = abs(current - ts_val)
-        if age > max_age_seconds:
-            logger.warning(
-                "oblodai: webhook verify failed: stale timestamp (age %ds > %ds)",
-                int(age),
-                max_age_seconds,
-            )
-            raise OblodaiSignatureError(
-                f"Вебхук слишком старый: возраст {int(age)}с > {max_age_seconds}с"
+    if tolerance_sec > 0:
+        current = int(time.time()) if now is None else now
+        if abs(current - ts) > tolerance_sec:
+            raise SignatureError(
+                "webhook.stale_timestamp",
+                f"delivery timestamp {ts} is outside the +/-{tolerance_sec}s window",
             )
 
-    logger.debug("oblodai: webhook signature ok")
-    return True
+    prev_signature = header_value(headers, HEADER_WEBHOOK_SIGNATURE_PREV)
+    # A merchant who has not swapped the stored secret yet verifies the Prev header with it; one
+    # who already swapped but kept the old copy verifies the main header with the new secret.
+    candidates: List[Tuple[str, str]] = [(signature, secret)]
+    if prev_signature:
+        candidates.append((prev_signature, secret))
+    if previous_secret:
+        candidates.append((signature, previous_secret))
+        if prev_signature:
+            candidates.append((prev_signature, previous_secret))
+    ok = any(
+        constant_time_equal(provided.lower(), sign_webhook(key, ts, _as_bytes(raw_body)))
+        for provided, key in candidates
+    )
+    if not ok:
+        raise SignatureError("webhook.bad_signature", "signature does not match the body")
+
+    event_time_raw = header_value(headers, HEADER_WEBHOOK_EVENT_TIME)
+    event_time = int(event_time_raw) if event_time_raw and event_time_raw.isdigit() else None
+    return WebhookDeliveryInfo(
+        event=parse(raw_body),
+        sent_at=ts,
+        id=header_value(headers, HEADER_WEBHOOK_ID),
+        event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
+        event_time=event_time,
+    )
 
 
-def construct_event(
-    secret: str,
-    raw_body: Union[str, bytes],
-    headers: Mapping[str, str],
-    max_age_seconds: int = 300,
-    now: Optional[float] = None,
-) -> Any:
-    """Проверяет вебхук и возвращает распарсенное тело (dict).
+def parse(raw_body: RawBody) -> WebhookEvent:
+    """Parse a (previously verified) delivery body into a typed event, discriminated by ``type``."""
+    text = _as_bytes(raw_body).decode("utf-8", errors="replace")
+    try:
+        body: Any = json.loads(text)
+    except ValueError:
+        raise SignatureError("webhook.bad_signature", "body is not JSON") from None
+    if (
+        not isinstance(body, Mapping)
+        or not isinstance(body.get("type"), str)
+        or not isinstance(body.get("uuid"), str)
+    ):
+        raise SignatureError(
+            "webhook.bad_signature", "body lacks the type/uuid fields every event carries"
+        )
+    if body["type"] not in ("payment", "payout", "wallet"):
+        raise SignatureError("webhook.bad_signature", f'unknown event type "{body["type"]}"')
+    return body  # type: ignore[return-value]
 
-    Бросает :class:`OblodaiSignatureError` при неверной подписи.
+
+def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -> bool:
+    """Deliveries can arrive out of order (a retried ``paid`` after a ``refund``).
+
+    Keep the last ``sequence`` you processed per object and skip anything not newer.
     """
-    verify_webhook(secret, raw_body, headers, max_age_seconds=max_age_seconds, now=now)
-    text = raw_body.decode("utf-8") if isinstance(raw_body, bytes) else raw_body
-    return json.loads(text)
+    if last_processed_sequence is None:
+        return False
+    return int(event.get("sequence", 0)) <= last_processed_sequence
 
 
-def _get_header(headers: Mapping[str, str], name: str) -> Optional[str]:
-    # Точное совпадение
-    if name in headers:
-        return headers[name]
-    # Регистронезависимый поиск
-    lname = name.lower()
-    for k, v in headers.items():
-        if k.lower() == lname:
-            return v
-    return None
+def _as_bytes(raw: RawBody) -> bytes:
+    return raw.encode("utf-8") if isinstance(raw, str) else bytes(raw)

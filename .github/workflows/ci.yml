@@ -16,13 +16,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - run: pytest
-  lint:
+      - run: pytest tests/unit tests/contract -q
+
+  quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.13' }
-      - run: pip install ruff==0.14.0
+        with: { python-version: '3.12' }
+      - run: pip install -e ".[dev]"
+      # The committed contract mirror must be exactly what the generators produce.
+      - run: python scripts/check_drift.py
       - run: ruff format --check .
       - run: ruff check .
+      - run: mypy
