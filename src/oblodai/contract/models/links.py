@@ -112,7 +112,7 @@ class ClaimResult(TypedDict):
 
     #: The payout that pays the recipient (`payouts.info({ uuid: payout_id })`).
     payout_id: str
-    status: PayoutStatus
+    status: PayoutLinkStatus
     #: Address the funds were sent to.
     address: str
     amount: Money
