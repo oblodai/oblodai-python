@@ -22,6 +22,7 @@ from oblodai.core.errors import (
     api_error_from,
 )
 from oblodai.core.idempotency import MAX_IDEMPOTENCY_KEY_LENGTH
+from oblodai.core.logger import redact
 from oblodai.core.request import RESERVED_HEADERS, Credentials
 from oblodai.core.retry import RetryOptions
 from oblodai.helpers.money import MAX_AMOUNT_LENGTH
@@ -264,6 +265,28 @@ def test_fields_are_redacted_before_a_caller_injected_logger_sees_them() -> None
         for key, value in fields.items():
             if "secret" in key or "signature" in key or "token" in key:
                 assert value == "[redacted]"
+
+
+def test_a_payout_links_claim_url_is_redacted_like_the_token_it_embeds() -> None:
+    """`claim_url` does not read like a secret and is one: it carries `claim_token` verbatim."""
+    link: Dict[str, Any] = {
+        "link_id": "l1",
+        "amount": "25",
+        "claim_token": "CLAIM-1",
+        "claim_url": "https://pay.test/claim/CLAIM-1",
+        "passcode": "0451",
+        "items": [{"idx": 0, "result": {"claim_url": "https://pay.test/claim/CLAIM-2"}}],
+    }
+
+    fields: Dict[str, Any] = redact(link)
+
+    assert fields["claim_url"] == "[redacted]"
+    assert fields["claim_token"] == "[redacted]"
+    assert fields["passcode"] == "[redacted]"
+    assert fields["items"][0]["result"]["claim_url"] == "[redacted]"
+    assert fields["amount"] == "25", "an ordinary field is left alone"
+    assert "CLAIM-1" not in repr(fields) and "CLAIM-2" not in repr(fields)
+    assert link["claim_url"] == "https://pay.test/claim/CLAIM-1", "the caller's own dict is intact"
 
 
 # --- per-call headers ---------------------------------------------------------------------------
