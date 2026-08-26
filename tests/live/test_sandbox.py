@@ -65,7 +65,7 @@ def test_creates_an_invoice_and_reads_it_back(client: Oblodai, invoice: Dict[str
 def test_replays_an_idempotent_create_and_refuses_a_reused_key(client: Oblodai) -> None:
     key = f"sdk-idem-{int(time.time() * 1000)}"
     body: PaymentBody = {
-        "amount": "1",
+        "amount": "5",
         "currency": "USDT",
         "network": "tron",
         "order_id": f"{key}-o",
