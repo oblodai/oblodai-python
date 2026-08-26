@@ -2,7 +2,7 @@
 
 Every method returns the bytes (:class:`~oblodai.FileResult`); large ranges go through
 asynchronous jobs (:meth:`Documents.create_job` -> :meth:`Documents.job_info` ->
-:meth:`Documents.job_file`). Payment key.
+:meth:`Documents.job_file`).
 """
 
 # GENERATED FILE - do not edit. Source: src/oblodai/resources/documents.py

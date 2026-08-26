@@ -52,28 +52,33 @@ pip install oblodai
 
 ## Где взять ключи
 
-Ключи выдаются в [кабинете](https://my.oblodai.com), раздел **API keys**. Видов ключей два, и когда
-настроены оба, SDK сам выбирает нужный для каждого вызова:
+У мерчанта **один API-ключ**. Он выдаётся в [кабинете](https://my.oblodai.com), раздел
+**API keys**, как пара «публичный идентификатор + секрет», и подписывает все маршруты этого SDK —
+и приём денег, и вывод:
 
-| ключ | как задаётся | для чего |
-| ---- | ------------ | -------- |
-| **платёжный ключ** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | приём денег и отчётность: `payments.*`, `payment_links.create/info/list/toggle`, `wallets.create/qr/block`, `documents.*`, `settings.*` кроме автовывода и IP-списка, `account.*`, `webhooks.register/deliveries`, `webhooks.test("payment" / "wallet", …)`, `sandbox.deposit/webhooks/replay` |
-| **выплатной ключ** | `payout_public_id` / `payout_secret` (`OBLODAI_PAYOUT_PUBLIC_ID`, `OBLODAI_PAYOUT_SECRET`) | всё, что уводит деньги: `payouts.*`, `refunds.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, `settings.*_auto_withdraw`, `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout", …)`, `sandbox.faucet`, `sandbox.reset` |
+| учётные данные | как задаётся | для чего |
+| -------------- | ------------ | -------- |
+| **API-ключ** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | все подписанные маршруты: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.*`, `batches.info`, `documents.*`, `settings.*`, `account.*`, `webhooks.*`, `sandbox.*` |
+| **токен администратора** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | только заведение магазинов на self-hosted-шлюзе: `merchants.create`, `merchants.create_sandbox` |
 
-Вызов не тем видом ключа — это 403 `merchant.wrong_key_kind`. `batches.info` принимает любой вид.
-Маршрутам для плательщика ключ не нужен вовсе: `catalog.currencies`, `catalog.exchange_rates`,
-`payments.public_view/select/public_qr`, `payment_links.public_view/checkout`,
-`payout_links.claim_preview/claim` и `documents.download` (ссылка уже подписана).
+Маршрутам для плательщика учётные данные не нужны вовсе: `catalog.currencies`,
+`catalog.exchange_rates`, `payments.public_view/select/public_qr`,
+`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` и
+`documents.download` (ссылка уже подписана).
 
-**Песочница и боевой контур.** Пара ключей песочницы выдаётся к копии шлюза без блокчейна и узнаётся
-по префиксу `test_` (`test_oblodai_…` / `oblodai_test_…`); у боевой пары такого префикса нет. В
-песочнице одна пара работает и как платёжный, и как выплатной ключ — достаточно одного `public_id` /
-`secret`; боевому магазину выдаются две отдельные пары. Вызывать `sandbox.*` может только ключ
-`test_`.
+**Песочница и боевой контур.** Ключ песочницы выдаётся к копии шлюза без блокчейна и узнаётся по
+префиксу `test_` (`test_oblodai_…` / `oblodai_test_…`); у боевого ключа такого префикса нет.
+Вызывать `sandbox.*` может только ключ `test_`.
 
-**Подключение мерчанта.** `merchants.create` и `merchants.create_sandbox` заводят магазин. Они не
-подписываются и передают `X-Admin-Token` из `admin_token` (или `OBLODAI_ADMIN_TOKEN`) — это токен
-администратора на self-hosted-шлюзе, а не ключ мерчанта.
+**Подключение мерчанта.** `merchants.create` и `merchants.create_sandbox` заводят магазин и
+возвращают единственный `api_key`, которым он подписывает вызовы. Они не подписываются и передают
+`X-Admin-Token` из `admin_token` (или `OBLODAI_ADMIN_TOKEN`) — это токен администратора на
+self-hosted-шлюзе, а не ключ мерчанта.
+
+**Старые раздельные пары.** У магазина, заведённого задолго до 1.3, может остаться пара
+`oblodai_pk_…` / `oblodai_wk_…`; шлюз по-прежнему различает их по виду, и вызов не тем ключом даёт
+403 `merchant.wrong_key_kind` — единственный случай, когда этот код ещё встречается. Выпустите
+актуальный ключ, и различия не станет.
 
 ## Быстрый старт
 
@@ -94,7 +99,7 @@ invoice = oblodai.payments.create(
 print(invoice["url"], invoice["address"], invoice["status"])  # "created"
 ```
 
-Вывод денег устроен зеркально и требует выплатного ключа:
+Вывод денег устроен зеркально и подписывается тем же ключом:
 
 ```python
 payout = oblodai.payouts.create(
@@ -180,14 +185,14 @@ amount_equals("25", "25.000000")  # True
 не касается блокчейна.
 
 ```python
-oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # payout key
+oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # test funds, out of thin air
 oblodai.sandbox.deposit(
     {"invoice_id": invoice["uuid"], "amount": "25", "confirmations": 20, "txid": "demo-tx-1"}
 )
 for delivery in oblodai.sandbox.webhooks(limit=5):  # the delivery log, payloads included
     print(delivery["event_type"], delivery["status"])
 oblodai.sandbox.replay(delivery_id)  # re-send a terminal (delivered/dead) delivery
-oblodai.sandbox.reset()  # cancel open invoices, zero the balances; payout key
+oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 ```
 
 Повторите `sandbox.deposit` с тем же `txid`, чтобы добавить подтверждений. Тестовые доставки — из
@@ -220,9 +225,9 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances; payout key
 | `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
 
 У всех методов один и тот же набор завершающих именованных аргументов: `idempotency_key`,
-`timeout_ms` (на одну попытку), `deadline_ms` (на весь вызов, вместе с ретраями),
-`prefer_payout_key` и `headers` (дополнительные заголовки только для этого вызова). Списочные методы
-принимают ещё `limit=` / `offset=`. Всё остальное вызывает `TypeError` до отправки запроса.
+`timeout_ms` (на одну попытку), `deadline_ms` (на весь вызов, вместе с ретраями) и `headers`
+(дополнительные заголовки только для этого вызова). Списочные методы принимают ещё `limit=` /
+`offset=`. Всё остальное вызывает `TypeError` до отправки запроса.
 
 Маршруты для плательщика — `payments.public_view/select/public_qr`,
 `payment_links.public_view/checkout`, `payout_links.claim_preview/claim` — не требуют учётных данных
@@ -333,9 +338,9 @@ except OblodaiError as err:
 
 Ветвитесь по `err.code`, который всегда имеет вид `family.reason`. Коды, которые стоит обрабатывать
 по имени: `payout.insufficient_funds` (повторяемый), `payout.funds_maturing` (повторяемый),
-`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`, `merchant.wrong_key_kind`,
+`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
 `merchant.bad_signature`, `request.rate_limited`. Полный каталог — `oblodai.ERROR_CODES`
-(471 codes) — это собственный список шлюза, поэтому код можно сверять точным сравнением, а не
+(469 codes) — это собственный список шлюза, поэтому код можно сверять точным сравнением, а не
 поиском подстроки.
 
 ## Ретраи, идемпотентность и таймауты
@@ -361,8 +366,7 @@ base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс,
 `Retry-After` — 30 с); полностью отключается через `RetryOptions(max_retries=0)`.
 
 Ограничения на вызов: `timeout_ms` (одна попытка, по умолчанию 30 с) и `deadline_ms` (весь вызов
-вместе с ретраями, по умолчанию 90 с); `prefer_payout_key` заставляет использовать выплатной ключ
-там, где иначе взяли бы платёжный; `headers` добавляет заголовки только этому вызову. Аналога
+вместе с ретраями, по умолчанию 90 с); `headers` добавляет заголовки только этому вызову. Аналога
 `AbortSignal` здесь нет: асинхронный вызов отменяется отменой его задачи (`CancelledError`
 пробрасывается нетронутым).
 
@@ -381,8 +385,7 @@ base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс,
 
 | опция | по умолчанию | что делает |
 | ----- | ------------ | ---------- |
-| `public_id`, `secret` | окружение | пара платёжного ключа |
-| `payout_public_id`, `payout_secret` | окружение | пара выплатного ключа |
+| `public_id`, `secret` | окружение | API-ключ мерчанта |
 | `base_url` | `https://api.oblodai.com` | origin API; префикс пути (`https://gw.corp/oblodai`) сохраняется |
 | `allow_insecure_base_url` | `False` | разрешает `http://` на не-локальный хост |
 | `admin_token` | окружение | `X-Admin-Token` для `merchants.*` на self-hosted-шлюзе |
@@ -398,15 +401,15 @@ base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс,
 
 | переменная | что задаёт |
 | ---------- | ---------- |
-| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | пара платёжного ключа |
-| `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET` | пара выплатного ключа |
+| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | API-ключ мерчанта |
 | `OBLODAI_ADMIN_TOKEN` | открывает `merchants.*` на self-hosted-шлюзе |
 | `OBLODAI_BASE_URL` | origin API (по умолчанию `https://api.oblodai.com`; префикс пути сохраняется) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — структурные логи в stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` разрешает `http://` на не-локальный хост |
 
-Полный файл с комментариями — [`.env.example`](.env.example). Наполовину заданная пара (`public_id`
-без своего `secret` или наоборот) — это `ConfigError` при создании клиента, а не 401 потом.
+Полный файл с комментариями — [`.env.example`](.env.example); этими шестью переменными окружение
+клиента и исчерпывается. Наполовину заданный ключ (`public_id` без своего `secret` или наоборот) —
+это `ConfigError` при создании клиента, а не 401 потом.
 
 **Секреты в лог не попадают.** Значения полей, в которых лежит ключ, подпись, пароль чека или ссылка
 на получение чека, вычищаются до того, как попадут в логгер, поэтому даже `OBLODAI_LOG=debug` —
@@ -429,13 +432,13 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 `contract/` — он есть в репозитории и в sdist, но не в установленном wheel — содержит собственный
 экспорт шлюза: реестр маршрутов, схемы запросов, все перечисления и коды ошибок, векторы для
 подписи, эталонные тела ответов по каждому маршруту и настоящие подписанные доставки вебхуков. Он
-закреплён за одним коммитом ядра (`CONTRACT_CORE_COMMIT`), и 107 маршрутов и 471 код ошибки, которые
+закреплён за одним коммитом ядра (`CONTRACT_CORE_COMMIT`), и 107 маршрутов и 469 кодов ошибок, которые
 предоставляет SDK, — ровно те, что лежат в нём.
 
 ```python
 from oblodai import CONTRACT_CORE_COMMIT, ROUTES
 
-ROUTES["POST /v1/payout"].auth  # "payout"
+ROUTES["POST /v1/payout"].auth  # "key" - signed with the merchant's API key
 ROUTES["POST /v1/payout"].idempotent  # True
 ROUTES["POST /v1/payout"].safe  # False - never re-sent after a transport failure without a key
 ```

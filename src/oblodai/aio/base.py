@@ -25,7 +25,7 @@ class AsyncResource:
 
     The trailing keyword arguments are identical to the synchronous client's
     (:class:`oblodai.resources.base.Resource`): ``idempotency_key``, ``timeout_ms``,
-    ``deadline_ms``, ``prefer_payout_key``, ``headers``.
+    ``deadline_ms``, ``headers``.
     """
 
     def __init__(self, transport: AsyncTransport) -> None:

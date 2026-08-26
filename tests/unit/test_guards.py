@@ -230,12 +230,11 @@ def test_no_secret_reaches_a_repr() -> None:
         base_url="https://api.test",
         user_agent="ua",
         credentials=Credentials("pk_live_1", "super-secret"),
-        payout_credentials=Credentials("wk_live_1", "other-secret"),
         headers={"X-Trace": "t"},
         admin_token="adm-secret",
     )
-    rendered = f"{settings!r} {settings.credentials!r} {settings.payout_credentials!r}"
-    for secret in ("super-secret", "other-secret", "adm-secret"):
+    rendered = f"{settings!r} {settings.credentials!r}"
+    for secret in ("super-secret", "adm-secret"):
         assert secret not in rendered
     assert "pk_live_1" in rendered  # the public half stays, it is what identifies the key
 

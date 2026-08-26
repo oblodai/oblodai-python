@@ -65,8 +65,6 @@ def _sent_body(key: str) -> Optional[Dict[str, Any]]:
     client = Oblodai(
         public_id="pk",
         secret="s",
-        payout_public_id="wk",
-        payout_secret="s2",
         admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,

@@ -1,4 +1,4 @@
-"""Merchant onboarding: provisioned stores and the key pairs they are handed."""
+"""Merchant onboarding: provisioned stores and the API key each is handed."""
 
 from __future__ import annotations
 
@@ -6,33 +6,27 @@ from typing import Tuple, TypedDict
 
 
 class ApiKeyPair(TypedDict):
-    """An API key pair as minted by onboarding. The secret is shown once."""
+    """The API key as minted by onboarding. The secret is shown once."""
 
-    #: Public part of the key (sent as the API key id).
+    #: Public part of the key (sent as `X-Public-Id`).
     public_id: str
     #: Signing secret — shown only here, store it now.
     secret: str
-    #: `api` — the unified key kind current merchants receive.
-    kind: str
 
 
 class MerchantOnboarded(TypedDict):
-    """`POST /v1/merchants` — a freshly provisioned merchant and its keys."""
+    """`POST /v1/merchants` — a freshly provisioned merchant and its one API key."""
 
     merchant_id: str
     project_id: str
-    #: The unified key (same as `payment_key`/`payout_key` for merchants created now).
+    #: The merchant's only key: it signs every route the SDK calls.
     api_key: ApiKeyPair
-    payment_key: ApiKeyPair
-    payout_key: ApiKeyPair
 
 
 MERCHANT_ONBOARDED_KEYS: Tuple[str, ...] = (
     "merchant_id",
     "project_id",
     "api_key",
-    "payment_key",
-    "payout_key",
 )
 
 
@@ -47,7 +41,5 @@ SANDBOX_STORE_KEYS: Tuple[str, ...] = (
     "merchant_id",
     "project_id",
     "api_key",
-    "payment_key",
-    "payout_key",
     "created",
 )

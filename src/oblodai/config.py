@@ -25,7 +25,6 @@ class ResolvedConfig:
 
     base_url: str
     credentials: Optional[Credentials] = None
-    payout_credentials: Optional[Credentials] = None
     timeout_ms: float = 30_000.0
     deadline_ms: float = 90_000.0
     retry: RetryOptions = DEFAULT_RETRY
@@ -38,8 +37,6 @@ def resolve_config(
     *,
     public_id: Optional[str] = None,
     secret: Optional[str] = None,
-    payout_public_id: Optional[str] = None,
-    payout_secret: Optional[str] = None,
     base_url: Optional[str] = None,
     timeout_ms: Optional[float] = None,
     deadline_ms: Optional[float] = None,
@@ -69,12 +66,6 @@ def resolve_config(
             "public_id and secret must be provided together (or set both OBLODAI_PUBLIC_ID and "
             "OBLODAI_SECRET)",
         )
-    payout_pid = payout_public_id or environ.get("OBLODAI_PAYOUT_PUBLIC_ID")
-    payout_sec = payout_secret or environ.get("OBLODAI_PAYOUT_SECRET")
-    if bool(payout_pid) != bool(payout_sec):
-        raise ConfigError(
-            "sdk.bad_config", "payout_public_id and payout_secret must be provided together"
-        )
 
     chosen_logger = logger
     if chosen_logger is None:
@@ -85,9 +76,6 @@ def resolve_config(
     return ResolvedConfig(
         base_url=resolved_base,
         credentials=Credentials(pid, sec) if pid and sec else None,
-        payout_credentials=(
-            Credentials(payout_pid, payout_sec) if payout_pid and payout_sec else None
-        ),
         timeout_ms=30_000.0 if timeout_ms is None else timeout_ms,
         deadline_ms=90_000.0 if deadline_ms is None else deadline_ms,
         retry=retry or DEFAULT_RETRY,

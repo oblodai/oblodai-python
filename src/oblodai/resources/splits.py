@@ -1,4 +1,4 @@
-"""Revenue splits: a percentage of every payment forwarded to a partner. Payout key."""
+"""Revenue splits: a percentage of every payment forwarded to a partner."""
 
 from __future__ import annotations
 

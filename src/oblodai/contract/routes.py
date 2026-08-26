@@ -1,4 +1,4 @@
-# GENERATED FILE - do not edit. Source: contract/contract.json (core 7ec04293c426).
+# GENERATED FILE - do not edit. Source: contract/contract.json (core 2cc44c16f516).
 # Regenerate with: python scripts/codegen.py
 
 """Every merchant-facing route the core declares, keyed as its conformance table keys it."""
@@ -13,7 +13,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/api-allowlist/add": RouteSpec(
         method="POST",
         path="/v1/api-allowlist/add",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -22,7 +22,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/api-allowlist/enable": RouteSpec(
         method="POST",
         path="/v1/api-allowlist/enable",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -31,7 +31,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/api-allowlist/list": RouteSpec(
         method="POST",
         path="/v1/api-allowlist/list",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -40,7 +40,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/api-allowlist/remove": RouteSpec(
         method="POST",
         path="/v1/api-allowlist/remove",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -49,7 +49,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/auto-withdraw/delete": RouteSpec(
         method="POST",
         path="/v1/auto-withdraw/delete",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -58,7 +58,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/auto-withdraw/list": RouteSpec(
         method="POST",
         path="/v1/auto-withdraw/list",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -67,7 +67,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/auto-withdraw/set": RouteSpec(
         method="POST",
         path="/v1/auto-withdraw/set",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -76,7 +76,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/balance": RouteSpec(
         method="POST",
         path="/v1/balance",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -85,7 +85,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/batch/info": RouteSpec(
         method="POST",
         path="/v1/batch/info",
-        auth="any",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -121,7 +121,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/balance": RouteSpec(
         method="GET",
         path="/v1/documents/balance",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -130,7 +130,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/batch": RouteSpec(
         method="GET",
         path="/v1/documents/batch",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -139,7 +139,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/fees": RouteSpec(
         method="GET",
         path="/v1/documents/fees",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -148,7 +148,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/documents/jobs": RouteSpec(
         method="POST",
         path="/v1/documents/jobs",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -157,7 +157,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/jobs/file": RouteSpec(
         method="GET",
         path="/v1/documents/jobs/file",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -166,7 +166,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/documents/jobs/info": RouteSpec(
         method="POST",
         path="/v1/documents/jobs/info",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -175,7 +175,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/ledger": RouteSpec(
         method="GET",
         path="/v1/documents/ledger",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -184,7 +184,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/link": RouteSpec(
         method="GET",
         path="/v1/documents/link",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -193,7 +193,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/referrals": RouteSpec(
         method="GET",
         path="/v1/documents/referrals",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -202,7 +202,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/split": RouteSpec(
         method="GET",
         path="/v1/documents/split",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -211,7 +211,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/statement": RouteSpec(
         method="GET",
         path="/v1/documents/statement",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -220,7 +220,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/documents/wallet/statement": RouteSpec(
         method="GET",
         path="/v1/documents/wallet/statement",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=True,
@@ -310,7 +310,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment": RouteSpec(
         method="POST",
         path="/v1/payment",
-        auth="payment",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -319,7 +319,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/accepted/list": RouteSpec(
         method="POST",
         path="/v1/payment/accepted/list",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -328,7 +328,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/accepted/set": RouteSpec(
         method="POST",
         path="/v1/payment/accepted/set",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -337,7 +337,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/accuracy/get": RouteSpec(
         method="POST",
         path="/v1/payment/accuracy/get",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -346,7 +346,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/accuracy/set": RouteSpec(
         method="POST",
         path="/v1/payment/accuracy/set",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -355,7 +355,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/autorefund/get": RouteSpec(
         method="POST",
         path="/v1/payment/autorefund/get",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -364,7 +364,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/autorefund/set": RouteSpec(
         method="POST",
         path="/v1/payment/autorefund/set",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -373,7 +373,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/batch": RouteSpec(
         method="POST",
         path="/v1/payment/batch",
-        auth="payment",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -382,7 +382,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/cancel": RouteSpec(
         method="POST",
         path="/v1/payment/cancel",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -391,7 +391,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/discount/list": RouteSpec(
         method="POST",
         path="/v1/payment/discount/list",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -400,7 +400,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/discount/set": RouteSpec(
         method="POST",
         path="/v1/payment/discount/set",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -409,7 +409,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/fee-config/get": RouteSpec(
         method="POST",
         path="/v1/payment/fee-config/get",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -418,7 +418,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/fee-config/set": RouteSpec(
         method="POST",
         path="/v1/payment/fee-config/set",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -427,7 +427,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/history": RouteSpec(
         method="POST",
         path="/v1/payment/history",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -436,7 +436,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/info": RouteSpec(
         method="POST",
         path="/v1/payment/info",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -445,7 +445,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/link": RouteSpec(
         method="POST",
         path="/v1/payment/link",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -454,7 +454,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/link/info": RouteSpec(
         method="POST",
         path="/v1/payment/link/info",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -463,7 +463,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/link/list": RouteSpec(
         method="POST",
         path="/v1/payment/link/list",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -472,7 +472,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/link/toggle": RouteSpec(
         method="POST",
         path="/v1/payment/link/toggle",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -481,7 +481,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/qr": RouteSpec(
         method="POST",
         path="/v1/payment/qr",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -490,7 +490,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/refund": RouteSpec(
         method="POST",
         path="/v1/payment/refund",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -499,7 +499,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/resend": RouteSpec(
         method="POST",
         path="/v1/payment/resend",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -508,7 +508,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/resolve": RouteSpec(
         method="POST",
         path="/v1/payment/resolve",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -517,7 +517,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/send-email": RouteSpec(
         method="POST",
         path="/v1/payment/send-email",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -526,7 +526,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/services": RouteSpec(
         method="POST",
         path="/v1/payment/services",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -535,7 +535,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payment/testing-webhook": RouteSpec(
         method="POST",
         path="/v1/payment/testing-webhook",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -544,7 +544,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout": RouteSpec(
         method="POST",
         path="/v1/payout",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -553,7 +553,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/approve": RouteSpec(
         method="POST",
         path="/v1/payout/approve",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -562,7 +562,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/batch": RouteSpec(
         method="POST",
         path="/v1/payout/batch",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -571,7 +571,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/calculate": RouteSpec(
         method="POST",
         path="/v1/payout/calculate",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -580,7 +580,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/cancel": RouteSpec(
         method="POST",
         path="/v1/payout/cancel",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -589,7 +589,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/fee-config/get": RouteSpec(
         method="POST",
         path="/v1/payout/fee-config/get",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -598,7 +598,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/fee-config/set": RouteSpec(
         method="POST",
         path="/v1/payout/fee-config/set",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -607,7 +607,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/history": RouteSpec(
         method="POST",
         path="/v1/payout/history",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -616,7 +616,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/info": RouteSpec(
         method="POST",
         path="/v1/payout/info",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -625,7 +625,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link": RouteSpec(
         method="POST",
         path="/v1/payout/link",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -634,7 +634,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link/batch": RouteSpec(
         method="POST",
         path="/v1/payout/link/batch",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -643,7 +643,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link/cancel": RouteSpec(
         method="POST",
         path="/v1/payout/link/cancel",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -652,7 +652,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link/cheque": RouteSpec(
         method="POST",
         path="/v1/payout/link/cheque",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=True,
@@ -661,7 +661,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link/info": RouteSpec(
         method="POST",
         path="/v1/payout/link/info",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -670,7 +670,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/link/list": RouteSpec(
         method="POST",
         path="/v1/payout/link/list",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -679,7 +679,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/mass": RouteSpec(
         method="POST",
         path="/v1/payout/mass",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -688,7 +688,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/refund-fee-config/get": RouteSpec(
         method="POST",
         path="/v1/payout/refund-fee-config/get",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -697,7 +697,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/refund-fee-config/set": RouteSpec(
         method="POST",
         path="/v1/payout/refund-fee-config/set",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -706,7 +706,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/services": RouteSpec(
         method="POST",
         path="/v1/payout/services",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -715,7 +715,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/payout/validate": RouteSpec(
         method="POST",
         path="/v1/payout/validate",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -724,7 +724,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/referral/info": RouteSpec(
         method="POST",
         path="/v1/referral/info",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -733,7 +733,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/refund/batch": RouteSpec(
         method="POST",
         path="/v1/refund/batch",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -742,7 +742,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/sandbox/deposit": RouteSpec(
         method="POST",
         path="/v1/sandbox/deposit",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -751,7 +751,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/sandbox/faucet": RouteSpec(
         method="POST",
         path="/v1/sandbox/faucet",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -760,7 +760,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/sandbox/reset": RouteSpec(
         method="POST",
         path="/v1/sandbox/reset",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -769,7 +769,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "GET /v1/sandbox/webhooks": RouteSpec(
         method="GET",
         path="/v1/sandbox/webhooks",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -778,7 +778,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/sandbox/webhooks/replay": RouteSpec(
         method="POST",
         path="/v1/sandbox/webhooks/replay",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -787,7 +787,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/config/get": RouteSpec(
         method="POST",
         path="/v1/split/config/get",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -796,7 +796,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/config/set": RouteSpec(
         method="POST",
         path="/v1/split/config/set",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -805,7 +805,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/recipient/optin": RouteSpec(
         method="POST",
         path="/v1/split/recipient/optin",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -814,7 +814,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/recipient/optin/get": RouteSpec(
         method="POST",
         path="/v1/split/recipient/optin/get",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -823,7 +823,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/rule": RouteSpec(
         method="POST",
         path="/v1/split/rule",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -832,7 +832,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/rule/delete": RouteSpec(
         method="POST",
         path="/v1/split/rule/delete",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -841,7 +841,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/split/rule/list": RouteSpec(
         method="POST",
         path="/v1/split/rule/list",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -850,7 +850,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/test-webhook/payment": RouteSpec(
         method="POST",
         path="/v1/test-webhook/payment",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -859,7 +859,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/test-webhook/payout": RouteSpec(
         method="POST",
         path="/v1/test-webhook/payout",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -868,7 +868,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/test-webhook/wallet": RouteSpec(
         method="POST",
         path="/v1/test-webhook/wallet",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -877,7 +877,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/transfer/batch": RouteSpec(
         method="POST",
         path="/v1/transfer/batch",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -886,7 +886,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/transfer/to-personal": RouteSpec(
         method="POST",
         path="/v1/transfer/to-personal",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -895,7 +895,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/transfer/to-user": RouteSpec(
         method="POST",
         path="/v1/transfer/to-user",
-        auth="payout",
+        auth="key",
         idempotent=True,
         safe=False,
         bare=False,
@@ -904,7 +904,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/vrcs": RouteSpec(
         method="POST",
         path="/v1/vrcs",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -913,7 +913,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/wallet": RouteSpec(
         method="POST",
         path="/v1/wallet",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -922,7 +922,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/wallet/block": RouteSpec(
         method="POST",
         path="/v1/wallet/block",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -931,7 +931,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/wallet/blocked-address-refund": RouteSpec(
         method="POST",
         path="/v1/wallet/blocked-address-refund",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -940,7 +940,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/wallet/qr": RouteSpec(
         method="POST",
         path="/v1/wallet/qr",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -949,7 +949,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/webhooks": RouteSpec(
         method="POST",
         path="/v1/webhooks",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,
@@ -958,7 +958,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/webhooks/deliveries": RouteSpec(
         method="POST",
         path="/v1/webhooks/deliveries",
-        auth="payment",
+        auth="key",
         idempotent=False,
         safe=True,
         bare=False,
@@ -967,7 +967,7 @@ ROUTES: Mapping[str, RouteSpec] = {
     "POST /v1/webhooks/rotate-secret": RouteSpec(
         method="POST",
         path="/v1/webhooks/rotate-secret",
-        auth="payout",
+        auth="key",
         idempotent=False,
         safe=False,
         bare=False,

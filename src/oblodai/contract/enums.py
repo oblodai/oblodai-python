@@ -1,4 +1,4 @@
-# GENERATED FILE - do not edit. Source: contract/contract.json (core 7ec04293c426).
+# GENERATED FILE - do not edit. Source: contract/contract.json (core 2cc44c16f516).
 # Regenerate with: python scripts/codegen.py
 
 """Vocabularies the core declares: statuses, networks, event and error codes."""
@@ -340,7 +340,6 @@ ERROR_CODES: Tuple[str, ...] = (
     "merchant.already_sandbox",
     "merchant.bad_fee_bearer",
     "merchant.bad_id",
-    "merchant.bad_key_kind",
     "merchant.bad_project_id",
     "merchant.bad_settles_to",
     "merchant.bad_signature",
@@ -354,7 +353,6 @@ ERROR_CODES: Tuple[str, ...] = (
     "merchant.project_mismatch",
     "merchant.secret_decrypt",
     "merchant.unknown_key",
-    "merchant.wrong_key_kind",
     "minimum.negative",
     "minimum.no_network",
     "onramp.admit",
@@ -813,7 +811,6 @@ ErrorCode = Literal[
     "merchant.already_sandbox",
     "merchant.bad_fee_bearer",
     "merchant.bad_id",
-    "merchant.bad_key_kind",
     "merchant.bad_project_id",
     "merchant.bad_settles_to",
     "merchant.bad_signature",
@@ -827,7 +824,6 @@ ErrorCode = Literal[
     "merchant.project_mismatch",
     "merchant.secret_decrypt",
     "merchant.unknown_key",
-    "merchant.wrong_key_kind",
     "minimum.negative",
     "minimum.no_network",
     "onramp.admit",

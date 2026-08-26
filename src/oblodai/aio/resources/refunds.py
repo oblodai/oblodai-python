@@ -15,15 +15,15 @@ __all__ = ["AsyncRefunds"]
 
 
 class AsyncRefunds(AsyncResource):
-    """Refunds and underpayment resolution. Payout key."""
+    """Refunds and underpayment resolution."""
 
     async def create(self, params: PaymentRefundBody, **options: Any) -> Payout:
-        """``POST /v1/payment/refund`` - refund a paid invoice, fully or partially. Payout key.
+        """``POST /v1/payment/refund`` - refund a paid invoice, fully or partially.
 
         Codes worth branching on: ``refund.nothing_to_refund``, ``refund.exceeds_refundable``,
         ``refund.no_address`` (the payer address is not refundable - ask for one),
         ``refund.dust`` (below the network's minimum), ``refund.reference_collision``,
-        ``payout.insufficient_funds`` (retryable), ``merchant.wrong_key_kind``.
+        ``payout.insufficient_funds`` (retryable).
         """
         return cast(Payout, await self._call("POST /v1/payment/refund", params, **options))
 
@@ -41,6 +41,6 @@ class AsyncRefunds(AsyncResource):
 
         Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
         ``refund.reference_collision``, ``request.missing_field`` (an item without ``reference``),
-        ``merchant.wrong_key_kind``, ``idempotency.key_reused``.
+        ``idempotency.key_reused``.
         """
         return cast(BatchSubmitted, await self._call("POST /v1/refund/batch", params, **options))

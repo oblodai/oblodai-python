@@ -47,16 +47,15 @@ def user_agent(flavour: str = "python") -> str:
 
 
 class Oblodai:
-    """The Oblodai API client. One instance per key pair; safe to share across threads.
+    """The Oblodai API client. One instance per API key; safe to share across threads.
 
-    >>> oblodai = Oblodai(public_id="pk_live_...", secret="...")
+    >>> oblodai = Oblodai(public_id="oblodai_...", secret="oblodai_live_...")
     >>> invoice = oblodai.payments.create(
     ...     {"amount": "25", "currency": "USDT", "network": "tron", "order_id": "o-1"}
     ... )
 
-    Credentials, base URL and admin token fall back to ``OBLODAI_PUBLIC_ID``, ``OBLODAI_SECRET``,
-    ``OBLODAI_PAYOUT_PUBLIC_ID``, ``OBLODAI_PAYOUT_SECRET``, ``OBLODAI_BASE_URL`` and
-    ``OBLODAI_ADMIN_TOKEN``.
+    One key signs every route: credentials, base URL and admin token fall back to
+    ``OBLODAI_PUBLIC_ID``, ``OBLODAI_SECRET``, ``OBLODAI_BASE_URL`` and ``OBLODAI_ADMIN_TOKEN``.
     """
 
     def __init__(
@@ -64,8 +63,6 @@ class Oblodai:
         *,
         public_id: Optional[str] = None,
         secret: Optional[str] = None,
-        payout_public_id: Optional[str] = None,
-        payout_secret: Optional[str] = None,
         base_url: Optional[str] = None,
         timeout_ms: Optional[float] = None,
         deadline_ms: Optional[float] = None,
@@ -80,8 +77,6 @@ class Oblodai:
         config = resolve_config(
             public_id=public_id,
             secret=secret,
-            payout_public_id=payout_public_id,
-            payout_secret=payout_secret,
             base_url=base_url,
             timeout_ms=timeout_ms,
             deadline_ms=deadline_ms,
@@ -96,7 +91,6 @@ class Oblodai:
             base_url=config.base_url,
             user_agent=user_agent(),
             credentials=config.credentials,
-            payout_credentials=config.payout_credentials,
             headers=config.headers,
             admin_token=config.admin_token,
             retry=config.retry,

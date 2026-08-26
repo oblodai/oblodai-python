@@ -36,7 +36,7 @@ LinkRef = Union[str, Mapping[str, str]]
 
 
 class PayoutLinks(Resource):
-    """Cheques: funds reserved now, claimed later by whoever holds the token. Payout key."""
+    """Cheques: funds reserved now, claimed later by whoever holds the token."""
 
     def create(self, params: PayoutLinkBody, **options: Any) -> PayoutLink:
         """``POST /v1/payout/link`` - reserve funds and mint a claim token.
@@ -45,8 +45,7 @@ class PayoutLinks(Resource):
 
         Codes worth branching on: ``payout_link.disabled``, ``payout.insufficient_funds``
         (retryable), ``payout.funds_maturing`` (retryable), ``payout.bad_amount``,
-        ``payout.reference_collision`` (that ``reference`` already minted a different link),
-        ``merchant.wrong_key_kind``.
+        ``payout.reference_collision`` (that ``reference`` already minted a different link).
         """
         return cast(PayoutLink, self._call("POST /v1/payout/link", params, **options))
 
@@ -72,8 +71,7 @@ class PayoutLinks(Resource):
         """``POST /v1/payout/link/cancel`` - release the reserved funds of an unclaimed link.
 
         Codes worth branching on: ``payoutlink.already_claimed``,
-        ``payoutlink.claim_in_progress``, ``payout.not_pending``, ``payout.no_lookup``,
-        ``merchant.wrong_key_kind``.
+        ``payoutlink.claim_in_progress``, ``payout.not_pending``, ``payout.no_lookup``.
         """
         return cast(
             PayoutLink,
@@ -88,7 +86,7 @@ class PayoutLinks(Resource):
 
         Call-level codes worth branching on: ``payout.batch_too_large`` (more than 500),
         ``payout.empty_batch``, ``payout_link.disabled``, ``payout.insufficient_funds``
-        (retryable), ``merchant.wrong_key_kind``. Per-element failures arrive as
+        (retryable). Per-element failures arrive as
         ``items[i]["error_code"]`` with the vocabulary of :meth:`create`.
         """
         return cast(
