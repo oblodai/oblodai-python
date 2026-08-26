@@ -1,25 +1,81 @@
-# Oblodai Python SDK
+<div align="center">
 
-Official Python client for the [Oblodai](https://oblodai.com) crypto payment gateway: invoices,
-payouts, refunds, payout links, static wallets, webhooks, documents — the whole merchant API,
-typed end to end and verified against the gateway's own contract snapshot.
+<a href="https://oblodai.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/oblodai/.github/main/brand/logo-white.svg">
+    <img src="https://raw.githubusercontent.com/oblodai/.github/main/brand/logo-black.svg" alt="oblodai" height="52">
+  </picture>
+</a>
 
-- Python ≥ 3.9, one runtime dependency (`httpx`), synchronous **and** asynchronous clients.
-- Every route the gateway exposes (107) has a method here; request and response types are generated
-  from the gateway's contract.
-- Retries driven by the API's own `retryable` flag, automatic idempotency keys, clock-skew correction.
-- `oblodai.webhooks`: signature verification that needs no client and no API key.
-- Writing code with an AI agent? Point it at [AGENTS.md](AGENTS.md).
-- Coming from 1.2? [MIGRATION-1.3.md](MIGRATION-1.3.md) — it is a rewrite, not an upgrade.
+<h3>Official Python SDK for the <a href="https://oblodai.com">oblodai</a> payment gateway</h3>
+
+Payments, payouts, payment links, splits, static wallets, webhooks — one API key.
+
+<a href="https://pypi.org/project/oblodai/"><img src="https://img.shields.io/pypi/v/oblodai?style=flat-square&label=PyPI" alt="PyPI"></a>
+<a href="https://github.com/oblodai/oblodai-python/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/oblodai/oblodai-python/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+<img src="https://img.shields.io/pypi/pyversions/oblodai?style=flat-square" alt="Python versions">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="License: MIT"></a>
+
+[Documentation](https://docs.oblodai.com) · [Dashboard](https://my.oblodai.com) · [Читать по-русски →](README.ru.md)
+
+</div>
+
+---
+
+The official Python SDK for the **Oblodai** payment gateway: accepting payments, payouts, bulk
+operations (batches), payment links, payout links (crypto cheques), splits, static wallets,
+transfers, webhooks. Request signing, response parsing, typed errors, idempotency and retries — out
+of the box.
+
+Python ≥ 3.9 with a single runtime dependency (`httpx`), a synchronous **and** an asynchronous
+client, typed end to end from the gateway's own contract snapshot: every route it exposes (107) has
+a method here, and every request and response has a `TypedDict`.
+
+> **Base URL.** Defaults to `https://api.oblodai.com`. Override `base_url` and supply your own keys
+> at initialisation if needed. The scheme must be `https://`; plain `http://` is accepted only for
+> loopback (`http://127.0.0.1:8095`) or with the explicit allow-insecure option
+> (`allow_insecure_base_url=True`, or `OBLODAI_ALLOW_INSECURE=1`).
+
+## Installation
 
 ```bash
 pip install oblodai
 ```
 
-## Start in the sandbox
+Python 3.9 or newer (3.9 – 3.13 are tested in CI). The only runtime dependency is `httpx`
+(`>=0.24,<1.0`); the upper bound is deliberate, because httpx 1.0 may move the streaming and
+timeout API this SDK drives directly.
 
-Get your keys in the Oblodai dashboard. A **sandbox key** (`test_…`) drives a chainless copy of the
-gateway — fake balance from a faucet, simulated deposits, real webhooks — so integrate against it first.
+Writing code with an AI agent? Point it at [AGENTS.md](AGENTS.md) — it ships inside the installed
+package as well, at `importlib.resources.files("oblodai") / "AGENTS.md"`. Coming from 1.2?
+[MIGRATION-1.3.md](MIGRATION-1.3.md): it is a rewrite, not an upgrade.
+
+## Where to get keys
+
+Keys live in the [dashboard](https://my.oblodai.com) under **API keys**. There are two kinds, and
+the SDK picks the right one per call once both are configured:
+
+| key | configured as | used for |
+| --- | ------------- | -------- |
+| **payment key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | money-in and reporting: `payments.*`, `payment_links.create/info/list/toggle`, `wallets.create/qr/block`, `documents.*`, `settings.*` except auto-withdraw and the API allow-list, `account.*`, `webhooks.register/deliveries`, `webhooks.test("payment" / "wallet", …)`, `sandbox.deposit/webhooks/replay` |
+| **payout key** | `payout_public_id` / `payout_secret` (`OBLODAI_PAYOUT_PUBLIC_ID`, `OBLODAI_PAYOUT_SECRET`) | everything money-out: `payouts.*`, `refunds.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, `settings.*_auto_withdraw`, `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout", …)`, `sandbox.faucet`, `sandbox.reset` |
+
+A call made with the wrong kind is a 403 `merchant.wrong_key_kind`. `batches.info` accepts either
+kind. The payer-facing routes need no key at all: `catalog.currencies`,
+`catalog.exchange_rates`, `payments.public_view/select/public_qr`,
+`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` and
+`documents.download` (a pre-signed link).
+
+**Sandbox versus live.** A sandbox key pair is issued against a chainless copy of the gateway and is
+recognisable by its `test_` prefix (`test_oblodai_…` / `oblodai_test_…`); a live pair carries no such
+prefix. In the sandbox one pair acts as both payment and payout key, so a single `public_id` /
+`secret` is enough; live stores get two separate pairs. Only a `test_` key may call `sandbox.*`.
+
+**Onboarding.** `merchants.create` and `merchants.create_sandbox` provision a store. They are
+unsigned and carry `X-Admin-Token`, taken from `admin_token` (or `OBLODAI_ADMIN_TOKEN`) — an
+administrator's token on a self-hosted gateway, not a merchant key.
+
+## Quick start
 
 ```python
 from oblodai import Oblodai
@@ -38,19 +94,25 @@ invoice = oblodai.payments.create(
 print(invoice["url"], invoice["address"], invoice["status"])  # "created"
 ```
 
-With no arguments the client reads its whole configuration from the environment:
+Money out is the mirror image, on the payout key:
 
-| variable | what it sets |
-| -------- | ------------ |
-| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the payment key pair |
-| `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET` | the payout key pair |
-| `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
-| `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
-| `OBLODAI_ADMIN_TOKEN` | gates `merchants.*` on a self-hosted gateway |
-| `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr, secrets redacted |
+```python
+payout = oblodai.payouts.create(
+    {
+        "amount": "10",
+        "currency": "USDT",
+        "network": "tron",
+        "address": "TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
+        "order_id": "payout-1001",
+    },
+    idempotency_key="payout-1001",  # yours, so a process restart cannot pay twice
+)
+print(payout["uuid"], payout["status"])  # "pending"
+```
 
-An explicit argument always wins over the environment. A full annotated file is in
-[`.env.example`](.env.example).
+Prices in fiat: `{"amount": "25", "currency": "USD", "to_currency": "USDT"}` — `currency` is what
+you charge, `to_currency` the asset the payer sends. Runnable scripts live in
+[`examples/`](examples).
 
 Close the client when you are done with it, or use it as a context manager:
 
@@ -58,9 +120,6 @@ Close the client when you are done with it, or use it as a context manager:
 with Oblodai() as oblodai:
     invoice = oblodai.payments.create({"amount": "25", "currency": "USDT"})
 ```
-
-Prices in fiat: `{"amount": "25", "currency": "USD", "to_currency": "USDT"}` — `currency` is what
-you charge, `to_currency` the asset the payer sends. Runnable scripts live in [`examples/`](examples).
 
 ### Requests and responses are plain dicts
 
@@ -97,45 +156,75 @@ asyncio.run(main())
 Both clients share one pure core: signing, envelope decoding, the retry decision and the idempotency
 rules are I/O-free code that the sync and async transports both drive, so they cannot drift apart.
 
-### Two keys
+### Amounts
 
-The gateway issues a **payment key** (`pk_…`) and a **payout key** (`wk_…`). Sandbox keys are both at
-once; live keys are separate, and money-out routes need the payout one: `payouts.*`, `refunds.*`,
-`payout_links.*`, `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, auto-withdraw, the IP
-allow-list, `webhooks.rotate_secret`, `webhooks.test("payout", …)`, `sandbox.faucet`/`reset`. Pass both
-pairs and the SDK picks the right one per call:
+Amounts are decimal strings at the asset's own scale. Never `float()` them:
 
 ```python
-Oblodai(public_id=..., secret=..., payout_public_id=..., payout_secret=...)
+from oblodai import add_amounts, amount_equals, compare_amounts
+
+add_amounts("10.000000", "0.5")  # "10.500000"
+compare_amounts("25", "25.0000")  # 0
+amount_equals("25", "25.000000")  # True
 ```
 
-A call with the wrong kind is a 403 `merchant.wrong_key_kind`.
+Never `<` or `sorted()` on the raw strings either — they compare lexicographically, and `"10" < "9"`
+is `True`. Anything that is not a decimal string raises `AmountError` (also a `ValueError`).
 
-## Resources
+## Sandbox / testing
 
-| Namespace        | Methods |
-| ---------------- | ------- |
-| `payments`       | `create` `info`/`get` `cancel` `history`/`list` `batch` `qr` `services` `send_email` `resend` `public_view` `select` `public_qr` |
-| `refunds`        | `create` `resolve` `batch` |
-| `payouts`        | `create` `validate` `calculate` `info`/`get` `cancel` `approve` `history`/`list` `mass` `batch` `services` `get_fee_config` `set_fee_config` `get_refund_fee_config` `set_refund_fee_config` |
-| `payout_links`   | `create` `info`/`get` `list` `cancel` `batch` `cheque` `claim_preview` `claim` |
-| `payment_links`  | `create` `info`/`get` `list` `toggle` `public_view` `checkout` |
-| `batches`        | `info` |
-| `transfers`      | `to_personal` `to_user` `batch` |
-| `wallets`        | `create` `qr` `block` `refund_blocked_deposit` |
-| `webhooks`       | `register` `rotate_secret` `deliveries` `test` `test_legacy` |
-| `documents`      | `create_job` `job_info` `job_file` `statement` `balance_certificate` `fee_schedule` `ledger` `split_report` `batch_report` `link_report` `wallet_statement` `referrals_report` `download` |
-| `splits`         | `create_rule` `list_rules` `delete_rule` `get_config` `set_config` `get_opt_in` `set_opt_in` |
-| `settings`       | `set_discount` `list_discounts` `get_accuracy` `set_accuracy` `get_auto_refund` `set_auto_refund` `list_accepted` `set_accepted` `get_payment_fee_config` `set_payment_fee_config` `list_auto_withdraw` `set_auto_withdraw` `delete_auto_withdraw` `list_api_allowlist` `add_api_allowlist` `remove_api_allowlist` `enable_api_allowlist` |
-| `account`        | `balance` `referral` `vrcs` |
-| `catalog`        | `currencies` `exchange_rates` |
-| `sandbox`        | `faucet` `deposit` `webhooks` `replay` `reset` |
-| `merchants`      | `create` `create_sandbox` |
+A sandbox key drives a chainless copy of the gateway: fake balance from a faucet, simulated deposits
+instead of blocks, and real signed webhooks. Integrate against it first — nothing here touches a
+chain.
+
+```python
+oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # payout key
+oblodai.sandbox.deposit(
+    {"invoice_id": invoice["uuid"], "amount": "25", "confirmations": 20, "txid": "demo-tx-1"}
+)
+for delivery in oblodai.sandbox.webhooks(limit=5):  # the delivery log, payloads included
+    print(delivery["event_type"], delivery["status"])
+oblodai.sandbox.replay(delivery_id)  # re-send a terminal (delivered/dead) delivery
+oblodai.sandbox.reset()  # cancel open invoices, zero the balances; payout key
+```
+
+Repeat `sandbox.deposit` with the same `txid` to add confirmations. Rehearsal deliveries — from
+`webhooks.test(kind, …)` and from the sandbox — are signed exactly like live ones and carry
+`test: true` in the body (and `X-Webhook-Test: true`): check `delivery.is_test` (or
+`webhooks.is_test_event(event)`) and never act on one as if money moved.
+[`examples/sandbox.py`](examples/sandbox.py) walks the whole money path in about a second.
+
+## Method overview
+
+Sixteen namespaces cover all 107 routes of the gateway.
+
+| Namespace | Methods | Routes |
+| --------- | ------- | ------ |
+| `payments` | `create` `info`/`get` `cancel` `history`/`list` `batch` `qr` `services` `send_email` `resend` `public_view` `select` `public_qr` | `/v1/payment*` `/v1/pay/{id}*` |
+| `refunds` | `create` `resolve` `batch` | `/v1/payment/refund` `/v1/payment/resolve` `/v1/refund/batch` |
+| `payouts` | `create` `validate` `calculate` `info`/`get` `cancel` `approve` `history`/`list` `mass` `batch` `services` `get_fee_config` `set_fee_config` `get_refund_fee_config` `set_refund_fee_config` | `/v1/payout*` |
+| `payout_links` | `create` `info`/`get` `list` `cancel` `batch` `cheque` `claim_preview` `claim` | `/v1/payout/link*` `/v1/claim/{token}` |
+| `payment_links` | `create` `info`/`get` `list` `toggle` `public_view` `checkout` | `/v1/payment/link*` `/v1/link/{id}*` |
+| `batches` | `info` | `/v1/batch/info` |
+| `transfers` | `to_personal` `to_user` `batch` | `/v1/transfer/*` |
+| `wallets` | `create` `qr` `block` `refund_blocked_deposit` | `/v1/wallet*` |
+| `webhooks` | `register` `rotate_secret` `deliveries` `test` `test_legacy` | `/v1/webhooks*` `/v1/test-webhook/{kind}` `/v1/payment/testing-webhook` |
+| `documents` | `create_job` `job_info` `job_file` `statement` `balance_certificate` `fee_schedule` `ledger` `split_report` `batch_report` `link_report` `wallet_statement` `referrals_report` `download` | `/v1/documents/*` |
+| `splits` | `create_rule` `list_rules` `delete_rule` `get_config` `set_config` `get_opt_in` `set_opt_in` | `/v1/split/*` |
+| `settings` | `set_discount` `list_discounts` `get_accuracy` `set_accuracy` `get_auto_refund` `set_auto_refund` `list_accepted` `set_accepted` `get_payment_fee_config` `set_payment_fee_config` `list_auto_withdraw` `set_auto_withdraw` `delete_auto_withdraw` `list_api_allowlist` `add_api_allowlist` `remove_api_allowlist` `enable_api_allowlist` | `/v1/payment/*` `/v1/auto-withdraw/*` `/v1/api-allowlist/*` |
+| `account` | `balance` `referral` `vrcs` | `/v1/balance` `/v1/referral/info` `/v1/vrcs` |
+| `catalog` | `currencies` `exchange_rates` | `/v1/currencies` `/v1/exchange-rate/list` |
+| `sandbox` | `faucet` `deposit` `webhooks` `replay` `reset` | `/v1/sandbox/*` |
+| `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
 
 Every method takes the same trailing keyword arguments: `idempotency_key`, `timeout_ms` (per
 attempt), `deadline_ms` (the whole call, retries included), `prefer_payout_key` and `headers`
 (extra headers for this call alone). List methods also take `limit=` / `offset=`. Anything else
 raises `TypeError` before a request is sent.
+
+The payer-facing routes — `payments.public_view/select/public_qr`,
+`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` — need no credentials at
+all. Document methods return a `FileResult(content, content_type, filename)`.
 
 ### Lists
 
@@ -164,7 +253,46 @@ object is awaited (`await client.payments.history()`) or walked with `async for`
 from oblodai import is_payment_paid, is_payout_final
 ```
 
-### Errors
+## Webhooks
+
+Register the endpoint once — the secret is returned once, at registration:
+
+```python
+endpoint = oblodai.webhooks.register("https://shop.example/oblodai/webhook")
+endpoint_secret = endpoint["secret"]  # store it; it is not shown again
+```
+
+Verify every delivery over the **raw request bytes**, never a re-serialised parse:
+
+```python
+from oblodai import webhooks
+
+delivery = webhooks.verify_delivery(raw_body, request.headers, secret=endpoint_secret)
+event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
+if webhooks.is_stale(event, last_sequence_you_processed):
+    return  # a retry that arrived after a newer state
+if webhooks.is_known_event(event) and event["type"] == "payment":
+    ...  # narrowed to the payment shape
+```
+
+An event kind newer than this SDK is returned, not refused — `is_known_event` is `False` and
+`event["type"]` holds the raw string. Acknowledge it either way; refusing it would make the gateway
+retry a delivery that is perfectly valid.
+
+`SignatureError` and `WebhookPayloadError` mean different things: the first is a delivery that is
+not from the gateway (answer **401** — and 401 only ever for a signature failure), the second an
+authentic one whose body this receiver cannot read (`webhook.bad_payload`; answer **400**, since no
+retry will fix it). The signature is checked before the freshness window, so a forged delivery never
+learns what time this endpoint thinks it is.
+
+Deduplicate on `delivery.id` (`X-Webhook-Id`, stable across retries). Rehearsal deliveries carry
+`delivery.is_test`. During a secret rotation (`webhooks.rotate_secret`) pass `previous_secret=` for
+at least 26 h — deliveries queued before the rotation stay signed with the old secret for their
+whole retry life. `tolerance_sec` (default 300) bounds how stale a delivery may be.
+
+A complete receiver is in [`examples/webhook_receiver.py`](examples/webhook_receiver.py).
+
+## Errors
 
 Everything raises a subclass of `OblodaiError`:
 
@@ -179,94 +307,105 @@ except OblodaiError as err:
     print(err.code, err.http_status, err.retryable, err.request_id, err.field)
 ```
 
-| class | when |
-| ----- | ---- |
-| `ValidationError` | 400 — malformed request or a broken business rule (`field` says which) |
-| `AuthenticationError` | 401 — bad signature, unknown key, clock skew, IP not allowed |
-| `PermissionDeniedError` | 403 — valid key, wrong kind or a disabled feature |
-| `NotFoundError` | 404 |
-| `ConflictError` / `IdempotencyConflictError` | 409 — state conflict; the same key with a different body |
-| `RateLimitError` | 429 |
-| `UnavailableError` / `InternalError` | 503 / other 5xx |
-| `TransportError` | no response at all (`transport.timeout`, `transport.network`, `transport.deadline`) |
-| `ConfigError` | raised before anything is sent |
-| `SignatureError` | webhook verification failed — the delivery is not from the gateway |
-| `WebhookPayloadError` | an authentic delivery whose body cannot be used (`webhook.bad_payload`) |
-| `ResponseTooLargeError` | the response passed the size cap (`sdk.response_too_large`) |
-| `AmountError` | a string handed to the money helpers is not a decimal amount (`sdk.bad_amount`) |
+| class | HTTP | when |
+| ----- | ---- | ---- |
+| `ValidationError` | 400 | malformed request or a broken business rule (`field` says which) |
+| `AuthenticationError` | 401 | bad signature, unknown key, clock skew, IP not allowed |
+| `PermissionDeniedError` | 403 | valid key, wrong kind or a disabled feature |
+| `NotFoundError` | 404 | no such object |
+| `ConflictError` / `IdempotencyConflictError` | 409 | state conflict; the same key with a different body |
+| `RateLimitError` | 429 | too many requests (`retry_after`) |
+| `UnavailableError` / `InternalError` | 503 / other 5xx | the gateway could not answer |
+| `TransportError` | — | no response at all (`transport.timeout`, `transport.network`, `transport.deadline`) |
+| `ConfigError` | — | raised before anything is sent (`sdk.bad_config`, `sdk.bad_header`, `sdk.bad_idempotency_key`, `sdk.idempotency_unsupported`, `sdk.missing_credentials`) |
+| `SignatureError` | — | webhook verification failed — the delivery is not from the gateway |
+| `WebhookPayloadError` | — | an authentic delivery whose body cannot be used (`webhook.bad_payload`) |
+| `ResponseTooLargeError` | — | the response passed the size cap (`sdk.response_too_large`) |
+| `AmountError` | — | a string handed to the money helpers is not a decimal amount (`sdk.bad_amount`) |
 
 `err.retryable` is the gateway's own classification — the SDK has already retried what it should.
-`err.synthetic` marks an answer that came from a proxy rather than the API. `err.to_dict()` is
-log-friendly and never contains the raw body. Codes worth handling by name:
+`err.retry_after` is its `Retry-After` in seconds (clamped to 24 h), `err.request_id` is what
+support asks for, `err.synthetic` marks an answer that came from a proxy rather than the API, and
+`err.to_dict()` is log-friendly and never contains the raw body.
+
+Branch on `err.code`, which is always `family.reason`. Codes worth handling by name:
 `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`, `merchant.wrong_key_kind`,
-`request.rate_limited`. The full list is `oblodai.ERROR_CODES` (471 codes).
+`merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ERROR_CODES`
+(471 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
 
-### Retries and idempotency
+## Retries, idempotency and timeouts
+
+Whether a call may be repeated is not guessed from the shape of its path: it is
+`ROUTES[key].safe`, the gateway's own read-only classification, carried in the contract snapshot.
+A write the gateway does not deduplicate is never re-sent once it may have reached the gateway —
+a transport error after the request left the socket could mean the payout already happened.
 
 A create-type route gets a generated `Idempotency-Key`, reused across that call's retries, so a lost
-response can never become a double payout. Pass your own to survive a process restart:
+response can never become a double payout. Pass your own (≤ 255 characters) to survive a process
+restart:
 
 ```python
 oblodai.payouts.create({...}, idempotency_key=f"payout-{order_id}")
 ```
 
 Passing one to a route the gateway does not deduplicate raises `sdk.idempotency_unsupported` rather
-than pretending the re-send is safe. Transport failures and envelope-less proxy answers are retried
-only on read-only routes and on keyed writes; `Retry-After` always wins over the backoff. Tune with
-`RetryOptions(max_retries=…, base_delay_ms=…)`, or switch retries off with `RetryOptions(max_retries=0)`.
+than pretending the re-send is safe — list methods included, where it is refused rather than
+dropped. Retries stop on the first non-retryable answer; `Retry-After` always wins over the
+exponential backoff with jitter. Tune with `RetryOptions(max_retries=…, base_delay_ms=…)` (defaults:
+2 retries, 250 ms base, 4 s cap, 30 s cap on an honoured `Retry-After`), or switch retries off with
+`RetryOptions(max_retries=0)`.
 
-There is no `AbortSignal` equivalent: cancel an async call by cancelling its task (`CancelledError`
-propagates untouched), and bound any call with `timeout_ms` (per attempt) and `deadline_ms`
-(the whole call, retries included).
+Per-call bounds: `timeout_ms` (one attempt, default 30 s) and `deadline_ms` (the whole call, retries
+included, default 90 s); `prefer_payout_key` forces the payout key on a call that would otherwise
+use the payment one; `headers` adds headers for this call alone. There is no `AbortSignal`
+equivalent: cancel an async call by cancelling its task (`CancelledError` propagates untouched).
 
-### Webhooks
+Signed requests carry a timestamp, so a machine with a wrong clock would fail authentication; the
+client learns the offset from the gateway's own `Date` header and corrects for it (offsets beyond
+24 h are treated as implausible and ignored). Redirects are never followed — a signature is only
+valid for the URI it was signed for, and an injected HTTP client that follows one is caught and
+turned into an error. Response bodies are read under a cap: 8 MiB for JSON, 64 MiB for documents,
+beyond which the call raises `ResponseTooLargeError`.
 
-```python
-from oblodai import webhooks
+## Configuration
 
-delivery = webhooks.verify_delivery(raw_body, request.headers, secret=endpoint_secret)
-event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
-if webhooks.is_stale(event, last_sequence_you_processed):
-    return  # a retry that arrived after a newer state
-if webhooks.is_known_event(event) and event["type"] == "payment":
-    ...  # narrowed to the payment shape
-```
+Every option is a keyword argument to `Oblodai(...)` / `AsyncOblodai(...)`; an explicit argument
+always wins over the environment.
 
-An event kind newer than this SDK is returned, not refused — `is_known_event` is `False` and
-`event["type"]` holds the raw string. Acknowledge it either way; refusing it would make the
-gateway retry a delivery that is perfectly valid.
+| option | default | what it does |
+| ------ | ------- | ------------ |
+| `public_id`, `secret` | environment | the payment key pair |
+| `payout_public_id`, `payout_secret` | environment | the payout key pair |
+| `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
+| `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
+| `admin_token` | environment | `X-Admin-Token` for `merchants.*` on a self-hosted gateway |
+| `timeout_ms` | `30000` | per attempt |
+| `deadline_ms` | `90000` | the whole call, retries included |
+| `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
+| `headers` | — | extra headers on every request |
+| `logger` | none | anything with `debug/info/warning/error(message, fields)` |
+| `http_client` | a private one | your own `httpx.Client` / `httpx.AsyncClient` |
+| `env` | `os.environ` | the mapping the client reads its environment from |
 
-`SignatureError` and `WebhookPayloadError` mean different things: the first is a delivery that is
-not from the gateway (answer 401), the second an authentic one whose body this receiver cannot read
-(answer 400 — no retry will fix it). The signature is checked before the freshness window, so a
-forged delivery never learns what time this endpoint thinks it is.
+With no arguments at all the client configures itself from the environment:
 
-Rehearsal deliveries (`webhooks.test`, sandbox) are signed exactly like live ones and carry
-`test: true` in the body (and `X-Webhook-Test: true`) — check `delivery.is_test` (or
-`webhooks.is_test_event(event)`) and never act on one as if money moved.
+| variable | what it sets |
+| -------- | ------------ |
+| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the payment key pair |
+| `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET` | the payout key pair |
+| `OBLODAI_ADMIN_TOKEN` | gates `merchants.*` on a self-hosted gateway |
+| `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
+| `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr |
+| `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
 
-Verify over the **raw request bytes**, never a re-serialized parse. Deduplicate on `delivery.id`
-(`X-Webhook-Id`, stable across retries). During a secret rotation pass `previous_secret=` for at
-least 26 h — deliveries queued before the rotation stay signed with the old secret for their whole
-retry life. `tolerance_sec` (default 300) bounds how stale a delivery may be.
+A full annotated file is in [`.env.example`](.env.example). A half-configured pair (a `public_id`
+without its `secret`, or the other way round) is a `ConfigError` at construction, not a 401 later.
 
-A complete receiver is in [`examples/webhook_receiver.py`](examples/webhook_receiver.py).
-
-### Money
-
-Amounts are decimal strings at the asset's own scale. Never `float()` them:
-
-```python
-from oblodai import add_amounts, compare_amounts, amount_equals
-
-add_amounts("10.000000", "0.5")  # "10.500000"
-compare_amounts("25", "25.0000")  # 0
-amount_equals("25", "25.000000")  # True
-```
-
-Never `<` or `sorted()` on the raw strings either — they compare lexicographically, and `"10" < "9"`
-is `True`. Anything that is not a decimal string raises `AmountError` (also a `ValueError`).
+**Secrets never reach the log.** Field values that carry a key, a signature, a cheque passcode or a
+claim URL are redacted before they are handed to the logger, so even `OBLODAI_LOG=debug` — which
+logs every attempt, its route, status and timing to stderr — cannot leak one. A `logging.Logger`,
+structlog or a test double all fit the four-method protocol the transport calls.
 
 ### Self-hosted or local gateway
 
@@ -275,44 +414,54 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 ```
 
 Plain `http://` is accepted for loopback without the flag; anything else needs it, so a signature
-never leaves the host in the clear by accident. A base URL may carry a path prefix
-(`https://gw.corp/oblodai`) and it is kept. Merchant provisioning (`merchants.*`) is unsigned and
-carries `X-Admin-Token` when `admin_token` is set.
+never leaves the host in the clear by accident. Merchant provisioning (`merchants.*`) is unsigned
+and carries `X-Admin-Token` when `admin_token` is set.
 
 ## The contract snapshot
 
 `contract/` — in the repository and in the sdist, not in the installed wheel — holds the gateway's
 own export: the route registry, request schemas, all enums and error codes, signing vectors, golden
-response bodies for every route and real signed webhook deliveries.
-`scripts/codegen.py` turns it into `oblodai/contract/{routes,enums,requests,version}.py`, and
-`scripts/gen_async.py` mirrors the resource layer into `oblodai/aio/resources/`. Both are checked in
-CI by `scripts/check_drift.py`, so the committed code cannot drift from the contract.
+response bodies for every route and real signed webhook deliveries. It pins one core commit
+(`CONTRACT_CORE_COMMIT`), and the 107 routes and 471 error codes this SDK exposes are exactly the
+ones in it.
 
 ```python
-from oblodai import ROUTES, CONTRACT_CORE_COMMIT
+from oblodai import CONTRACT_CORE_COMMIT, ROUTES
 
 ROUTES["POST /v1/payout"].auth  # "payout"
 ROUTES["POST /v1/payout"].idempotent  # True
 ROUTES["POST /v1/payout"].safe  # False - never re-sent after a transport failure without a key
 ```
 
-`safe` is the gateway's own hand-classified statement that a route is read-only. The SDK reads it
-from the contract; nothing here guesses retry safety from the shape of a path.
+`scripts/codegen.py` turns the snapshot into `oblodai/contract/{routes,enums,requests,version}.py`,
+and `scripts/gen_async.py` mirrors the resource layer into `oblodai/aio/resources/`. Both outputs
+are checked by `scripts/check_drift.py` — it regenerates into a temporary directory and compares, so
+the committed code cannot drift from the contract, in CI or locally (`make drift`).
+
+To refresh: drop the newer export into `contract/`, run `make codegen`, then `make ci`. The contract
+tests fail loudly on anything the snapshot changed — a new route, a renamed field, a moved error
+code — which is the point.
 
 ## Development
 
 ```bash
+git clone https://github.com/oblodai/oblodai-python && cd oblodai-python
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-make ci            # drift + ruff + mypy + unit and contract tests
+make ci            # drift + ruff + mypy + unit and contract tests + packaging
 make live          # the same, plus the live tier (needs OBLODAI_LIVE_URL)
 make codegen       # regenerate the contract mirror and the async resources
 ```
 
 Three test tiers: `tests/unit` (signing and webhook vectors, retry/idempotency/skew/URL rules over a
 scripted HTTP layer), `tests/contract` (every route is wired to the right method, path, auth and
-idempotency header; every golden body matches its model key-for-key) and `tests/live` (a real
-gateway: onboard, invoice, deposit, payout, refund, links, documents).
+idempotency header; every golden body matches its model key-for-key; the documentation is checked
+like code) and `tests/live` (a real gateway: onboard, invoice, deposit, payout, refund, links,
+documents).
 
-## Licence
+See also [AGENTS.md](AGENTS.md) for the agent-facing summary, [CHANGELOG.md](CHANGELOG.md) for
+what changed, [MIGRATION-1.3.md](MIGRATION-1.3.md) for the move from 1.2 and
+[RELEASING.md](RELEASING.md) for how a version reaches PyPI.
 
-MIT.
+## License
+
+MIT — see [LICENSE](LICENSE).
