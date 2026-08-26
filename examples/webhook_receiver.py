@@ -9,6 +9,8 @@ The three rules that matter, whichever framework you use:
 2. Deduplicate on `X-Webhook-Id` - it is stable across retries of the same delivery.
 3. Drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`; a retried `paid`
    can arrive after a newer state.
+4. Answer a rehearsal delivery (`delivery.is_test`) with 2xx, but never act on it as if money
+   moved - it is signed like a live one and nothing happened on chain.
 
 Answer 2xx quickly: the gateway retries anything else for about 26 hours.
 """
@@ -57,7 +59,9 @@ class Handler(BaseHTTPRequestHandler):
 
         event = delivery.event
         object_id = str(event["uuid"])
-        if delivery.id and delivery.id in seen_deliveries:
+        if delivery.is_test:
+            pass  # a rehearsal delivery (`webhooks.test`, sandbox): acknowledge, touch nothing
+        elif delivery.id and delivery.id in seen_deliveries:
             pass  # a retry of something already processed
         elif webhooks.is_stale(event, last_sequence.get(object_id)):
             pass  # an older state arriving after a newer one

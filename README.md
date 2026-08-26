@@ -207,6 +207,10 @@ if webhooks.is_stale(event, last_sequence_you_processed):
     return  # a retry that arrived after a newer state
 ```
 
+Rehearsal deliveries (`webhooks.test`, sandbox) are signed exactly like live ones and carry
+`test: true` in the body (and `X-Webhook-Test: true`) — check `delivery.is_test` (or
+`webhooks.is_test_event(event)`) and never act on one as if money moved.
+
 Verify over the **raw request bytes**, never a re-serialized parse. Deduplicate on `delivery.id`
 (`X-Webhook-Id`, stable across retries). During a secret rotation pass `previous_secret=` for at
 least 26 h — deliveries queued before the rotation stay signed with the old secret for their whole

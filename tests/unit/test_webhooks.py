@@ -34,6 +34,10 @@ def test_verifies_every_recorded_delivery(index: int) -> None:
     assert delivery.event_type == sample["headers"]["X-Webhook-Event"]
     assert delivery.event["type"] == sample["body"]["type"]
     assert isinstance(delivery.event["sequence"], int)
+    # Rehearsal deliveries (`webhooks.test`, sandbox) are signed like live ones and say so.
+    assert delivery.is_test is (sample["body"].get("test") is True)
+    assert delivery.is_test is (sample["headers"].get("X-Webhook-Test") == "true")
+    assert webhooks.is_test_event(delivery.event) is delivery.is_test
     assert sample["headers"]["X-Webhook-Event"].split(".")[0] in ("invoice", "payout", "wallet")
 
     with pytest.raises(SignatureError, match="does not match"):
@@ -103,12 +107,25 @@ def test_verifies_during_a_rotation_via_the_prev_header_or_previous_secret() -> 
     )
 
 
+def test_flags_a_rehearsal_delivery_from_the_header_alone() -> None:
+    """The core sets `X-Webhook-Test` next to the body flag; either one marks the delivery."""
+    plain = webhooks.verify_delivery(BODY, headers(), secret="whsec", now=TS)
+    assert plain.is_test is False
+    flagged = webhooks.verify_delivery(
+        BODY, headers(**{"x-webhook-test": "true"}), secret="whsec", now=TS
+    )
+    assert flagged.is_test is True
+    assert webhooks.is_test_event(flagged.event) is False  # the body itself said nothing
+
+
 def test_parses_the_union_and_detects_stale_sequences() -> None:
     event = webhooks.parse(BODY)
     assert event["type"] == "payment"
     assert webhooks.is_stale(event, 7) is True
     assert webhooks.is_stale(event, 6) is False
     assert webhooks.is_stale(event, None) is False
+    assert webhooks.is_test_event(event) is False
+    assert webhooks.is_test_event({**event, "test": True}) is True
     with pytest.raises(SignatureError, match="unknown event type"):
         webhooks.parse('{"type":"alien","uuid":"x"}')
     with pytest.raises(SignatureError, match="not JSON"):

@@ -79,7 +79,7 @@ from .helpers import (
     subtract_amounts,
 )
 from .resources import FileResult
-from .webhooks import WebhookDeliveryInfo
+from .webhooks import WebhookDeliveryInfo, is_test_event
 
 # Webhook verification also lives in `oblodai.webhooks` and needs no client.
 from .webhooks import is_stale as verify_is_stale
@@ -150,6 +150,7 @@ __all__ = [
     "is_payment_underpaid",
     "is_payout_final",
     "is_payout_succeeded",
+    "is_test_event",
     "is_zero_amount",
     "new_idempotency_key",
     "parse_webhook",
