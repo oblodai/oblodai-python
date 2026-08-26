@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .money import (
+    MAX_AMOUNT_LENGTH,
     add_amounts,
     amount_equals,
     compare_amounts,
@@ -22,6 +23,7 @@ from .status import (
 __all__ = [
     "FINAL_PAYMENT_STATUSES",
     "FINAL_PAYOUT_STATUSES",
+    "MAX_AMOUNT_LENGTH",
     "add_amounts",
     "amount_equals",
     "compare_amounts",

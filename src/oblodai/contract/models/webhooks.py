@@ -280,5 +280,24 @@ WALLET_EVENT_KEYS: Tuple[str, ...] = (
     "sequence",
 )
 
-#: Any body the core signs and posts; switch on `type` to narrow it.
+#: Any body the core signs and posts whose kind THIS snapshot knows; switch on `type` to narrow it.
 WebhookEvent = Union[PaymentEvent, PayoutEvent, WalletEvent]
+
+
+class UnknownWebhookEvent(TypedDict, total=False):
+    """A verified delivery whose `type` is newer than this snapshot of the contract.
+
+    The SDK returns it rather than refusing it: a kind added on the gateway is still a real event,
+    and dropping it would lose money. `type` and `uuid` are always present; everything else is
+    whatever the gateway sent.
+    """
+
+    #: The raw discriminator, verbatim - outside `EVENT_KINDS` by definition.
+    type: str
+    uuid: str
+    sequence: int
+    test: bool
+
+
+#: The open form: what `webhooks.parse` returns. Narrow it with `webhooks.is_known_event`.
+AnyWebhookEvent = Union[WebhookEvent, UnknownWebhookEvent]

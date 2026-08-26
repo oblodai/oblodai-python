@@ -1,48 +1,59 @@
 #!/usr/bin/env python3
-"""CI gate: the committed src/oblodai/contract must be exactly what codegen produces.
+"""CI gate: the committed src/oblodai/contract and src/oblodai/aio must be what the generators produce.
 
-Regenerates the generated modules (and the async resource mirror) and fails when the result
-differs from what is on disk.
+Non-destructive: the generators write into a temporary directory and the result is compared with
+what is on disk, so a failing gate never leaves a half-regenerated working tree behind (and the
+check is safe to run on a dirty checkout).
 """
 
 from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List
 
-ROOT = Path(__file__).resolve().parent.parent
-CONTRACT_OUT = ROOT / "src" / "oblodai" / "contract"
-ASYNC_OUT = ROOT / "src" / "oblodai" / "aio" / "resources"
-GENERATED = [CONTRACT_OUT / name for name in ("routes.py", "enums.py", "requests.py", "version.py")]
+from toolchain import ROOT
+
+PACKAGE_DIR = ROOT / "src" / "oblodai"
+CONTRACT_NAMES = ("routes.py", "enums.py", "requests.py", "version.py")
 
 
-def snapshot(paths: List[Path]) -> Dict[Path, str]:
-    return {p: p.read_text("utf-8") for p in paths if p.exists()}
+def snapshot(root: Path) -> Dict[str, str]:
+    """``{"contract/routes.py": <text>, "aio/resources/payments.py": <text>, ...}``."""
+    out: Dict[str, str] = {}
+    for name in CONTRACT_NAMES:
+        path = root / "contract" / name
+        if path.exists():
+            out[f"contract/{name}"] = path.read_text("utf-8")
+    for path in sorted((root / "aio" / "resources").glob("*.py")):
+        out[f"aio/resources/{path.name}"] = path.read_text("utf-8")
+    return out
 
 
 def main() -> int:
-    targets = GENERATED + sorted(ASYNC_OUT.glob("*.py"))
-    before = snapshot(targets)
-    for script in ("codegen.py", "gen_async.py"):
-        subprocess.run([sys.executable, str(ROOT / "scripts" / script)], check=True)
-    after = snapshot(sorted(set(targets) | set(ASYNC_OUT.glob("*.py"))))
+    with tempfile.TemporaryDirectory(prefix="oblodai-drift-") as tmp:
+        out = Path(tmp)
+        for script in ("codegen.py", "gen_async.py"):
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / script), "--out", str(out)], check=True
+            )
+        fresh = snapshot(out)
+    committed = snapshot(PACKAGE_DIR)
 
-    drifted = sorted(
-        str(path.relative_to(ROOT))
-        for path in set(before) | set(after)
-        if before.get(path) != after.get(path)
+    drifted: List[str] = sorted(
+        name for name in set(committed) | set(fresh) if committed.get(name) != fresh.get(name)
     )
     if drifted:
         print(
             "contract drift: "
             + ", ".join(drifted)
-            + " differ from the generators - commit the regenerated files",
+            + " differ from the generators - run `make codegen` and commit the result",
             file=sys.stderr,
         )
         return 1
-    print(f"check-drift: {len(after)} generated files are in sync")
+    print(f"check-drift: {len(fresh)} generated files are in sync")
     return 0
 
 

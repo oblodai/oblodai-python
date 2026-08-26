@@ -18,7 +18,15 @@ class AsyncWallets(AsyncResource):
     """Static wallets. Payment key, except the blocked-deposit refund (payout key)."""
 
     async def create(self, params: WalletBody, **options: Any) -> Wallet:
-        """``POST /v1/wallet`` - idempotent by ``order_id``."""
+        """``POST /v1/wallet`` - a permanent deposit address for one customer.
+
+        Idempotent by ``order_id``.
+
+        Codes worth branching on: ``wallet.static_disabled``, ``wallet.unsupported_network``,
+        ``wallet.no_network`` (a multi-network asset with no ``network``), ``wallet.no_address``
+        (derivation is temporarily unavailable - retryable), ``wallet.sandbox_unsupported``,
+        ``request.unknown_currency``, ``idempotency.key_reused``.
+        """
         return cast(Wallet, await self._call("POST /v1/wallet", params, **options))
 
     async def qr(self, address: str, **options: Any) -> WalletQr:
@@ -37,7 +45,14 @@ class AsyncWallets(AsyncResource):
     async def refund_blocked_deposit(
         self, params: WalletBlockedAddressRefundBody, **options: Any
     ) -> Payout:
-        """``POST /v1/wallet/blocked-address-refund`` - send funds off a blocked address back."""
+        """``POST /v1/wallet/blocked-address-refund`` - send funds off a blocked address back.
+
+        Payout key.
+
+        Codes worth branching on: ``wallet.abandoned``, ``refund.nothing_to_refund``,
+        ``refund.dust``, ``refund.no_address``, ``payout.insufficient_funds`` (retryable),
+        ``merchant.wrong_key_kind``.
+        """
         return cast(
             Payout, await self._call("POST /v1/wallet/blocked-address-refund", params, **options)
         )

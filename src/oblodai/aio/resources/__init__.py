@@ -1,4 +1,4 @@
-"""Synchronous resource namespaces, one per area of the API."""
+"""Asynchronous resource namespaces, one per area of the API."""
 
 # GENERATED FILE - do not edit. Source: src/oblodai/resources/__init__.py
 # Regenerate with: python scripts/gen_async.py

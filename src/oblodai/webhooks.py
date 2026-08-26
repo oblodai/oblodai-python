@@ -15,17 +15,27 @@ Deliveries are signed as::
         `test: true` as well; never act on one as if money moved
 
 Always verify over the RAW request bytes; a re-serialized parse will not match.
+
+The MAC is checked BEFORE the freshness window, so an unauthenticated caller cannot use the
+timestamp error as an oracle for what this endpoint considers "now". A delivery whose signature
+verified but whose body is unusable raises :class:`~oblodai.WebhookPayloadError`
+(``webhook.bad_payload``) rather than a :class:`~oblodai.SignatureError`: it is authentic, and a
+receiver that answers 401 to signature failures must not answer 401 to it.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Tuple, Union, cast
 
-from .contract.models.webhooks import WebhookEvent
-from .core.errors import SignatureError
+if TYPE_CHECKING:  # `TypeGuard` is 3.10+; the runtime never needs it.
+    from typing_extensions import TypeGuard
+
+from .contract.models.webhooks import AnyWebhookEvent, WebhookEvent
+from .core.errors import ConfigError, SignatureError, WebhookPayloadError
 from .core.signing import sign_webhook
 from .core.util import HeaderSource, constant_time_equal, header_value
 
@@ -37,8 +47,11 @@ __all__ = [
     "HEADER_WEBHOOK_SIGNATURE_PREV",
     "HEADER_WEBHOOK_TEST",
     "HEADER_WEBHOOK_TIMESTAMP",
+    "KNOWN_EVENT_KINDS",
     "SignatureError",
     "WebhookDeliveryInfo",
+    "WebhookPayloadError",
+    "is_known_event",
     "is_stale",
     "is_test_event",
     "parse",
@@ -54,14 +67,24 @@ HEADER_WEBHOOK_ID = "X-Webhook-Id"
 HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
 HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
+#: The ``type`` discriminators this snapshot of the core knows. A delivery naming anything else is
+#: still returned - a newer core may add a kind, and dropping it would lose a real event.
+KNOWN_EVENT_KINDS = ("payment", "payout", "wallet")
+
 RawBody = Union[str, bytes, bytearray]
+
+# ASCII digits only: `int("١٢٣")` succeeds on Arabic-Indic digits, and a header the core never
+# wrote must never be read as a number.
+_ASCII_INT = re.compile(r"^[0-9]+$")
+# Lowercase or uppercase hex, no `0x` prefix (which would silently fail the constant-time compare).
+_HEX = re.compile(r"^[0-9a-fA-F]+$")
 
 
 @dataclass(frozen=True)
 class WebhookDeliveryInfo:
     """A verified delivery: the event plus the advisory headers worth keeping."""
 
-    event: WebhookEvent
+    event: AnyWebhookEvent
     #: ``X-Webhook-Timestamp`` - unix seconds when this attempt was sent.
     sent_at: int
     #: ``X-Webhook-Id`` - stable across retries of the same delivery; use it to deduplicate.
@@ -83,7 +106,7 @@ def verify(
     previous_secret: Optional[str] = None,
     tolerance_sec: int = 300,
     now: Optional[int] = None,
-) -> WebhookEvent:
+) -> AnyWebhookEvent:
     """Verify the signature and freshness, then parse.
 
     Raises :class:`~oblodai.SignatureError`; never returns an unverified body.
@@ -111,31 +134,31 @@ def verify_delivery(
 
     ``previous_secret`` keeps deliveries queued before a rotation verifiable: they stay signed with
     the outgoing secret for their whole retry life (~26 h), so keep it that long after rotating.
-    ``tolerance_sec=0`` disables the freshness window.
+    ``tolerance_sec=0`` disables the freshness window; a negative one is a mistake, not a wider
+    window, and raises :class:`~oblodai.ConfigError`.
     """
+    _assert_secrets(secret, previous_secret)
+    if tolerance_sec < 0:
+        raise ConfigError(
+            "sdk.bad_config",
+            f"tolerance_sec must be >= 0 (got {tolerance_sec}); use 0 to disable the freshness "
+            "window",
+            "tolerance_sec",
+        )
+
     ts_raw = header_value(headers, HEADER_WEBHOOK_TIMESTAMP)
-    signature = header_value(headers, HEADER_WEBHOOK_SIGNATURE)
+    signature = _hex_header(header_value(headers, HEADER_WEBHOOK_SIGNATURE))
     if not ts_raw or not signature:
         raise SignatureError(
             "webhook.missing_header",
             f"missing {HEADER_WEBHOOK_TIMESTAMP} or {HEADER_WEBHOOK_SIGNATURE}",
         )
-    try:
-        ts = int(ts_raw)
-    except ValueError:
-        raise SignatureError(
-            "webhook.bad_signature", "timestamp header is not an integer"
-        ) from None
+    ts = _ascii_int(ts_raw)
+    if ts is None:
+        raise SignatureError("webhook.bad_signature", "timestamp header is not an integer")
 
-    if tolerance_sec > 0:
-        current = int(time.time()) if now is None else now
-        if abs(current - ts) > tolerance_sec:
-            raise SignatureError(
-                "webhook.stale_timestamp",
-                f"delivery timestamp {ts} is outside the +/-{tolerance_sec}s window",
-            )
-
-    prev_signature = header_value(headers, HEADER_WEBHOOK_SIGNATURE_PREV)
+    # MAC first: the freshness check below must never be reachable by an unauthenticated caller.
+    prev_signature = _hex_header(header_value(headers, HEADER_WEBHOOK_SIGNATURE_PREV))
     # A merchant who has not swapped the stored secret yet verifies the Prev header with it; one
     # who already swapped but kept the old copy verifies the main header with the new secret.
     candidates: List[Tuple[str, str]] = [(signature, secret)]
@@ -145,44 +168,67 @@ def verify_delivery(
         candidates.append((signature, previous_secret))
         if prev_signature:
             candidates.append((prev_signature, previous_secret))
+    body_bytes = _as_bytes(raw_body)
     ok = any(
-        constant_time_equal(provided.lower(), sign_webhook(key, ts, _as_bytes(raw_body)))
+        constant_time_equal(provided.lower(), sign_webhook(key, ts, body_bytes))
         for provided, key in candidates
     )
     if not ok:
         raise SignatureError("webhook.bad_signature", "signature does not match the body")
 
-    event_time_raw = header_value(headers, HEADER_WEBHOOK_EVENT_TIME)
-    event_time = int(event_time_raw) if event_time_raw and event_time_raw.isdigit() else None
-    event = parse(raw_body)
+    if tolerance_sec > 0:
+        current = int(time.time()) if now is None else now
+        if abs(current - ts) > tolerance_sec:
+            raise SignatureError(
+                "webhook.stale_timestamp",
+                f"delivery timestamp {ts} is outside the +/-{tolerance_sec}s window",
+            )
+
+    event = parse(body_bytes)
     return WebhookDeliveryInfo(
         event=event,
         sent_at=ts,
         id=header_value(headers, HEADER_WEBHOOK_ID),
         event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
-        event_time=event_time,
+        event_time=_ascii_int(header_value(headers, HEADER_WEBHOOK_EVENT_TIME)),
         is_test=header_value(headers, HEADER_WEBHOOK_TEST) == "true" or is_test_event(event),
     )
 
 
-def parse(raw_body: RawBody) -> WebhookEvent:
-    """Parse a (previously verified) delivery body into a typed event, discriminated by ``type``."""
+def parse(raw_body: RawBody) -> AnyWebhookEvent:
+    """Parse a (previously verified) delivery body into a typed event, discriminated by ``type``.
+
+    An event kind this snapshot does not know is NOT an error: it is returned with its raw
+    ``type`` string as an :class:`~oblodai.UnknownWebhookEvent`, so a receiver written against an
+    older SDK still sees the delivery (and :func:`is_test_event` / :func:`is_stale` still work on
+    it). Narrow the result with :func:`is_known_event`.
+    """
     text = _as_bytes(raw_body).decode("utf-8", errors="replace")
     try:
         body: Any = json.loads(text)
-    except ValueError:
-        raise SignatureError("webhook.bad_signature", "body is not JSON") from None
-    if (
-        not isinstance(body, Mapping)
-        or not isinstance(body.get("type"), str)
-        or not isinstance(body.get("uuid"), str)
-    ):
-        raise SignatureError(
-            "webhook.bad_signature", "body lacks the type/uuid fields every event carries"
+    # A body nested thousands of levels deep exhausts the C stack instead of raising ValueError.
+    except (ValueError, RecursionError):
+        raise WebhookPayloadError("delivery body is not JSON") from None
+    if not isinstance(body, Mapping):
+        raise WebhookPayloadError("delivery body is not a JSON object")
+    if not isinstance(body.get("type"), str) or not isinstance(body.get("uuid"), str):
+        raise WebhookPayloadError(
+            "delivery body lacks the string type/uuid fields every event carries"
         )
-    if body["type"] not in ("payment", "payout", "wallet"):
-        raise SignatureError("webhook.bad_signature", f'unknown event type "{body["type"]}"')
-    return body  # type: ignore[return-value]
+    return cast(AnyWebhookEvent, body)
+
+
+def is_known_event(event: Mapping[str, Any]) -> TypeGuard[WebhookEvent]:
+    """Is this one of the event kinds this snapshot of the contract declares?
+
+    Use it to narrow what :func:`parse` returns before touching a kind-specific field::
+
+        if webhooks.is_known_event(event) and event["type"] == "payment":
+            ...
+
+    ``False`` is not a reason to drop the delivery: acknowledge it, and act on what you do know.
+    """
+    return isinstance(event, Mapping) and event.get("type") in KNOWN_EVENT_KINDS
 
 
 def is_test_event(event: Mapping[str, Any]) -> bool:
@@ -191,17 +237,61 @@ def is_test_event(event: Mapping[str, Any]) -> bool:
     They are signed exactly like live ones, so a handler must check this and never act on a test
     event as if money moved.
     """
+    if not isinstance(event, Mapping):
+        return False
     return event.get("test") is True
 
 
 def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -> bool:
     """Deliveries can arrive out of order (a retried ``paid`` after a ``refund``).
 
-    Keep the last ``sequence`` you processed per object and skip anything not newer.
+    Keep the last ``sequence`` you processed per object and skip anything not newer. An event with
+    no usable ``sequence`` is never stale - dropping a delivery because a field was missing would
+    lose money, so the safe answer is to process it - and this never raises.
     """
     if last_processed_sequence is None:
         return False
-    return int(event.get("sequence", 0)) <= last_processed_sequence
+    if not isinstance(event, Mapping):
+        return False
+    sequence = event.get("sequence")
+    if isinstance(sequence, bool) or not isinstance(sequence, int):
+        return False
+    return sequence <= last_processed_sequence
+
+
+def _assert_secrets(secret: Any, previous_secret: Any) -> None:
+    """No verification with an empty key: it would accept a MAC anyone can compute."""
+    if not isinstance(secret, str) or not secret:
+        raise ConfigError(
+            "sdk.bad_config",
+            "secret= must be the endpoint's non-empty signing secret; verifying with an empty "
+            "key would accept forged deliveries",
+            "secret",
+        )
+    if previous_secret is not None and (
+        not isinstance(previous_secret, str) or not previous_secret
+    ):
+        raise ConfigError(
+            "sdk.bad_config",
+            "previous_secret= must be a non-empty secret when supplied; omit it entirely when "
+            "no rotation is in flight",
+            "previous_secret",
+        )
+
+
+def _hex_header(value: Optional[str]) -> Optional[str]:
+    """A signature header: surrounding whitespace trimmed, hex in either case, no ``0x`` prefix."""
+    if value is None:
+        return None
+    text = value.strip()
+    return text if _HEX.match(text) else None
+
+
+def _ascii_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    text = value.strip()
+    return int(text) if _ASCII_INT.match(text) else None
 
 
 def _as_bytes(raw: RawBody) -> bytes:

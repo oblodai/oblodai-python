@@ -7,13 +7,15 @@ cannot disagree. Nothing here touches the network or the clock.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, Mapping, Optional, Union
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from ..contract.types import RouteSpec
 from .errors import ConfigError
 from .signing import (
+    HEADER_ADMIN_TOKEN,
     HEADER_IDEMPOTENCY_KEY,
     HEADER_PUBLIC_ID,
     HEADER_SIGNATURE,
@@ -22,6 +24,7 @@ from .signing import (
 )
 
 __all__ = [
+    "RESERVED_HEADERS",
     "BuiltRequest",
     "Credentials",
     "Query",
@@ -36,7 +39,9 @@ __all__ = [
 QueryValue = Union[str, int, float, bool, None]
 Query = Mapping[str, QueryValue]
 
-#: Headers the SDK owns; a caller-supplied header with one of these names is dropped.
+#: Headers the SDK owns; a caller-supplied header with one of these names is dropped, compared
+#: case-insensitively. An overridden ``Accept`` or ``User-Agent`` is merely wrong; an overridden
+#: signing header would produce a request the core cannot verify.
 RESERVED_HEADERS = frozenset(
     h.lower()
     for h in (
@@ -44,19 +49,25 @@ RESERVED_HEADERS = frozenset(
         HEADER_SIGNATURE,
         HEADER_TIMESTAMP,
         HEADER_IDEMPOTENCY_KEY,
+        HEADER_ADMIN_TOKEN,
+        "Accept",
         "Content-Type",
         "Content-Length",
         "Host",
+        "User-Agent",
     )
 )
 
 
 @dataclass(frozen=True)
 class Credentials:
-    """One API key pair."""
+    """One API key pair. The secret never reaches a repr, a log or a traceback."""
 
     public_id: str
-    secret: str
+    secret: str = field(repr=False)
+
+    def __repr__(self) -> str:
+        return f"Credentials(public_id={self.public_id!r}, secret='[redacted]')"
 
 
 @dataclass(frozen=True)
@@ -83,6 +94,7 @@ def build_request(
     credentials: Optional[Credentials] = None,
     idempotency_key: Optional[str] = None,
     extra_headers: Optional[Mapping[str, str]] = None,
+    admin_token: Optional[str] = None,
 ) -> BuiltRequest:
     """Assemble (and sign) one attempt of one call."""
     origin, prefix = join_url(base_url)
@@ -92,8 +104,10 @@ def build_request(
 
     headers: Dict[str, str] = {}
     for name, value in (extra_headers or {}).items():
-        if name.lower() not in RESERVED_HEADERS:
-            headers[name] = value
+        if name.lower() in RESERVED_HEADERS:
+            continue  # the SDK owns this one; a caller copy would be ignored or break signing
+        assert_header_value(name, value)
+        headers[name] = value
     headers["Accept"] = "application/json"
     headers["User-Agent"] = user_agent
     has_body = route.method != "GET"
@@ -101,6 +115,10 @@ def build_request(
         headers["Content-Type"] = "application/json"
     if idempotency_key:
         headers[HEADER_IDEMPOTENCY_KEY] = idempotency_key
+    # Onboarding is the only surface the admin token gates; sending it anywhere else would leak a
+    # gateway-wide credential onto every merchant request.
+    if route.auth == "onboard" and admin_token:
+        headers[HEADER_ADMIN_TOKEN] = admin_token
 
     if route.auth not in ("public", "onboard"):
         if credentials is None:
@@ -128,6 +146,29 @@ def build_request(
         content=body if has_body else None,
         request_uri=request_uri,
     )
+
+
+def assert_header_value(name: str, value: str) -> None:
+    """A caller header must be one header: no CR/LF, no bytes a header frame cannot carry.
+
+    A value carrying ``\r\n`` splits into a second header (or a second request) on the wire.
+    """
+    if not isinstance(value, str):
+        raise ConfigError(
+            "sdk.bad_header", f'header "{name}" must be a string (got {type(value).__name__})', name
+        )
+    if "\r" in value or "\n" in value or "\0" in value:
+        raise ConfigError(
+            "sdk.bad_header",
+            f'header "{name}" contains a line break; a header value must be a single line',
+            name,
+        )
+    if not value.isascii():
+        raise ConfigError(
+            "sdk.bad_header",
+            f'header "{name}" contains non-ASCII characters; encode them before sending',
+            name,
+        )
 
 
 def join_url(base_url: str) -> tuple[str, str]:
@@ -175,10 +216,47 @@ def encode_query(query: Optional[Query]) -> str:
     return "&".join(parts)
 
 
+def _json_default(value: Any) -> str:
+    """The one non-JSON type worth accepting: a ``Decimal``, rendered as the wire's own string.
+
+    Anything else is a mistake the caller must see, named, before a request is signed.
+    """
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ConfigError(
+                "sdk.bad_body", f"request body carries a non-finite Decimal ({value})", "body"
+            )
+        return format(value, "f")
+    raise ConfigError(
+        "sdk.bad_body",
+        f"request body carries a {type(value).__name__}, which is not JSON; amounts are decimal "
+        "strings and times are RFC 3339 strings",
+        "body",
+    )
+
+
 def serialize_body(body: Any, method: str) -> bytes:
-    """Serialize a request body once; a missing POST body becomes ``{}``, GET signs nothing."""
+    """Serialize a request body once; a missing POST body becomes ``{}``, GET signs nothing.
+
+    ``allow_nan=False`` matters: Python renders ``float("nan")`` as the bare token ``NaN``, which
+    is not JSON, and the core would answer 400 to a body the SDK swore it had encoded.
+    """
     if method == "GET":
         return b""
     if body is None:
         return b"{}"
-    return json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    try:
+        text = json.dumps(
+            body,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+            default=_json_default,
+        )
+    except ValueError as err:  # allow_nan=False on a NaN/Infinity float
+        raise ConfigError(
+            "sdk.bad_body",
+            f"request body is not JSON-serializable: {err}; amounts are decimal strings",
+            "body",
+        ) from err
+    return text.encode("utf-8")

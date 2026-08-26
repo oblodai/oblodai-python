@@ -1,336 +1,215 @@
 # Changelog
 
-## 1.3.0 — 2026-08-25
+All notable changes to this package are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
+[Semantic Versioning](https://semver.org/).
+
+## [1.3.0] — 2026-08-26
 
 Rewrite generated from the gateway's contract snapshot. The 1.x line signed four fields and got a
-401 from the current gateway on every call; nothing of it is left.
+401 from the current gateway on every call; nothing of it is left. Upgrading from 1.2 is a rewrite
+of the calling code too — see [MIGRATION-1.3.md](MIGRATION-1.3.md).
 
-- Fixed: requests are signed with the five-field recipe (`ts\nMETHOD\nrequestURI\nidempotencyKey\nbody`)
-  over path + raw query, with an EMPTY idempotency slot when no key is sent. 1.x returned 401 on
-  every call.
-- Fixed: models, statuses, pagination and parameter names match the current API vocabulary; field
-  names are exactly the wire's `snake_case`, amounts are decimal strings everywhere.
-- Added: every merchant route (107) — cancel/validate, batches, documents, fee configs, split
-  opt-in, secret rotation, payer-facing checkout and claim endpoints, merchant provisioning.
-- Added: an asynchronous client (`from oblodai.aio import AsyncOblodai`) beside the synchronous one.
-  Both drive the same I/O-free core: signing, envelope decoding, the retry decision, idempotency and
+### Added
+
+- Every merchant route (107) — cancel/validate, batches, documents, fee configs, split opt-in,
+  secret rotation, payer-facing checkout and claim endpoints, merchant provisioning.
+- A `merchants` namespace for platforms that onboard merchants themselves
+  (`merchants.create`, `merchants.create_sandbox`). These routes are unsigned; a self-hosted
+  gateway gates them with the `admin_token` client option (`OBLODAI_ADMIN_TOKEN`), which is sent
+  as `X-Admin-Token` on those routes and on no others.
+- An asynchronous client (`from oblodai.aio import AsyncOblodai`) beside the synchronous one. Both
+  drive the same I/O-free core: signing, envelope decoding, the retry decision, idempotency and
   clock-skew correction are shared code, so the two clients cannot drift apart.
-- Added: lazy `Page` lists — `.first()` for one page, iteration for every page, `.all(max_items=…)`
-  to collect; nothing is requested until the result is consumed.
-- Added: retries driven by the gateway's own `retryable` flag; transport failures and envelope-less
-  proxy answers are re-sent only when repeating is safe (read-only routes, or writes carrying an
-  Idempotency-Key). `Retry-After` wins over the backoff; per-attempt `timeout_ms` and a whole-call
-  `deadline_ms`.
-- Added: automatic idempotency keys on create routes, reused across that call's retries; a caller
-  key on a route the gateway does not deduplicate is refused (`sdk.idempotency_unsupported`) instead
-  of pretending a re-send is safe.
-- Added: clock-skew correction — a 401 `merchant.bad_signature`/`auth.bad_timestamp` re-signs once
-  with the server's `Date`, and the offset is kept only if that attempt got past authentication.
-- Added: dual key pairs (payment + payout) picked per route; `batches.info` retries a
+- Lazy `Page` lists — `.first()` for one page, iteration for every page, `.all(max_items=…)` to
+  collect; nothing is requested until the result is consumed.
+- Retries driven by the gateway's own `retryable` flag; transport failures and envelope-less proxy
+  answers are re-sent only when repeating is safe. Per-attempt `timeout_ms` and a whole-call
+  `deadline_ms`; `Retry-After` wins over the backoff.
+- Automatic idempotency keys on create routes, reused across that call's retries.
+- Clock-skew correction: a 401 `merchant.bad_signature`/`auth.bad_timestamp` re-signs once with
+  the server's `Date`, and the offset is kept only if that attempt got past authentication.
+- Dual key pairs (payment + payout) picked per route; `batches.info` retries a
   `merchant.wrong_key_kind` with the payout key.
-- Added: `oblodai.webhooks` — `verify`, `verify_delivery`, `parse`, `is_stale`; raw-byte
+- `oblodai.webhooks` — `verify`, `verify_delivery`, `parse`, `is_stale`, `is_test_event`: raw-byte
   verification, rotation-aware (`previous_secret`, `X-Webhook-Signature-Prev`), no client needed.
   Accepts any header shape (`dict`, `email.message.Message`, `httpx.Headers`, ASGI pairs).
-- Added: an `OblodaiError` hierarchy (`ValidationError`, `AuthenticationError`, `PermissionError`,
-  `NotFoundError`, `ConflictError`/`IdempotencyConflictError`, `RateLimitError`, `UnavailableError`,
-  `InternalError`, `TransportError`, `ConfigError`, `SignatureError`) carrying `code`, `http_status`,
-  `retryable`, `retry_after`, `request_id`, `field` and `synthetic`. `to_dict()` never leaks the raw
-  body.
-- Added: `contract/` ships the gateway's export (routes, schemas, enums, 468 error codes, signing
-  vectors, golden bodies, real signed webhook deliveries). `scripts/codegen.py` generates the route
-  registry, enums, error codes and request `TypedDict`s; `scripts/gen_async.py` mirrors the resource
-  layer for the async client; `scripts/check_drift.py` fails CI when either is stale.
-- Added: three test tiers — unit (signing and webhook vectors, retry/idempotency/skew/URL rules),
-  contract (every route hits the right method, path, auth and idempotency header; every golden body
-  matches its model key-for-key) and live (a real gateway).
-- Changed: `httpx` is the only runtime dependency (`pydantic` is gone); Python >= 3.9; the package
-  ships `py.typed` and passes `mypy --strict`.
-- Changed: `client.payment_links` / `client.payout_links` are the namespace names, and every method
-  is `snake_case` (`send_email`, `rotate_secret`, `create_sandbox`, `refund_blocked_deposit`, …).
-- Removed: `**kwargs` field whitelists on create methods — bodies are dicts typed by the generated
+- Rehearsal deliveries (`webhooks.test`, sandbox) are marked: `delivery.is_test` and
+  `webhooks.is_test_event(event)` are true for them. They are signed exactly like live ones, so a
+  handler must check this and never treat one as money.
+- `WebhookPayloadError` (code `webhook.bad_payload`) for a delivery whose signature verified but
+  whose body is unusable. It is a `ContractError`, deliberately not a `SignatureError`: a receiver
+  that answers 401 to signature failures must not answer 401 to an authentic delivery.
+- `AmountError` (code `sdk.bad_amount`) from the money helpers; it is also a `ValueError`, so
+  existing `except ValueError` keeps working.
+- `ResponseTooLargeError` (code `sdk.response_too_large`) when a response passes the size cap.
+- `AnyWebhookEvent` = `WebhookEvent | UnknownWebhookEvent` and `webhooks.is_known_event()`: an
+  event kind newer than this snapshot is returned with its raw `type`, and narrowed explicitly.
+- A per-call `headers=` option on every method, merged over the client's own headers and subject
+  to the same reserved-name and value checks.
+- `oblodai.__version__` beside `SDK_VERSION`, both read from the installed distribution's
+  metadata, so `pyproject.toml` is the only place a version is written.
+- `contract/` ships the gateway's export (routes, schemas, enums, 471 error codes, signing
+  vectors, golden bodies, real signed webhook deliveries). `scripts/codegen.py` generates the
+  route registry, enums, error codes and request `TypedDict`s; `scripts/gen_async.py` mirrors the
+  resource layer for the async client; `scripts/check_drift.py` fails CI when either is stale.
+- Three test tiers — unit (signing and webhook vectors, retry/idempotency/skew/URL rules, the
+  transport's limits), contract (every route hits the right method, path, auth and idempotency
+  header; every `RouteSpec` field equals the contract; every golden body matches its model
+  key-for-key) and live (a real gateway).
+
+### Changed
+
+- Requests are signed with the five-field recipe
+  (`ts\nMETHOD\nrequest_uri\nidempotency_key\nbody`) over path + raw query, with an EMPTY
+  idempotency slot when no key is sent. 1.x returned 401 on every call.
+- Models, statuses, pagination and parameter names match the current API vocabulary; field names
+  are exactly the wire's `snake_case`, amounts are decimal strings everywhere.
+- Retry safety now comes from the contract's own `safe` flag, hand-classified by the core per
+  route, instead of a path-suffix heuristic in the code generator. The generator refuses to run
+  against a snapshot that does not declare it.
+- `PermissionError` is now `PermissionDeniedError`. The old name shadowed the builtin and is kept
+  as an unexported alias.
+- `PaymentHistoryBody` no longer offers `kind`: the core's shared DTO carries it, but its own
+  description says it applies to `/v1/payout/history` only.
+- `documents.download` requires `exp` and `sig` — the two halves of a `document_url` signature.
+  A link without them is not downloadable, and that is now a `ConfigError` rather than a 403.
+- `httpx` is the only runtime dependency (`pydantic` is gone), pinned `>=0.24,<1.0`; Python >=
+  3.9; the package ships `py.typed` and passes `mypy --strict`.
+- `client.payment_links` / `client.payout_links` are the namespace names, and every method is
+  `snake_case` (`send_email`, `rotate_secret`, `create_sandbox`, `refund_blocked_deposit`, …).
+- The money-moving methods document the error codes worth branching on, and a contract test keeps
+  those lists inside the gateway's own catalogue.
+
+### Fixed
+
+- The per-attempt timeout now covers the WHOLE response read, not just the first byte. `httpx`
+  times out per socket operation, so a server dribbling one byte at a time held a call open long
+  past its `timeout_ms`.
+- Response bodies are read under a size cap (8 MiB on envelope routes, 64 MiB on document routes)
+  and fail with `ResponseTooLargeError` instead of exhausting memory.
+- A deeply nested JSON body raises the SDK's own error instead of letting `RecursionError` escape
+  — in the envelope decoder and in webhook parsing, where the bytes are attacker-controlled.
+- `retry_after` of any JSON type is coerced or dropped; a boolean, a string or a huge number no
+  longer raises a `TypeError` in the middle of the retry loop. `Retry-After` headers are clamped
+  the same way: never negative, and never past 86 400 s. The delay actually slept is capped much
+  lower, by `RetryOptions.max_retry_after_ms`.
+- The error envelope is decoded field by field. One field of the wrong type no longer discards the
+  rest, and `retryable` is believed only when it is a literal boolean.
+- Webhook verification checks the MAC BEFORE the freshness window, so the timestamp error is no
+  longer an oracle for an unauthenticated caller. An empty `secret` (or an empty
+  `previous_secret`) is a `ConfigError` before any crypto runs, and a negative `tolerance_sec` is
+  a `ConfigError` rather than a wider window.
+- An unknown webhook event `type` is returned with its raw string instead of raising; a receiver
+  written against an older SDK still sees the delivery.
+- `webhooks.is_stale` returns `False` for an event with a missing or non-integer `sequence` and
+  never raises. It used to return `True` for a missing one — which SKIPPED the delivery.
+- Signature headers are trimmed, accepted in either hex case, and rejected with an `0x` prefix.
+  Timestamp headers are read as ASCII digits only (`int("١٢٣")` used to parse).
+- Secrets never render: `Credentials`, `EngineSettings` and the client redact in `repr()`, and
+  fields are redacted before they reach a caller-injected logger, not only the built-in one.
+- The money helpers accept ASCII digits only (`\d` also matched Arabic-Indic digits), cap the
+  input length, and raise `AmountError` instead of a bare `ValueError`.
+- Request bodies are serialized with `allow_nan=False`, and a `Decimal` is rendered as the wire's
+  own decimal string. A `float("nan")` used to be encoded as the bare token `NaN`, which is not
+  JSON.
+- A caller-supplied `idempotency_key` that fails validation is now a `ConfigError`
+  (`sdk.bad_idempotency_key`) rather than a 400-family `ValidationError`: nothing was sent.
+- Caller headers can no longer take over a header the SDK owns (`Accept`, `Content-Type`,
+  `User-Agent`, `X-Public-Id`, `X-Signature`, `X-Timestamp`, `Idempotency-Key`, `X-Admin-Token`),
+  compared case-insensitively, and a value carrying CR/LF or non-ASCII bytes is a `ConfigError`.
+- A redirect is never followed. If an injected HTTP client follows one, the SDK notices the answer
+  came from a URL nobody asked for and raises the "unexpected redirect" error.
+- Clock-skew correction is concurrency-safe: the offset is compared against what the attempt was
+  signed with, guarded by a lock, and reverted only if this call's correction is still in force.
+- A caller `idempotency_key` on a list method raises `sdk.idempotency_unsupported` instead of
+  being dropped silently.
+- `TransportError` no longer assigns `__cause__ = None`, which suppressed the original traceback.
+- The transport no longer catches every exception as `transport.network`; an SDK error raised
+  during the read keeps its own (non-retryable) identity.
+
+### Removed
+
+- `**kwargs` field whitelists on create methods — bodies are dicts typed by the generated
   `TypedDict`s, so a typo is caught by the type checker instead of a hand-kept list.
 
-Значимые изменения этого пакета. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
-версии — [SemVer](https://semver.org/lang/ru/).
+### Packaging and CI
+
+- The drift check regenerates into a temporary directory and compares, so it is non-destructive
+  and works on a clean checkout; both generators find `ruff` on `PATH` instead of assuming a
+  repository-local virtualenv.
+- The sdist carries `contract/`, `examples/`, `AGENTS.md` and `MIGRATION-1.3.md`; the wheel
+  carries `AGENTS.md` as `oblodai/AGENTS.md`. CI asserts all of it.
+- The release workflow re-runs every CI gate before uploading, fires only on a `vX.Y.Z` tag,
+  checks the tag against the packaged version, and publishes with `twine` and an API token.
 
 ## Earlier releases
 
-The entries below document the 1.0-1.2 line and are kept in their original language. They describe
-an implementation 1.3.0 replaced wholesale; nothing in them still applies to the current package.
+The entries below summarise the 1.0–1.2 line. They describe an implementation 1.3.0 replaced
+wholesale; nothing in them still applies to the current package.
 
-## [1.2.1 — unreleased, superseded by 1.3.0]
+## [1.2.1] — unreleased, superseded by 1.3.0
 
-### Добавлено
-- **Проверка имён полей на create-методах — защита от «тихой» опечатки в денежном поле.**
-  Create-методы принимают поля как `**kwargs` и кладут их в тело подписанного запроса. Раньше
-  неизвестное имя не вызывало никакой ошибки: шлюз, как любой разборщик JSON, лишние ключи
-  игнорирует — и операция исполнялась с ДРУГИМ смыслом, а ответ выглядел успешным. Проверено
-  живьём: опечатка в `amount` молча изменила сумму и срок счёта. Теперь имена сверяются с белым
-  списком полей, которые поддерживает сам шлюз, и неизвестное имя даёт `TypeError` с подсказкой
-  («возможно, имелось в виду …») и списком допустимых полей — ДО подписи и отправки, запрос
-  в сеть не уходит. Покрыто: `payments.create`, `payouts.create`, `payout_links.create`,
-  `payment_links.create`, `splits.create_rule` — sync и async одинаково. Списки полей вынесены
-  в модуль `oblodai._params` (`PAYMENT_FIELDS`, `PAYOUT_FIELDS`, `PAYOUT_LINK_FIELDS`,
-  `PAYMENT_LINK_FIELDS`, `SPLIT_RULE_FIELDS`) и повторяют структуры запросов ядра
-  (`services/core/internal/app/payapi`). Классы опечаток, которые это ловит: `amout`/`amont`
-  (не та сумма), `expires_in_hour` (payout-ссылка со сроком 1 час вместо заданного),
-  `percnt` (нулевая доля партнёра), `lifetme` (срок счёта по умолчанию).
-  **Обратная совместимость:** известные поля работают ровно как раньше — белый список описывает
-  то, что шлюз и так принимает, новых ограничений не вводит. SDK-kwarg `idempotency_key`
-  разрешён там, где метод его поддерживает (на management-эндпоинтах `payment_links.create` и
-  `splits.create_rule` он не принимается — они не двигают деньги и заголовок не шлют).
-
-### Документация
-- **Таблица статусов платежа и выплаты** в README (раздел «Статусы»), сверена с
-  `apifmt.PaymentStatus` / `PaymentStatusResolved` / `PayoutStatus` ядра: `check`, `select`,
-  `confirm_check`, `wrong_amount_waiting`, `wrong_amount`, `paid`, `paid_over`, `cancel`
-  и `check` → `process` → `paid` / `fail` / `cancel` для выплат, с отметкой терминальности
-  и указанием на поле `is_final`.
-- **Исправлено описание недоплаты и `payments.resolve`.** README обещал статус `wrong_amount`
-  сразу после частичной оплаты и немедленный `resolve`. На деле недоплата проходит ДВА
-  состояния: пока счёт жив — `wrong_amount_waiting` (покупатель ещё может доплатить, и тогда
-  счёт станет `paid`), и только по истечении `lifetime` (минимум 300 с) — `wrong_amount`.
-  `resolve` принимает лишь второе; на первом шлюз отвечает `409 resolution.not_underpaid`
-  (`internal/app/payapi/resolve_api.go`). Пример в разделе про resolve и пример песочницы
-  переписаны под это.
-- **Предупреждение про `webhooks.register()`.** Во-первых, секрет для проверки подписи вебхуков —
-  это отдельный секрет ЭНДПОИНТА из `register().secret`, а НЕ секрет API-ключа; подставив
-  второй, интегратор отвергнет 100% вебхуков. Во-вторых, `register()` — это UPSERT
-  ЕДИНСТВЕННОГО эндпоинта на проект (`ON CONFLICT (project_id) DO UPDATE`,
-  `internal/webhook/postgres.go`): повторный вызов с другим URL не создаёт второй эндпоинт,
-  а перенаправляет доставки — тот же `endpoint_id`, старый URL молча замолкает; секрет при этом
-  намеренно сохраняется, чтобы не осиротить уже поставленные в очередь доставки. Несколько
-  получателей разводятся проектами.
-- **Оговорка про `payment.url` и `claim_url`.** Шлюз собирает их из своего публичного базового
-  URL; на локальном стенде без `GATEWAY_PUBLIC_BASE_URL` оба поля приходят ПУСТОЙ строкой
-  (в проде шлюз без него не стартует). Это не баг SDK и не баг ядра — но локально ссылку нужно
-  собирать самому из `uuid` / `claim_token`.
-- **Уточнено, что делает `sandbox.reset()`.** Формулировка «чистый лист» вводила в заблуждение:
-  reset отменяет инвойсы ТОЛЬКО в статусах `created` и `select` и обнуляет балансы. Счёт,
-  по которому уже виден депозит (`confirm_check`, `wrong_amount_waiting`), он сознательно не
-  трогает — отмена дала бы депозиту подтвердиться в отменённый счёт (решение зафиксировано
-  комментарием в `internal/app/sandboxapi/reset.go`).
-- **Явно показана связка `list_webhooks()` → `replay_webhook()`.** Идентификатор доставки лежит
-  в поле `SandboxDelivery.id`, а `replay_webhook` принимает его как `delivery_id` (так называется
-  поле тела `POST /v1/sandbox/webhooks/replay` и поле ответа `SandboxReplayResult.delivery_id`) —
-  это одно и то же значение, разные имена по краям сбивали с толку.
+- Added: field-name checking on the create methods. They took fields as `**kwargs` and put them
+  into the signed body, so an unknown name was silently ignored by the gateway and the operation
+  ran with a DIFFERENT meaning while the response looked fine — a typo in `amount` changed both
+  the sum and the invoice lifetime. Names were checked against a whitelist and an unknown one
+  raised `TypeError` before signing.
+- Docs: payment and payout status tables in the README, checked against the core's own vocabulary.
+- Docs: corrected the underpayment description. An underpaid invoice passes through
+  `wrong_amount_waiting` (the buyer may still top it up) and only becomes `wrong_amount` after its
+  lifetime expires; `resolve` accepts only the second state.
+- Docs: warned that the webhook signing secret is the ENDPOINT secret from `register().secret`,
+  not the API key secret, and that `register()` is an upsert of the project's single endpoint —
+  calling it with a new URL redirects deliveries rather than adding a receiver.
+- Docs: `payment.url` and `claim_url` are built from the gateway's public base URL and come back
+  empty on a local stand without one.
+- Docs: `sandbox.reset()` cancels invoices in `created`/`select` and zeroes balances; it
+  deliberately leaves an invoice that already has a deposit alone.
 
 ## [1.2.0] — 2026-07-19
 
-### Добавлено
-- **Песочница разработчика — группа `client.sandbox`** (sync и async). Работает ТОЛЬКО
-  с тестовыми ключами (`test_…` / `oblodai_test_…`); бизнес-эндпоинты с тестовым ключом
-  не меняются — между тестом и продом меняется только ключ. Живой ключ на sandbox-эндпоинтах
-  получает HTTP 403 `sandbox.live_key`. Только для тестового кода. Методы:
-  - `sandbox.simulate_deposit(invoice_id=, amount=, confirmations=, txid=)` —
-    `POST /v1/sandbox/deposit`: имитация он-чейн депозита; без `amount` платится ровно
-    причитающееся, малое `confirmations` даёт «неподтверждённый» депозит, повтор с тем же
-    `txid` и бОльшим числом подтверждений углубляет его.
-  - `sandbox.faucet(asset=, amount=, idempotency_key=)` — `POST /v1/sandbox/faucet`:
-    тестовый баланс (≤ 1000000 за вызов); `idempotency_key` здесь — поле ТЕЛА запроса
-    (контракт эндпоинта), не заголовок.
-  - `sandbox.reset()` — `POST /v1/sandbox/reset`: отмена открытых инвойсов и обнуление
-    балансов (история сохраняется).
-  - `sandbox.list_webhooks()` — `GET /v1/sandbox/webhooks`: последние доставки вебхуков
-    (до 50, новые первыми), с `payload`.
-  - `sandbox.replay_webhook(delivery_id)` — `POST /v1/sandbox/webhooks/replay`.
-- **Подписанный GET.** Транспорт теперь умеет подписывать GET-запросы: та же каноническая
-  строка `{ts}\nGET\n{path}\n` с пустым телом (используется `sandbox.list_webhooks`).
-- **Хелпер `is_test_key(public_id)`** — `True`, если ключ тестовый (префикс `test_`).
-- Новые pydantic-модели: `SandboxDeposit`, `SandboxFaucetResult`, `SandboxResetResult`,
-  `SandboxDelivery` (с `payload`), `SandboxReplayResult`.
-- **Внутренние переводы пользователю платформы** (sync и async, PAYOUT/API-ключ):
-  - `account.transfer_to_user(to_user_id=, amount=, currency=, order_id=)` —
-    `POST /v1/transfer/to-user`: перевод БЕЗ комиссии с баланса мерчанта на личный
-    кошелёк пользователя платформы. `to_user_id` — id пользователя (UUID-строка),
-    НЕ username. Идемпотентность — лестница как у прочих денежных эндпоинтов:
-    заголовок `Idempotency-Key` (авто-uuid4, стабилен между ретраями; свой —
-    `idempotency_key`), иначе `order_id`, иначе подпись запроса. Модель ответа —
-    `TransferToUserResult` (`currency`, `amount`, `to_user_id`, `recipient_balance`).
-  - `account.transfer_batch([...], on_error=)` — `POST /v1/transfer/batch`:
-    зарплатная пачка переводов to-user (до 5000); результаты — через
-    `batches.info(batch_id)`.
-- **Публичные эндпоинты инвойса для кастомного checkout** (sync и async, без подписи
-  и без ключа — можно звать из браузера):
-  - `payments.public_get(payment_id)` — `GET /v1/pay/{id}`: покупательское состояние
-    инвойса (адрес, сумма, QR, статус, срок); для валюто-агностичного инвойса
-    в статусе `select` дополнительно приходит `accepted` — методы на выбор
-    (новое поле `Payment.accepted`).
-  - `payments.public_select(payment_id, currency=, network=)` —
-    `POST /v1/pay/{id}/select`: покупатель выбирает валюту+сеть; фиксирует курс,
-    выделяет депозитный адрес, переводит инвойс из `select` в `created`.
-    Ответ — обычная модель `Payment`.
-
-### Безопасность
-- **Базовый URL обязан быть `https://` — иначе `ValueError` при создании клиента.** Раньше SDK
-  молча принимал `http://` и слал по открытому каналу заголовок `X-Signature` — HMAC тела и пути
-  на секрете API-ключа. Любой посредник (прокси, Wi-Fi, оператор) читал подпись вместе с телом
-  запроса и мог переиграть его, пока не истёк timestamp; опечатка в схеме или забытая настройка
-  стенда превращались в утечку без единого признака в логах. Теперь схема проверяется на
-  создании клиента, до первого запроса, — в `OblodaiClient`, `AsyncOblodaiClient` и в обоих
-  `from_env()` (иначе `OBLODAI_BASE_URL` был бы дырой в обход проверки).
-  **Исключение — петлевой хост:** `localhost` (и `*.localhost`), вся `127.0.0.0/8` и `::1`
-  по `http://` разрешены — такой трафик не покидает машину, и на этом держатся локальные
-  стенды, включая `http://localhost:8095`. Проверено живьём: клиент на `http://localhost:8095`
-  ходит в стенд как раньше. Отклоняются также URL без схемы/хоста (`api.oblodai.com`,
-  `localhost:8095`) и прочие схемы (`ftp://`, `ws://`). Реализация — `_transport.validate_base_url`,
-  общая для sync и async.
-
-### Устарело
-- **`client.refunds` — устаревший дубль `payments.refund_batch`.** Группа `refunds` бьёт в тот же
-  `POST /v1/refund/batch`, с тем же телом и той же идемпотентностью, что и
-  `client.payments.refund_batch(...)`, — это два имени одной операции. При этом `refunds`
-  существует **только в Python SDK**: в TS, Go, Rust и PHP возвраты пачкой живут на платежах,
-  поэтому код с `client.refunds` не переносится между языками. **Ничего не удалено** —
-  `client.refunds.create_batch(...)` работает ровно как раньше, но обращение к `client.refunds`
-  теперь выдаёт `DeprecationWarning` с указанием канонического пути; удаление планируется в 2.0.
-  Пометки проставлены в докстроках группы и метода, в README и в обзоре методов; примеры в README
-  переведены на `payments.refund_batch`.
-
-### Изменено
-- **Идемпотентность на резервирующих деньги вызовах.** `payout_links.create`,
-  `payout_links.create_batch` и `wallets.blocked_address_refund` (sync и async) теперь шлют
-  заголовок `Idempotency-Key`, вычисленный ОДИН раз до цикла ретраев. Раньше эти вызовы шли
-  без ключа, и на payout-ссылках автоматический повтор после таймаута/5xx мог создать
-  вторую профинансированную ссылку (то есть зарезервировать баланс дважды). Свой ключ —
-  kwarg `idempotency_key`, как у `payouts.create`; сигнатуры для существующего кода
-  не изменились. На `wallets.blocked_address_refund` заголовок шлётся для единообразия,
-  но серверу не нужен: этот маршрут защищён сильнее и по-другому (см. «Исправлено»).
-- **Шлюз теперь УВАЖАЕТ `Idempotency-Key` на `/v1/payout/link` и `/v1/payout/link/batch`**
-  (оба маршрута обёрнуты в idempotency-middleware). Повтор с тем же ключом реплеит первый
-  ответ — та же ссылка, тот же `claim_token`, в ответе `Idempotent-Replayed: true`, — а
-  баланс дебетуется ровно один раз. Прежние доки SDK (README и докстринги `PayoutLinks`)
-  занижали защиту, утверждая, что основной слой — `reference`, потому что заголовок якобы
-  игнорируется; это исправлено. `reference` теперь описан как второй, durable слой:
-  он держит и без заголовка, и когда ответ батча не попал в кэш. Без заголовка поведение
-  прежнее — два одинаковых вызова создадут ДВЕ ссылки.
-- **Новые коды ответов payout-ссылок задокументированы:** 400 `idempotency.key_reused`
-  (тот же ключ с другим телом), 400 `idempotency.bad_key`, 409 `idempotency.in_progress`
-  (параллельный повтор), 503 `idempotency.unavailable` (fail-closed) и 409
-  `payoutlink.duplicate_reference` **вместо прежнего 500**. Классификация
-  `OblodaiAPIError.is_retriable` уже корректна и не менялась: 400/409 терминальны, 503
-  ретраится. Смена 500 → 409 на дубле `reference` прекращает бесполезный цикл ретраев.
-- **Авто-ретрай на payout-ссылках оставлен включённым** (сервер их дедуплицирует), ключ
-  при внутренних повторах не меняется — зафиксировано тестами.
-- **Батчи ссылок:** задокументировано, что ответ больше 256 КБ шлюз не кэширует, поэтому
-  на батчах следует проставлять per-item `reference`, и что частично упавшая пачка
-  реплеится как есть — упавшие элементы надо слать НОВЫМ ключом.
-
-### Исправлено
-- **Документация: депозит в песочнице с недобором подтверждений сам НЕ дозревает.** README
-  утверждал, что «мелкий» депозит дозреет примерно за 10 минут — это неправда: инвойс
-  висит в `confirm_check`, пока вы не повторите `simulate_deposit` с ТЕМ ЖЕ `txid` и
-  бОльшим `confirmations`. Таймер ~10 минут относится к другому механизму — maturity-холду
-  на ВЫПЛАТЕ (ошибка `payout.funds_maturing`); в README это разведено.
-- **Документация: `wallets.blocked_address_refund` и `payouts.approve`.** Их защита была
-  описана неверно. `blocked-address-refund` намеренно НЕ обёрнут в middleware и не
-  беззащитен: шлюз строит детерминированный reference `refund-wallet:<wallet_id>`, берёт
-  per-wallet advisory-lock и внутри лока возвращает уже созданную выплату — повтор, в том
-  числе параллельный и вовсе без заголовков, отдаёт ТУ ЖЕ выплату (оговорка: повтор с
-  ДРУГИМ адресом вернёт первую выплату на ПЕРВЫЙ адрес). `payouts.approve` — переход
-  состояния: принимается только `pending`, иначе 409 `payout.not_pending`, который следует
-  читать как «уже одобрено» и уточнять через `payouts.info`.
-- **Документация: `payout.funds_maturing`.** Пример обработки ошибок в README утверждал
-  `e.is_retriable == True`, что противоречило и коду (`errors.py`), и соседнему абзацу:
-  ошибка терминальная и автоматически не повторяется.
-
-### Документация (структура README)
-- **Новый первый раздел «Где взять ключи»** — сразу после установки. Это была претензия №1 в
-  ревью: README перечислял имена переменных окружения (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`),
-  но нигде не говорил, откуда берутся сами значения. Теперь сказано: ключи выдаются в личном
-  кабинете Oblodai (https://oblodai.com), в разделе API-ключей; секрет показывается один раз
-  при создании и в кабинете больше не отображается; для разработки берётся тестовый ключ
-  `test_…` / `oblodai_test_…`.
-- **Раздел «Песочница / тестирование» поднят сразу после быстрого старта.** Раньше он лежал за
-  батчами, ссылками и сплитами — читающий сверху вниз успевал подключить БОЕВЫЕ ключи прежде,
-  чем узнавал о безопасной площадке. Заодно плейсхолдеры в быстром старте и в блоке переменных
-  окружения переведены с `oblodai_live_…` на тестовые `test_…` / `oblodai_test_…`, с явной
-  строкой: тот же код работает с боевым ключом, меняется только ключ.
-- **Требование `https://` описано во врезке о базовом URL** — вместе с исключением для петлевых
-  хостов (`localhost`, `127.0.0.1`, `::1`) и причиной запрета (открытый `X-Signature`).
-- **Именование ресурса платёжных ссылок зафиксировано.** Канон — `client.payment_links`; он же
-  во всех SDK Oblodai (`paymentLinks` в JS и PHP, `payment_links` в Python и Rust, `PaymentLinks`
-  в Go), поэтому код переносится между языками без переименований. `client.links` остаётся
-  **документированным синонимом** того же объекта (`client.links is client.payment_links`) и
-  удаляться не будет; оба имени названы в README и в докстроках клиентов.
-- **Уточнено про проверку имён полей:** покрыты ВСЕ денежные create-методы (`payments.create`,
-  `payouts.create`, `payout_links.create`, `payment_links.create`, `splits.create_rule`) в sync
-  и async, а у async-методов `TypeError` прилетает на `await`, а не в момент вызова (проверка
-  живёт в теле корутины) — запрос при этом всё равно не уходит.
+- Added: the developer sandbox namespace (`simulate_deposit`, `faucet`, `reset`, `list_webhooks`,
+  `replay_webhook`), test keys only.
+- Added: signed GET requests; internal transfers to a platform user (`transfer_to_user`,
+  `transfer_batch`); the payer-facing invoice endpoints (`public_get`, `public_select`).
+- Security: the base URL must be `https://`, checked when the client is built. It used to accept
+  `http://` silently and send `X-Signature` in the clear. Loopback hosts stay allowed.
+- Deprecated: `client.refunds` as a duplicate of `payments.refund_batch`.
+- Changed: `Idempotency-Key` on the calls that reserve money (`payout_links.create`,
+  `payout_links.create_batch`, `wallets.blocked_address_refund`), computed once before the retry
+  loop. Without it a retry after a timeout could fund a second payout link.
+- Fixed docs: a sandbox deposit with too few confirmations does not mature on its own; the ~10
+  minute timer belongs to the payout maturity hold (`payout.funds_maturing`), which is terminal
+  and not retried.
 
 ## [1.1.0] — 2026-07-15
 
-Требует обновлённого шлюза (заголовок `Idempotency-Key`). Не публикуйте/не обновляйтесь до его деплоя.
-
-### ЛОМАЮЩЕЕ: идемпотентность через заголовок `Idempotency-Key`
-- SDK **больше НЕ подставляет** `order_id` (`idem-<uuid>` из v1.0.1/v1.0.2). Если вы полагались
-  на автоподстановку — теперь `order_id` в платеже будет отсутствовать; задавайте его явно.
-- От дублей при повторах защищает заголовок **`Idempotency-Key`**: генерируется (uuid4) один
-  раз на вызов **до цикла ретраев** и одинаков во всех внутренних повторах. В подпись запроса
-  заголовок не входит. Шлётся на создающих вызовах: `payments.create`, `payments.refund`
-  (и `payouts.refund`), `payments.resolve`, `payments.create_batch`, `refunds.create_batch`,
-  `payouts.create`, `payouts.create_mass`, `payouts.create_batch`,
-  `account.transfer_to_personal`.
-- Свой ключ — kwarg `idempotency_key` в этих методах: уходит в заголовок, в тело запроса
-  не попадает.
-- `order_id` уходит **как есть** (без нормализации пробелов) — это ваш бизнес-идентификатор.
-- Исключение: `payout_links.*` (`/v1/payout/link*`) заголовок не используют — дедупликация
-  через per-link `reference`. (Изменено в 1.2.0: SDK шлёт заголовок, и шлюз его уважает —
-  см. запись выше.)
-
-### Добавлено
-- **Батчи:** `payments.create_batch`, `refunds.create_batch` (новая группа `client.refunds`;
-  синоним `payments.refund_batch`), `payouts.create_batch` — до 5000 элементов, `on_error`
-  `"continue"`/`"stop"`; `batches.info(batch_id, limit=, offset=)` с моделью `BatchInfo`
-  (`info.done`, по-элементные `result`/`error`).
-- **Платёжные ссылки:** `payment_links.create/list/info/toggle` + публичные (без подписи)
-  `public_get` и `checkout`. `client.links` — синоним группы.
-- **Payout-ссылки («крипто-чеки»):** `payout_links.create/create_batch(до 500)/list/info/cancel`
-  + публичные `claim_info(token)` (`GET /v1/claim/{token}`) и `claim(token, address=, memo=)` —
-  оба без подписи. `claim_token`/`claim_url` возвращаются только из `create`.
-- **Сплиты:** `splits.create_rule/list_rules/delete_rule/get_config/set_config` + обёртки
-  `split_to_address`/`split_to_merchant`.
-- **Счёт на e-mail:** `payments.send_email(uuid=|order_id=, email=)`.
-- **Resolve недоплаты:** `payments.resolve(uuid=|order_id=, action="accept"|"refund")` для
-  платежей в статусе `wrong_amount`.
-- Новые pydantic-модели: `BatchSubmitResult`, `BatchInfo`, `BatchItem`, `PaymentLink*`,
-  `SplitRule*`, `PayoutLink*`, `PaymentResolution`; поля платежа `payer_address`,
-  `refund_status`, `refunds[]`.
-
-### Изменено
-- `address` в `payments.refund` больше не обязателен — по умолчанию возврат уходит на адрес
-  плательщика (для UTXO-сетей адрес по-прежнему нужен).
+- BREAKING: idempotency moved to the `Idempotency-Key` header. The SDK no longer substitutes an
+  `order_id` of its own; set one explicitly if you relied on that.
+- Added: batches (`payments.create_batch`, `refunds.create_batch`, `payouts.create_batch`, up to
+  5000 elements) and `batches.info`.
+- Added: payment links, payout links ("crypto cheques") with public claim endpoints, splits,
+  invoice-by-email, and underpayment `resolve`.
+- Changed: `address` is no longer required on `payments.refund` — the refund goes to the payer's
+  address by default (UTXO networks still need one).
 
 ## [1.0.2] — 2026-07-12
 
-### Исправлено
-- **Нормализация «пустого» `order_id` для авто-идемпотентности.** `payments.create` и
-  `account.transfer_to_personal` теперь подставляют `idem-<uuid>` не только когда `order_id`
-  отсутствует/`None`/`""`, но и когда это строка из одних пробелов (`"   "`). Пустой после
-  `.strip()` ключ не даёт дедупликации на бэкенде, поэтому такой `order_id` считается
-  отсутствующим. Реальные значения сохраняются без изменений.
+- Fixed: an `order_id` of only whitespace is treated as absent for auto-idempotency; an empty key
+  gives no deduplication on the gateway.
 
 ## [1.0.1] — 2026-07-12
 
-### Исправлено
-- **Безопасность денег: авто-идемпотентность.** `payments.create` и `account.transfer_to_personal`
-  (sync и async) теперь подставляют стабильный `order_id` (`idem-<uuid>`), если он не задан. Клиент
-  переподписывает каждую попытку ретрая, а бэкенд дедуплицирует по `order_id` — без ключа повтор
-  после таймаута/5xx мог создать дубль платежа/перевода. Выплаты не затронуты.
-- **`Retry-After` больше не зажимается до `max_delay`.** Указание сервера (например `Retry-After: 60`)
-  теперь соблюдается; действует лишь абсолютный потолок 300с.
-- **`payout.funds_maturing` стала терминальной** и больше не повторяется автоматически.
-- **Вебхуки: не-ASCII в заголовке подписи** больше не приводит к `TypeError` из
-  `hmac.compare_digest`, а даёт штатную `OblodaiSignatureError` (fail-closed).
+- Fixed: auto-idempotency on `payments.create` and `account.transfer_to_personal`; without a key,
+  a retry after a timeout could create a duplicate payment.
+- Fixed: `Retry-After` is no longer clamped to the computed backoff maximum.
+- Fixed: `payout.funds_maturing` is terminal and no longer retried automatically.
+- Fixed: a non-ASCII signature header raises the SDK's signature error instead of a `TypeError`
+  out of `hmac.compare_digest`.
 
 ## [1.0.0] — 2026-07-12
 
-### Добавлено
-- Первый релиз официального Python SDK для платёжного шлюза Oblodai.
-- Приём платежей, выплаты и массовые выплаты, статические кошельки, возвраты, вебхуки,
-  публичные справочники (курсы валют, каталог монет и сетей).
-- Подпись запросов HMAC-SHA256 и проверка подписи вебхуков (сравнение в постоянном времени,
-  защита от replay).
-- Конструктор из переменных окружения `OblodaiClient.from_env()` — `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` /
-  `OBLODAI_BASE_URL`.
-- Автоматические повторы с экспоненциальным backoff и учётом заголовка `Retry-After` на 429.
+- First release of the official Python SDK: payments, payouts and mass payouts, static wallets,
+  refunds, webhooks, public catalogues; HMAC-SHA256 request signing and constant-time webhook
+  verification; `from_env()`; retries with exponential backoff honouring `Retry-After`.

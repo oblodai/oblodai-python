@@ -9,7 +9,10 @@ from __future__ import annotations
 import re
 from typing import Tuple
 
+from ..core.errors import AmountError
+
 __all__ = [
+    "MAX_AMOUNT_LENGTH",
     "add_amounts",
     "amount_equals",
     "compare_amounts",
@@ -17,12 +20,25 @@ __all__ = [
     "subtract_amounts",
 ]
 
-_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
+#: Longest amount string these helpers will look at. The widest asset the core prices has 18
+#: decimals; anything past this is not an amount, and refusing it up front is what keeps a
+#: hostile string from turning into a multi-megabyte integer multiplication.
+MAX_AMOUNT_LENGTH = 64
+
+# ASCII digits only. `\d` also matches Arabic-Indic and Devanagari digits, which `int()` happily
+# parses - so `"٥"` would become the amount 5 and no ledger anywhere would agree.
+_DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 
 def _parts(amount: str) -> Tuple[bool, str, str]:
-    if not isinstance(amount, str) or not _DECIMAL.match(amount):
-        raise ValueError(f'not a decimal amount: "{amount}"')
+    if not isinstance(amount, str):
+        raise AmountError(f"not a decimal amount: {type(amount).__name__}")
+    if len(amount) > MAX_AMOUNT_LENGTH:
+        raise AmountError(
+            f"amount string is {len(amount)} characters long (max {MAX_AMOUNT_LENGTH})"
+        )
+    if not _DECIMAL.match(amount):
+        raise AmountError(f'not a decimal amount: "{amount}"')
     negative = amount.startswith("-")
     integer, _, fraction = (amount[1:] if negative else amount).partition(".")
     return negative, integer or "0", fraction

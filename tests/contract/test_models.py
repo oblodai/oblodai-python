@@ -328,6 +328,15 @@ def test_key_tuple_agrees_with_its_typed_dict(keys: Tuple[str, ...], route: str)
             continue  # a key tuple with no TypedDict of its own (a narrower create/toggle result)
         checked += 1
         known = set(model.__required_keys__) | set(model.__optional_keys__)
-        assert set(keys) <= known, f"{name}: names fields {_typed_dict_name(name)} does not declare"
+        undeclared = sorted(set(keys) - known)
+        assert not undeclared, f"{name}: names {undeclared}, which {_typed_dict_name(name)} lacks"
+        # And the other direction, which containment alone would miss: a field the model declares
+        # REQUIRED but the key tuple does not name is a field no golden body is ever checked
+        # against. Genuinely conditional fields belong in the `total=False` half.
+        unchecked = sorted(set(model.__required_keys__) - set(keys))
+        assert not unchecked, (
+            f"{name}: {_typed_dict_name(name)} requires {unchecked}, which no fixture check "
+            "covers - either add them to the key tuple or declare them optional"
+        )
     if checked == 0:
         pytest.skip(f"{route}: {names} has no matching TypedDict")

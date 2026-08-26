@@ -37,6 +37,12 @@ class Payments(Resource):
         """``POST /v1/payment`` - create an invoice.
 
         Idempotent by ``order_id`` and by ``Idempotency-Key``.
+
+        Codes worth branching on: ``payment.bad_amount``, ``payment.below_minimum``,
+        ``payment.minimum_unavailable`` (the rate feed is down - retryable),
+        ``payment.unsupported_network``, ``payment.network_required`` (a multi-network asset with
+        no ``network``), ``request.unknown_currency``, ``idempotency.key_reused`` (the same key
+        with a different body).
         """
         return cast(Payment, self._call("POST /v1/payment", params, **options))
 
@@ -70,7 +76,12 @@ class Payments(Resource):
         return self._page("POST /v1/payment/history", params, **options)
 
     def batch(self, params: PaymentBatchBody, **options: Any) -> BatchSubmitted:
-        """``POST /v1/payment/batch`` - up to 5000 invoices asynchronously; track with ``batches.info``."""
+        """``POST /v1/payment/batch`` - up to 5000 invoices asynchronously; track with ``batches.info``.
+
+        Codes worth branching on: ``payment.bad_amount``, ``payment.below_minimum``,
+        ``request.unknown_currency``, ``request.missing_field`` (an item without ``order_id``),
+        ``payout.batch_too_large``, ``payout.empty_batch``, ``idempotency.key_reused``.
+        """
         return cast(BatchSubmitted, self._call("POST /v1/payment/batch", params, **options))
 
     def qr(self, lookup: PaymentLookup, **options: Any) -> QrCode:

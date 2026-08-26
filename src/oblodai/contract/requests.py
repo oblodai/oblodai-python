@@ -1,4 +1,4 @@
-# GENERATED FILE - do not edit. Source: contract/contract.json (core bfca971cce71).
+# GENERATED FILE - do not edit. Source: contract/contract.json (core 7ec04293c426).
 # Regenerate with: python scripts/codegen.py
 
 
@@ -126,7 +126,7 @@ class DocumentsJobsBody(_DocumentsJobsBodyRequired, _DocumentsJobsBodyOptional):
 class DocumentsJobsInfoBody(TypedDict):
     """Request body of `POST /v1/documents/jobs/info`."""
 
-    #: Job id from the creation response. Example: "6f1c…".
+    #: Job id from the creation response.
     job_id: str
 
 
@@ -387,8 +387,6 @@ class PaymentFeeConfigSetBody(TypedDict):
 class PaymentHistoryBody(TypedDict, total=False):
     """Request body of `POST /v1/payment/history`."""
 
-    #: Ignored on this route (payout history only). Example: "payout".
-    kind: str
     #: Page size, 1–100; out of range falls back to 25. Example: 25.
     limit: int
     #: Offset from the start of the list (newest first). Example: 0.
@@ -434,7 +432,7 @@ class PaymentLinkBody(_PaymentLinkBodyRequired, total=False):
     #: Settlement network pinned to the link; empty — the buyer chooses the network. Example:
     #: "tron".
     pinned_network: NetworkArg
-    #: Title on the payment page. Example: "Поддержать проект".
+    #: Title on the payment page.
     title: str
 
 
@@ -723,8 +721,7 @@ class PayoutLinkBody(_PayoutLinkBodyRequired, total=False):
     #: receives less) or "merchant" (the amount plus the fee is reserved, the recipient receives
     #: exactly amount). Example: "merchant".
     fee_bearer: FeeBearerArg
-    #: Message to the recipient (shown on the claim page and in the email). Example: "Спасибо за
-    #: участие".
+    #: Message to the recipient (shown on the claim page and in the email).
     note: str
     #: Claim code — a second factor for the link: "auto" — we generate it and return it ONCE in the
     #: response, or your own (6–64 visible characters), empty — no code. Pass the code to the
@@ -734,7 +731,7 @@ class PayoutLinkBody(_PayoutLinkBodyRequired, total=False):
     #: Your deduplication key, unique per merchant; the Idempotency-Key header has no effect on
     #: this endpoint. Example: "bonus-42".
     reference: str
-    #: Title — shown to the recipient on the claim page. Example: "Бонус".
+    #: Title — shown to the recipient on the claim page.
     title: str
 
 
@@ -763,15 +760,14 @@ class PayoutLinkBatchItemsItem(_PayoutLinkBatchItemsItemRequired, total=False):
     #: receives less) or "merchant" (the amount plus the fee is reserved, the recipient receives
     #: exactly amount). Example: "merchant".
     fee_bearer: FeeBearerArg
-    #: Message to the recipient (shown on the claim page and in the email). Example: "Спасибо за
-    #: участие".
+    #: Message to the recipient (shown on the claim page and in the email).
     note: str
     #: Claim code — a second factor for the link: "auto" — we generate it and return it ONCE in the
     #: response, or your own (6–64 visible characters), empty — no code. Pass the code to the
     #: recipient over a channel SEPARATE from the link (it is not put into the email); after 10
     #: incorrect attempts the link is locked. Example: "auto".
     passcode: str
-    #: Title — shown to the recipient on the claim page. Example: "Бонус".
+    #: Title — shown to the recipient on the claim page.
     title: str
 
 
@@ -792,8 +788,7 @@ class PayoutLinkCancelBody(TypedDict):
 
 class _PayoutLinkChequeBodyRequired(TypedDict):
     #: Claim secret from the payout link creation response. Stored only as a hash and never
-    #: reissued — the cheque can be printed only while you still hold the token. Example:
-    #: "nUqx1yG3…".
+    #: reissued — the cheque can be printed only while you still hold the token.
     claim_token: str
 
 

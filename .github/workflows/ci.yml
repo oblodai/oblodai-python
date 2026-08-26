@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -25,8 +27,34 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -e ".[dev]"
-      # The committed contract mirror must be exactly what the generators produce.
+      # The committed contract mirror must be exactly what the generators produce. The check
+      # regenerates into a temporary directory, so it works on a clean checkout and leaves the
+      # working tree untouched either way.
       - run: python scripts/check_drift.py
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip build "twine>=5,<7"
+      - run: python -m build
+      # A malformed long description is only discovered at upload time otherwise.
+      - run: twine check dist/*
+      # What ships must contain what the docs promise: the contract snapshot, the agent guide
+      # and the runnable examples.
+      - name: the sdist carries the contract snapshot, AGENTS.md and examples
+        run: |
+          set -euo pipefail
+          sdist=$(ls dist/*.tar.gz)
+          tar -tzf "$sdist" > /tmp/sdist.txt
+          for path in contract/contract.json AGENTS.md examples/accept_payment.py; do
+            grep -q "/$path$" /tmp/sdist.txt || { echo "sdist is missing $path"; exit 1; }
+          done
+          wheel=$(ls dist/*.whl)
+          python -m zipfile -l "$wheel" | grep -q "oblodai/AGENTS.md" \
+            || { echo "wheel is missing oblodai/AGENTS.md"; exit 1; }

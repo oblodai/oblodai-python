@@ -8,6 +8,8 @@ from ..enums import FeeBearerResult
 
 #: Decimal amount rendered by the core at the asset's own scale (``"10.000000"`` for USDT).
 #: Never a float: parse it with :func:`decimal.Decimal` or the helpers in ``oblodai.helpers``.
+#: Never ``<`` / ``>`` / ``sorted()`` either - it is a ``str``, so those compare lexicographically
+#: and put ``"10"`` before ``"9"``. Use :func:`oblodai.compare_amounts`.
 Money = str
 
 #: RFC 3339 timestamp in UTC (``"2026-08-25T20:58:55Z"``).

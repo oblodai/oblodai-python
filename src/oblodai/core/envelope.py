@@ -10,21 +10,23 @@ Every non-``bare`` route uses these; bare routes (PDF documents, health pages) b
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .errors import ContractError, ErrorDetail, api_error_from
+from .errors import ApiError, ContractError, ErrorDetail, api_error_from, coerce_retry_after
 
 __all__ = [
     "as_page",
     "as_plain_list",
     "decode_envelope",
     "parse_retry_after",
+    "unexpected_redirect",
 ]
 
-_DELTA_SECONDS = re.compile(r"^\d+$")
+_DELTA_SECONDS = re.compile(r"^[0-9]+$")
 
 
 def decode_envelope(
@@ -42,22 +44,15 @@ def decode_envelope(
     retry_after_header = parse_retry_after(retry_after)
 
     if 300 <= http_status < 400:
-        where = f" to {location}" if location else ""
-        return False, api_error_from(
-            http_status,
-            {
-                "code": "internal",
-                "message": f"unexpected redirect (HTTP {http_status}){where}; check base_url",
-            },
-            text,
-            synthetic=True,
-        )
+        return False, unexpected_redirect(http_status, location, text)
 
     body: Any = None
     if text:
         try:
             body = json.loads(text)
-        except ValueError:
+        # A body nested thousands of levels deep exhausts the C stack rather than raising
+        # ValueError: it is still just an unparsable body, not a crash for the caller to catch.
+        except (ValueError, RecursionError):
             if http_status >= 400:
                 return False, api_error_from(
                     http_status,
@@ -90,21 +85,49 @@ def decode_envelope(
     )
 
 
+def unexpected_redirect(http_status: int, location: Optional[str], raw: Any = None) -> ApiError:
+    """The SDK never follows a redirect: a signature is only valid for the URI it was signed for.
+
+    Raised both for a 3xx the SDK saw itself and for one an injected HTTP client followed behind
+    its back (detected by the answer coming from a URL nobody asked for).
+    """
+    where = f" to {location}" if location else ""
+    return api_error_from(
+        http_status,
+        {
+            "code": "internal",
+            "message": f"unexpected redirect (HTTP {http_status}){where}; check base_url",
+        },
+        raw,
+        synthetic=True,
+    )
+
+
 def parse_retry_after(value: Optional[str], now: Optional[float] = None) -> Optional[float]:
-    """``Retry-After`` as delta-seconds or an HTTP-date; ``None`` when absent or unparsable."""
+    """``Retry-After`` as delta-seconds or an HTTP-date.
+
+    ``None`` when absent or unparsable; never negative, never unbounded - a header naming the
+    year 9999 is clamped to :data:`~oblodai.core.errors.MAX_RETRY_AFTER_SECONDS` like any other
+    implausible hint, and a date so far out that the timestamp arithmetic itself overflows is
+    treated as no hint at all.
+    """
     if not value:
         return None
     text = value.strip()
     if _DELTA_SECONDS.match(text):
-        return float(text)
+        return coerce_retry_after(text)
     try:
         parsed = parsedate_to_datetime(text)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if parsed is None:
         return None
     reference = time.time() if now is None else now
-    return max(0.0, float(int(parsed.timestamp() - reference + 0.999)))
+    try:
+        delta = parsed.timestamp() - reference
+    except (OverflowError, OSError, ValueError):
+        return None
+    return coerce_retry_after(math.ceil(delta))
 
 
 def as_page(result: Any, http_status: int = 200) -> Dict[str, Any]:

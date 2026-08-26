@@ -12,19 +12,28 @@ samples and real signed webhook deliveries).
   objects. Every body has a `TypedDict` in `oblodai.contract.requests` (`PaymentBody`, `PayoutBody`,
   …) and every response one in `oblodai.contract.models` (`Payment`, `Payout`, …). Responses are
   dicts too: `invoice["url"]`, not `invoice.url`.
-- Every method's trailing keyword arguments are the same four: `idempotency_key`, `timeout_ms`,
-  `deadline_ms`, `prefer_payout_key`. Anything else raises `TypeError` before a request is sent
-  (list methods also accept `limit=` / `offset=`).
+- Every method's trailing keyword arguments are the same five: `idempotency_key`, `timeout_ms`
+  (per attempt), `deadline_ms` (whole call), `prefer_payout_key`, `headers` (this call only).
+  Anything else raises `TypeError` before a request is sent (list methods also accept `limit=` /
+  `offset=`).
 - Two key kinds. The **payout key** is required for `payouts.*`, `refunds.*`, `payout_links.*`,
   `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, `settings.*_auto_withdraw`,
-  `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout")`, `sandbox.faucet`,
-  `sandbox.reset`. Configure it with `payout_public_id`/`payout_secret` (or `OBLODAI_PAYOUT_*`);
-  the wrong kind is a 403 `merchant.wrong_key_kind`.
+  `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout", …)`,
+  `sandbox.faucet`, `sandbox.reset`. Configure it with `payout_public_id`/`payout_secret` (or
+  `OBLODAI_PAYOUT_*`); the wrong kind is a 403 `merchant.wrong_key_kind`.
 - List methods return a lazy `Page`: `.first()` = one page (`.items`, `.paginate`, `.total`,
   `.has_pages`), iteration = every item, `.all(max_items=…)` = a list. Nothing is requested until
   the result is consumed. On `AsyncOblodai` it is awaited or walked with `async for`.
 - Idempotency keys are generated automatically on create routes and reused across retries. Passing
-  `idempotency_key` to a route the gateway does not deduplicate raises `sdk.idempotency_unsupported`.
+  `idempotency_key` to a route the gateway does not deduplicate raises `sdk.idempotency_unsupported`
+  — list methods included, where it is refused rather than dropped.
+- Retry safety is `ROUTES[key].safe`, the gateway's own read-only classification. Nothing in the SDK
+  guesses it from a path.
+- Amounts never go through `float()` and never through `<` (`"10" < "9"` is `True` for strings);
+  `compare_amounts` is the only correct ordering, and a non-decimal string raises `AmountError`.
+- Environment: `OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`, `OBLODAI_PAYOUT_PUBLIC_ID`,
+  `OBLODAI_PAYOUT_SECRET`, `OBLODAI_BASE_URL`, `OBLODAI_ALLOW_INSECURE`, `OBLODAI_ADMIN_TOKEN`,
+  `OBLODAI_LOG`.
 
 ## Naming
 
@@ -44,10 +53,14 @@ samples and real signed webhook deliveries).
 `except OblodaiError as err` → `err.code` (`family.reason`), `err.http_status`, `err.retryable`
 (authoritative — the SDK already retried what it should), `err.retry_after`, `err.request_id`
 (quote it to support), `err.field` (400s), `err.synthetic` (a proxy answered, not the API).
-Subclasses: `ValidationError` 400, `AuthenticationError` 401, `PermissionError` 403,
+Subclasses: `ValidationError` 400, `AuthenticationError` 401, `PermissionDeniedError` 403,
 `NotFoundError` 404, `ConflictError`/`IdempotencyConflictError` 409, `RateLimitError` 429,
 `UnavailableError` 503, `InternalError` other 5xx, `TransportError` (no response),
-`ConfigError` (before sending), `SignatureError` (webhooks). `err.to_dict()` is log-safe.
+`ConfigError` (before sending: `sdk.bad_config`, `sdk.bad_header`, `sdk.bad_amount`,
+`sdk.bad_idempotency_key`, `sdk.idempotency_unsupported`, `sdk.missing_credentials`),
+`ResponseTooLargeError` (`sdk.response_too_large`), `SignatureError` (webhook not from the gateway),
+`WebhookPayloadError` (authentic delivery, unusable body — `webhook.bad_payload`),
+`AmountError` (money helpers). `err.to_dict()` is log-safe.
 
 Codes worth handling: `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`, `merchant.wrong_key_kind`,
@@ -69,6 +82,12 @@ from oblodai import webhooks
 delivery = webhooks.verify_delivery(raw_body, request.headers, secret=secret)
 ```
 
+`SignatureError` = not from the gateway (answer 401). `WebhookPayloadError` = authentic but
+unusable (answer 400; retrying cannot fix it). An empty `secret` or a negative `tolerance_sec` is a
+`ConfigError` before any crypto runs. An unknown event `type` is returned, not refused:
+`webhooks.parse` yields `AnyWebhookEvent`, and `webhooks.is_known_event(event)` narrows it to the
+three kinds this snapshot declares.
+
 Verify over the **raw** bytes. `delivery.is_test` (also `webhooks.is_test_event(event)`) is true for
 rehearsal deliveries (`test: true` in the signed body, `X-Webhook-Test: true`) — never treat them as
 money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events with
@@ -78,6 +97,8 @@ money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events w
 ## Machine-readable surface
 
 `ROUTES` (107 routes: `method`, `path`, `auth`, `idempotent`, `safe`, `bare`, `list_kind`),
-`oblodai.contract.requests` (a `TypedDict` per route body), `ERROR_CODES`, `NETWORKS`,
-`PAYMENT_STATUSES`, `PAYOUT_STATUSES`, `EVENT_TYPES`, and `contract/` itself (schemas, golden
-response bodies per route, error samples, signed webhook samples).
+`oblodai.contract.requests` (a `TypedDict` per route body), `ERROR_CODES` (471), `NETWORKS`,
+`PAYMENT_STATUSES`, `PAYOUT_STATUSES`, `EVENT_TYPES`, and — in the repository and the sdist, not
+in the installed wheel — `contract/` itself (schemas, golden response bodies per route, error
+samples, signed webhook samples). Every field of every `RouteSpec` is asserted against
+`contract/contract.json` by `tests/contract/test_routes.py`.

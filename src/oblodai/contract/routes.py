@@ -1,4 +1,4 @@
-# GENERATED FILE - do not edit. Source: contract/contract.json (core bfca971cce71).
+# GENERATED FILE - do not edit. Source: contract/contract.json (core 7ec04293c426).
 # Regenerate with: python scripts/codegen.py
 
 """Every merchant-facing route the core declares, keyed as its conformance table keys it."""
