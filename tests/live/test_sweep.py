@@ -122,7 +122,7 @@ def test_payments_lookups_qr_services_public_checkout_batch(stand: Stand) -> Non
             "on_error": "continue",
             "payments": [
                 {
-                    "amount": "3",
+                    "amount": "5",
                     "currency": "USDT",
                     "network": "tron",
                     "order_id": f"sw-b-{stamp()}",
@@ -134,7 +134,7 @@ def test_payments_lookups_qr_services_public_checkout_batch(stand: Stand) -> Non
     assert api.batches.info({"batch_id": batch["batch_id"]})["batch_id"] == batch["batch_id"]
 
     to_cancel = api.payments.create(
-        {"amount": "1", "currency": "USDT", "network": "tron", "order_id": f"sw-c-{stamp()}"}
+        {"amount": "5", "currency": "USDT", "network": "tron", "order_id": f"sw-c-{stamp()}"}
     )
     assert api.payments.cancel(to_cancel["uuid"])["status"] == "cancelled"
     for payment in api.payments.history({"limit": 2}):
@@ -171,7 +171,7 @@ def test_deposit_paid_refund_resolve_refund_batch(stand: Stand) -> None:
                     {
                         "uuid": invoice["uuid"],
                         "address": ADDR,
-                        "amount": "1",
+                        "amount": "5",
                         "reference": f"sw-rb-{stamp()}",
                     }
                 ]
@@ -209,7 +209,7 @@ def test_payouts_every_route(stand: Stand) -> None:
         {
             "payouts": [
                 {
-                    "amount": "1",
+                    "amount": "5",
                     "currency": "USDT",
                     "network": "tron",
                     "address": ADDR,
@@ -224,7 +224,7 @@ def test_payouts_every_route(stand: Stand) -> None:
         {
             "payouts": [
                 {
-                    "amount": "1",
+                    "amount": "5",
                     "currency": "USDT",
                     "network": "tron",
                     "address": ADDR,
@@ -267,14 +267,14 @@ def test_payout_links(stand: Stand) -> None:
     assert claimed["payout_id"]
 
     second = api.payout_links.create(
-        {"amount": "1", "currency": "USDT", "network": "tron", "reference": f"sw-pl2-{stamp()}"}
+        {"amount": "5", "currency": "USDT", "network": "tron", "reference": f"sw-pl2-{stamp()}"}
     )
     assert api.payout_links.cancel(second["link_id"])["status"] == "cancelled"
     batch = api.payout_links.batch(
         {
             "items": [
                 {
-                    "amount": "1",
+                    "amount": "5",
                     "currency": "USDT",
                     "network": "tron",
                     "reference": f"sw-plb-{stamp()}",
@@ -388,7 +388,7 @@ def test_wallets_and_transfers(stand: Stand) -> None:
     )
     accept(lambda: api.wallets.qr(ADDR))
     accept(lambda: api.wallets.block({"address": ADDR}))
-    accept(lambda: api.transfers.to_personal({"amount": "1", "currency": "USDT"}))
+    accept(lambda: api.transfers.to_personal({"amount": "5", "currency": "USDT"}))
 
 
 def test_documents(stand: Stand) -> None:
