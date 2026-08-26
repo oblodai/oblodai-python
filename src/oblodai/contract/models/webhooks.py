@@ -110,7 +110,16 @@ class WebhookTestResult(_WebhookTestResultRequired, total=False):
 WEBHOOK_TEST_RESULT_KEYS: Tuple[str, ...] = ("ok", "signed", "status_code")
 
 
-class _EventBase(TypedDict):
+class _EventOptional(TypedDict, total=False):
+    """Fields an event may carry."""
+
+    #: Present and true ONLY on rehearsal deliveries (`webhooks.test`, sandbox). The body is signed
+    #: like a live one, so a handler must check this flag (or `X-Webhook-Test`) and never act on a
+    #: test event as if money moved.
+    test: bool
+
+
+class _EventBase(_EventOptional):
     """Fields every delivered event carries."""
 
     uuid: str
@@ -163,7 +172,7 @@ PAYMENT_EVENT_KEYS: Tuple[str, ...] = (
 )
 
 
-class PayoutEvent(TypedDict):
+class PayoutEvent(_EventOptional):
     """`payout.<status>` — a payout (or refund) changed state; the body is the payout itself
     (without `error`/`error_code`/`wallet_uuid`) plus `event_at` and `sequence`."""
 

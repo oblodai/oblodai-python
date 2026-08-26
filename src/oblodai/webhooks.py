@@ -11,6 +11,8 @@ Deliveries are signed as::
     X-Webhook-Event: invoice.<status> | payout.<status> | wallet.paid
     X-Webhook-Id: stable per delivery (identical across retries) - use it as your idempotency key
     X-Webhook-Event-Time: unix seconds when the state change committed (order events by it)
+    X-Webhook-Test: "true" on a rehearsal delivery (`webhooks.test`, sandbox) - the body carries
+        `test: true` as well; never act on one as if money moved
 
 Always verify over the RAW request bytes; a re-serialized parse will not match.
 """
@@ -33,10 +35,12 @@ __all__ = [
     "HEADER_WEBHOOK_ID",
     "HEADER_WEBHOOK_SIGNATURE",
     "HEADER_WEBHOOK_SIGNATURE_PREV",
+    "HEADER_WEBHOOK_TEST",
     "HEADER_WEBHOOK_TIMESTAMP",
     "SignatureError",
     "WebhookDeliveryInfo",
     "is_stale",
+    "is_test_event",
     "parse",
     "verify",
     "verify_delivery",
@@ -48,6 +52,7 @@ HEADER_WEBHOOK_SIGNATURE_PREV = "X-Webhook-Signature-Prev"
 HEADER_WEBHOOK_EVENT = "X-Webhook-Event"
 HEADER_WEBHOOK_ID = "X-Webhook-Id"
 HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
+HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
 RawBody = Union[str, bytes, bytearray]
 
@@ -65,6 +70,9 @@ class WebhookDeliveryInfo:
     event_type: Optional[str] = None
     #: ``X-Webhook-Event-Time`` - unix seconds when the state change committed.
     event_time: Optional[int] = None
+    #: A rehearsal delivery (``X-Webhook-Test: true`` / body ``test: true``): signed like a live
+    #: one, but no money moved.
+    is_test: bool = False
 
 
 def verify(
@@ -146,12 +154,14 @@ def verify_delivery(
 
     event_time_raw = header_value(headers, HEADER_WEBHOOK_EVENT_TIME)
     event_time = int(event_time_raw) if event_time_raw and event_time_raw.isdigit() else None
+    event = parse(raw_body)
     return WebhookDeliveryInfo(
-        event=parse(raw_body),
+        event=event,
         sent_at=ts,
         id=header_value(headers, HEADER_WEBHOOK_ID),
         event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
         event_time=event_time,
+        is_test=header_value(headers, HEADER_WEBHOOK_TEST) == "true" or is_test_event(event),
     )
 
 
@@ -173,6 +183,15 @@ def parse(raw_body: RawBody) -> WebhookEvent:
     if body["type"] not in ("payment", "payout", "wallet"):
         raise SignatureError("webhook.bad_signature", f'unknown event type "{body["type"]}"')
     return body  # type: ignore[return-value]
+
+
+def is_test_event(event: Mapping[str, Any]) -> bool:
+    """True for rehearsal deliveries (``webhooks.test``, sandbox).
+
+    They are signed exactly like live ones, so a handler must check this and never act on a test
+    event as if money moved.
+    """
+    return event.get("test") is True
 
 
 def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -> bool:

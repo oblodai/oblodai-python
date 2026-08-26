@@ -69,9 +69,11 @@ from oblodai import webhooks
 delivery = webhooks.verify_delivery(raw_body, request.headers, secret=secret)
 ```
 
-Verify over the **raw** bytes. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order
-events with `webhooks.is_stale(event, last_sequence)`. During a rotation pass `previous_secret=`
-for at least 26 h.
+Verify over the **raw** bytes. `delivery.is_test` (also `webhooks.is_test_event(event)`) is true for
+rehearsal deliveries (`test: true` in the signed body, `X-Webhook-Test: true`) — never treat them as
+money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events with
+`webhooks.is_stale(event, last_sequence)`. During a rotation pass `previous_secret=` for at least
+26 h.
 
 ## Machine-readable surface
 

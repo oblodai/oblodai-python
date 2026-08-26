@@ -260,7 +260,7 @@ def test_webhook_samples_carry_known_events_and_modelled_bodies() -> None:
     for sample in samples:
         assert sample["headers"]["X-Webhook-Event"] in EVENT_TYPES
         body = sample["body"]
-        assert key_set_diff(list(body), event_keys[body["type"]]) == NO_DRIFT
+        assert key_set_diff(list(body), event_keys[body["type"]], ["test"]) == NO_DRIFT
 
 
 def test_every_recorded_error_code_has_the_documented_envelope() -> None:

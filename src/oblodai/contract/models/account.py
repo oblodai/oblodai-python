@@ -92,6 +92,8 @@ class _WalletRequired(TypedDict):
     #: Signed link to the PDF with the address and its QR. Empty if document generation is not
     #: enabled.
     document_url: str
+    #: True once `wallets.block` was called: new deposits are quarantined instead of credited.
+    blocked: bool
 
 
 class Wallet(_WalletRequired, total=False):
@@ -117,6 +119,7 @@ WALLET_KEYS: Tuple[str, ...] = (
     "order_id",
     "url",
     "document_url",
+    "blocked",
 )
 
 
