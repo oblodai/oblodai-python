@@ -93,19 +93,34 @@ def test_an_unconsumed_failing_list_is_inert() -> None:
     assert mock.calls == []
 
 
-def test_does_not_forward_a_caller_idempotency_key_to_list_pages() -> None:
-    mock = MockHTTP(
+def test_refuses_a_caller_idempotency_key_on_a_list_route_instead_of_dropping_it() -> None:
+    """A silent drop leaves the caller believing the call was deduplicated. It was not."""
+    mock = MockHTTP([])
+    with pytest.raises(ConfigError) as excinfo:
+        client(mock).payouts.history({}, idempotency_key="k")
+    assert excinfo.value.code == "sdk.idempotency_unsupported"
+    assert excinfo.value.field == "idempotency_key"
+    assert mock.calls == []
+    # ... and paging still sends no key of its own: one key across pages would make the core
+    # replay page 1 forever.
+    paged = MockHTTP(
         [
             ok(
                 {
-                    "items": [],
-                    "paginate": {"total": 0, "per_page": 50, "offset": 0, "has_pages": False},
+                    "items": [{"uuid": "a"}],
+                    "paginate": {"total": 2, "per_page": 1, "offset": 0, "has_pages": True},
                 }
-            )
+            ),
+            ok(
+                {
+                    "items": [{"uuid": "b"}],
+                    "paginate": {"total": 2, "per_page": 1, "offset": 1, "has_pages": False},
+                }
+            ),
         ]
     )
-    client(mock).payouts.history({}, idempotency_key="k").first()
-    assert "idempotency-key" not in mock.calls[0].headers
+    assert len(client(paged).payouts.history({"limit": 1}).all()) == 2
+    assert all("idempotency-key" not in call.headers for call in paged.calls)
 
 
 # --- clock skew ----------------------------------------------------------------------------

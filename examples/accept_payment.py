@@ -30,8 +30,10 @@ def main() -> None:
 
     print(f"invoice {invoice['uuid']} -> {invoice['url']}")
     print(f"send {invoice['payer_amount']} {invoice['payer_currency']} to {invoice['address']}")
-    if invoice["memo"] or invoice["destination_tag"]:
-        print(f"the network needs a memo/tag: {invoice['memo'] or invoice['destination_tag']}")
+    if invoice.get("memo") or invoice.get("destination_tag"):
+        print(
+            f"the network needs a memo/tag: {invoice.get('memo') or invoice.get('destination_tag')}"
+        )
 
     deadline = time.time() + 120
     while time.time() < deadline:

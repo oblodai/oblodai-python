@@ -15,13 +15,29 @@ class Refunds(Resource):
     """Refunds and underpayment resolution. Payout key."""
 
     def create(self, params: PaymentRefundBody, **options: Any) -> Payout:
-        """``POST /v1/payment/refund`` - refund a paid invoice, fully or partially."""
+        """``POST /v1/payment/refund`` - refund a paid invoice, fully or partially. Payout key.
+
+        Codes worth branching on: ``refund.nothing_to_refund``, ``refund.exceeds_refundable``,
+        ``refund.no_address`` (the payer address is not refundable - ask for one),
+        ``refund.dust`` (below the network's minimum), ``refund.reference_collision``,
+        ``payout.insufficient_funds`` (retryable), ``merchant.wrong_key_kind``.
+        """
         return cast(Payout, self._call("POST /v1/payment/refund", params, **options))
 
     def resolve(self, params: PaymentResolveBody, **options: Any) -> Resolution:
-        """``POST /v1/payment/resolve`` - settle an underpaid (``wrong_amount``) invoice."""
+        """``POST /v1/payment/resolve`` - settle an underpaid (``wrong_amount``) invoice.
+
+        Codes worth branching on: ``payment.not_found``, ``payment.bad_status`` (not
+        ``wrong_amount``), ``refund.nothing_to_refund``, ``refund.no_address``,
+        ``refund.exceeds_excess``.
+        """
         return cast(Resolution, self._call("POST /v1/payment/resolve", params, **options))
 
     def batch(self, params: RefundBatchBody, **options: Any) -> BatchSubmitted:
-        """``POST /v1/refund/batch`` - up to 5000 refunds; track with ``batches.info``."""
+        """``POST /v1/refund/batch`` - up to 5000 refunds; track with ``batches.info``.
+
+        Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
+        ``refund.reference_collision``, ``request.missing_field`` (an item without ``reference``),
+        ``merchant.wrong_key_kind``, ``idempotency.key_reused``.
+        """
         return cast(BatchSubmitted, self._call("POST /v1/refund/batch", params, **options))

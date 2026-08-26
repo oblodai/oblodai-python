@@ -1,22 +1,48 @@
-# Publishes 'oblodai' to PyPI on a v* tag.
-# Required repo secret: PYPI_API_TOKEN (PyPI API token).
-# Alternatively configure PyPI Trusted Publishing (OIDC) and drop the password line.
+# Publishes 'oblodai' to PyPI on a vX.Y.Z tag.
+# Required repo secret: PYPI_API_TOKEN (a PyPI API token scoped to this project).
 name: Release
 on:
   push:
-    tags: ['v*']
+    # Only real version tags: a bare `v*` would also fire on `vendor-x` or `v-wip`.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+[-.]*']
 permissions:
   contents: read
 jobs:
-  publish:
+  # Nothing reaches PyPI that has not passed the same gates a pull request passes. A published
+  # version cannot be replaced, so the gates run here and not only on the branch.
+  gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -e ".[dev]"
+      - run: python scripts/check_drift.py
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy
+      - run: pytest tests/unit tests/contract -q
+
+  publish:
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - run: python -m pip install build
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip build "twine>=5,<7"
+      # The tag and the packaged version must be the same thing, or the tag points at nothing.
+      - name: the tag matches the packaged version
+        run: |
+          set -euo pipefail
+          tagged="${GITHUB_REF_NAME#v}"
+          declared=$(python -c "import re,pathlib;print(re.search(r'^version\\s*=\\s*\"([^\"]+)\"', pathlib.Path('pyproject.toml').read_text(), re.M).group(1))")
+          [ "$tagged" = "$declared" ] || { echo "tag $GITHUB_REF_NAME != pyproject version $declared"; exit 1; }
       - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+      - run: twine check dist/*
+      - run: twine upload --non-interactive dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}

@@ -38,14 +38,18 @@ PayoutLookup = Union[str, Mapping[str, str]]
 
 
 class AsyncPayouts(AsyncResource):
-    """AsyncPayouts. Payout key."""
+    """Payouts. Payout key."""
 
     async def create(self, params: PayoutBody, **options: Any) -> Payout:
         """``POST /v1/payout`` - create and (for API keys) auto-approve a payout.
 
-        Idempotent by ``order_id`` and ``Idempotency-Key``. Errors worth handling:
-        ``payout.insufficient_funds`` (retryable), ``payout.funds_maturing``,
-        ``payout.bad_address``, ``payout.memo_required``.
+        Idempotent by ``order_id`` and ``Idempotency-Key``.
+
+        Codes worth branching on: ``payout.insufficient_funds`` (retryable - top up and repeat
+        with the SAME key), ``payout.funds_maturing`` (retryable - deposits not yet mature),
+        ``payout.bad_address``, ``payout.address_network_mismatch``, ``payout.memo_required``,
+        ``payout.amount_below_fee``, ``payout.frozen``, ``payout.order_id_required``,
+        ``idempotency.key_reused``, ``merchant.wrong_key_kind`` (a payment key on a payout route).
         """
         return cast(Payout, await self._call("POST /v1/payout", params, **options))
 
@@ -64,7 +68,7 @@ class AsyncPayouts(AsyncResource):
     async def info(self, lookup: PayoutLookup, **options: Any) -> Payout:
         """``POST /v1/payout/info`` - by ``uuid`` or ``order_id``.
 
-        AsyncRefunds are payouts too (``is_refund``).
+        Refunds are payouts too (``is_refund``).
         """
         return cast(Payout, await self._call("POST /v1/payout/info", by_uuid(lookup), **options))
 
@@ -101,7 +105,13 @@ class AsyncPayouts(AsyncResource):
     async def mass(self, params: PayoutMassBody, **options: Any) -> Dict[str, List[BatchElement]]:
         """``POST /v1/payout/mass`` - SYNCHRONOUS batch (<=100).
 
-        Each element reports its own outcome in ``items``.
+        Each element reports its own outcome in ``items``, so a call that returns 200 can still
+        contain failures - check every ``items[i]["ok"]``.
+
+        Call-level codes worth branching on: ``payout.batch_too_large`` (more than 100),
+        ``payout.empty_batch``, ``payout.insufficient_funds`` (retryable), ``payout.frozen``,
+        ``merchant.wrong_key_kind``. Per-element failures arrive as ``items[i]["error_code"]``
+        with the same vocabulary as :meth:`create`.
         """
         return cast(
             Dict[str, List[BatchElement]],
@@ -112,6 +122,11 @@ class AsyncPayouts(AsyncResource):
         """``POST /v1/payout/batch`` - ASYNCHRONOUS batch (<=5000); poll ``batches.info``.
 
         ``order_id`` is required on every item.
+
+        Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
+        ``payout.order_id_required``, ``payout.reference_collision``, ``payout.frozen``,
+        ``merchant.wrong_key_kind``, ``idempotency.key_reused``. Insufficient funds surface per
+        element while the batch runs, not on submission.
         """
         return cast(BatchSubmitted, await self._call("POST /v1/payout/batch", params, **options))
 

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 
 from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
 from ..core.pagination import AsyncPage, PageResult
 from ..core.request import Query
-from ..resources.base import FileResult, PathParams, Resource, _to_page, filename_from
+from ..resources.base import (
+    FileResult,
+    PathParams,
+    Resource,
+    _to_page,
+    filename_from,
+    plan_page,
+)
 
 __all__ = ["AsyncResource", "FileResult"]
 
@@ -18,7 +25,7 @@ class AsyncResource:
 
     The trailing keyword arguments are identical to the synchronous client's
     (:class:`oblodai.resources.base.Resource`): ``idempotency_key``, ``timeout_ms``,
-    ``deadline_ms``, ``prefer_payout_key``.
+    ``deadline_ms``, ``prefer_payout_key``, ``headers``.
     """
 
     def __init__(self, transport: AsyncTransport) -> None:
@@ -57,29 +64,13 @@ class AsyncResource:
         **options: Any,
     ) -> AsyncPage[Any]:
         """Call a paged list route (``{items, paginate}``); returns a lazy :class:`AsyncPage`."""
-        rest: Dict[str, Any] = dict(params or {})
-        # `history({"limit": 50})` and `history(limit=50)` are both accepted.
-        for shortcut in ("limit", "offset"):
-            if shortcut in options:
-                rest[shortcut] = options.pop(shortcut)
-        limit = rest.pop("limit", None)
-        offset = rest.pop("offset", None)
-        # One key per page would be wrong on both sides: the core would replay page 1 forever.
-        page_options = {k: v for k, v in options.items() if k != "idempotency_key"}
-        route = ROUTES[key]
-        use_query = route.method == "GET" or via_query
+        plan = plan_page(key, params, via_query, options)
 
         async def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
-            merged = {**rest, "limit": page_limit, "offset": page_offset}
-            call_options = Resource._options(
-                None if use_query else merged,
-                path_params,
-                merged if use_query else None,
-                page_options,
-            )
-            return _to_page(await self._transport.call(route, call_options))
+            call_options = plan.call_options(page_limit, page_offset, path_params)
+            return _to_page(await self._transport.call(plan.route, call_options))
 
-        return AsyncPage(fetch, limit, offset)
+        return AsyncPage(fetch, plan.limit, plan.offset)
 
     async def _file(
         self,

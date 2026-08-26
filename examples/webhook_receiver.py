@@ -3,7 +3,7 @@
     OBLODAI_WEBHOOK_SECRET=whsec_... python examples/webhook_receiver.py
     # then point url_callback at http://<host>:8099/oblodai/webhook
 
-The three rules that matter, whichever framework you use:
+The four rules that matter, whichever framework you use:
 
 1. Verify over the RAW request bytes. A re-serialized parse will not match the signature.
 2. Deduplicate on `X-Webhook-Id` - it is stable across retries of the same delivery.
@@ -13,6 +13,10 @@ The three rules that matter, whichever framework you use:
    moved - it is signed like a live one and nothing happened on chain.
 
 Answer 2xx quickly: the gateway retries anything else for about 26 hours.
+
+`SignatureError` and `WebhookPayloadError` are deliberately different: the first means the body
+is not from the gateway, the second that an authentic delivery carried something this receiver
+cannot read. Both answer 4xx here, but only the first is a security event.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, Optional, Set
 
-from oblodai import SignatureError, webhooks
+from oblodai import SignatureError, WebhookPayloadError, webhooks
 
 SECRET = os.environ["OBLODAI_WEBHOOK_SECRET"]
 # During a rotation keep the outgoing secret here for at least 26 h.
@@ -52,6 +56,12 @@ class Handler(BaseHTTPRequestHandler):
             )
         except SignatureError as err:
             # Never act on an unverified body.
+            self.send_response(401)
+            self.end_headers()
+            self.wfile.write(err.code.encode())
+            return
+        except WebhookPayloadError as err:
+            # Authentic, but unreadable: 400, and no retry will fix it - look at the payload.
             self.send_response(400)
             self.end_headers()
             self.wfile.write(err.code.encode())
@@ -69,7 +79,11 @@ class Handler(BaseHTTPRequestHandler):
             handle(dict(event), delivery.id)
             if delivery.id:
                 seen_deliveries.add(delivery.id)
-            last_sequence[object_id] = int(event["sequence"])
+            sequence = event.get("sequence")
+            # Only remember a sequence the delivery actually carried: `int(None)` here would turn
+            # a missing field into a crashed handler and a delivery the gateway keeps retrying.
+            if isinstance(sequence, int) and not isinstance(sequence, bool):
+                last_sequence[object_id] = sequence
 
         # 2xx even for duplicates: the work is done, stop the retries.
         self.send_response(200)

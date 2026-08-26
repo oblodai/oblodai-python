@@ -18,11 +18,26 @@ from .envelope import decode_envelope
 from .errors import ConfigError, ContractError, OblodaiError, TransportError
 from .idempotency import assert_idempotency_key, new_idempotency_key
 from .logger import Logger, NoopLogger, redact
-from .request import BuiltRequest, Credentials, Query, build_request, serialize_body
+from .request import Credentials, Query, build_request, serialize_body
 from .retry import DEFAULT_RETRY, RetryOptions, retry_delay_ms, should_retry
 from .signing import SIGNATURE_SKEW_SECONDS
+from .steps import (
+    MAX_FILE_BYTES,
+    MAX_JSON_BYTES,
+    BodyReader,
+    Fail,
+    Finish,
+    Pause,
+    RawResponse,
+    Send,
+    Step,
+    assert_not_redirected,
+)
 
 __all__ = [
+    "MAX_FILE_BYTES",
+    "MAX_JSON_BYTES",
+    "BodyReader",
     "CallEngine",
     "CallOptions",
     "EngineSettings",
@@ -32,67 +47,12 @@ __all__ = [
     "RawResponse",
     "Send",
     "Step",
+    "assert_not_redirected",
     "unwrap_result",
 ]
 
 #: Error codes that mean the core rejected the signature because of the timestamp or the MAC.
 SIGNATURE_FAILURE_CODES = frozenset({"merchant.bad_signature", "auth.bad_timestamp"})
-
-
-@dataclass(frozen=True)
-class RawResponse:
-    """What the HTTP layer hands back: status, headers, body bytes."""
-
-    status: int
-    headers: Mapping[str, str]
-    body: bytes
-
-    def header(self, name: str) -> Optional[str]:
-        want = name.lower()
-        for key, value in self.headers.items():
-            if key.lower() == want:
-                return value
-        return None
-
-    @property
-    def content_type(self) -> Optional[str]:
-        return self.header("content-type")
-
-    @property
-    def text(self) -> str:
-        return self.body.decode("utf-8", errors="replace")
-
-
-@dataclass(frozen=True)
-class Send:
-    """Perform this request, then call :meth:`CallEngine.on_response` or ``on_transport_error``."""
-
-    request: BuiltRequest
-    timeout_ms: float
-
-
-@dataclass(frozen=True)
-class Pause:
-    """Wait this long, then call :meth:`CallEngine.on_pause_done`."""
-
-    delay_ms: float
-
-
-@dataclass(frozen=True)
-class Finish:
-    """The call succeeded."""
-
-    response: RawResponse
-
-
-@dataclass(frozen=True)
-class Fail:
-    """The call failed for good; raise this."""
-
-    error: BaseException
-
-
-Step = Union[Send, Pause, Finish, Fail]
 
 
 @dataclass
@@ -108,23 +68,40 @@ class CallOptions:
     prefer_payout_key: bool = False
     timeout_ms: Optional[float] = None
     deadline_ms: Optional[float] = None
+    #: Extra headers for this call alone, merged over the client's own. The SDK still owns the
+    #: names in ``RESERVED_HEADERS``, and a value with CR/LF or non-ASCII bytes is a ConfigError.
+    headers: Optional[Mapping[str, str]] = None
 
 
 @dataclass
 class EngineSettings:
-    """Client-wide configuration the engine reads (never mutated per call)."""
+    """Client-wide configuration the engine reads (never mutated per call).
+
+    ``Transport.settings`` is public, so this object turns up in tracebacks, ``repr()`` and
+    debugger panes: nothing secret is ever rendered.
+    """
 
     base_url: str
     user_agent: str
     credentials: Optional[Credentials] = None
     payout_credentials: Optional[Credentials] = None
-    headers: Optional[Mapping[str, str]] = None
-    admin_token: Optional[str] = None
+    headers: Optional[Mapping[str, str]] = field(default=None, repr=False)
+    admin_token: Optional[str] = field(default=None, repr=False)
     retry: RetryOptions = DEFAULT_RETRY
     timeout_ms: float = 30_000.0
     deadline_ms: float = 90_000.0
     clock: SkewCorrectingClock = field(default_factory=SkewCorrectingClock)
     logger: Logger = field(default_factory=NoopLogger)
+
+    def __repr__(self) -> str:
+        return (
+            f"EngineSettings(base_url={self.base_url!r}, user_agent={self.user_agent!r}, "
+            f"credentials={self.credentials!r}, payout_credentials={self.payout_credentials!r}, "
+            f"headers={'[redacted]' if self.headers else None}, "
+            f"admin_token={'[redacted]' if self.admin_token else None}, "
+            f"retry={self.retry!r}, timeout_ms={self.timeout_ms!r}, "
+            f"deadline_ms={self.deadline_ms!r})"
+        )
 
 
 def _now_ms() -> float:
@@ -148,6 +125,10 @@ class CallEngine:
         self._attempt = 0
         self._skew_tried = False
         self._skew_before = 0
+        self._skew_installed = 0
+        #: The offset the attempt in flight was signed with - not whatever the shared clock says
+        #: now, which another thread may already have moved.
+        self._signed_offset = 0
         self._body = b""
         self._idempotency_key: Optional[str] = None
         self._safe_to_repeat = False
@@ -210,18 +191,26 @@ class CallEngine:
             clock = self._settings.clock
             if not self._skew_tried:
                 offset = clock.observe_server_date(raw.header("date"))
-                if offset is not None and abs(offset - clock.offset) > SIGNATURE_SKEW_SECONDS / 2:
+                # Compared against what THIS attempt signed with: another thread may have moved
+                # the shared offset in the meantime, and its correction is not evidence about
+                # this request.
+                if (
+                    offset is not None
+                    and abs(offset - self._signed_offset) > SIGNATURE_SKEW_SECONDS / 2
+                ):
                     self._settings.logger.warning(
                         "clock skew detected; re-signing with server time",
                         {"route": self._label, "offset_sec": offset},
                     )
                     self._skew_tried = True
-                    self._skew_before = clock.offset
+                    self._skew_before = self._signed_offset
+                    self._skew_installed = offset
                     clock.correct(offset)
                     return self._send()
             else:
-                # The corrected timestamp did not help: it was not skew.
-                clock.correct(self._skew_before)
+                # The corrected timestamp did not help: it was not skew. Put the old offset back
+                # only if this call's correction is still the one in force.
+                clock.revert_if_unchanged(self._skew_installed, self._skew_before)
 
         return self._after_failure(failure)
 
@@ -238,36 +227,42 @@ class CallEngine:
         route = self._route
         settings = self._settings
         extra: Optional[Mapping[str, str]] = settings.headers
-        if route.auth == "onboard" and settings.admin_token:
+        if self._options.headers:
+            # Per-call headers win over the client's; both go through the same reserved-name and
+            # value checks in `build_request`.
             merged: Dict[str, str] = dict(settings.headers or {})
-            merged["X-Admin-Token"] = settings.admin_token
+            merged.update(self._options.headers)
             extra = merged
+        ts, self._signed_offset = settings.clock.now_with_offset()
         try:
             request = build_request(
                 base_url=settings.base_url,
                 route=route,
                 body=self._body,
-                ts=settings.clock.now(),
+                ts=ts,
                 user_agent=settings.user_agent,
                 path_params=self._options.path_params,
                 query=self._options.query,
                 credentials=self._credentials(),
                 idempotency_key=self._idempotency_key,
                 extra_headers=extra,
+                admin_token=settings.admin_token,
             )
         except OblodaiError as err:
             return Fail(err)
         settings.logger.debug(
             "request",
-            {
-                "route": self._label,
-                "attempt": self._attempt,
-                "idempotency_key": self._idempotency_key,
-            },
+            redact(
+                {
+                    "route": self._label,
+                    "attempt": self._attempt,
+                    "idempotency_key": self._idempotency_key,
+                }
+            ),
         )
         remaining = max(1.0, self._deadline_at - self._now_ms())
         timeout = min(self._options.timeout_ms or settings.timeout_ms, remaining)
-        return Send(request, timeout)
+        return Send(request, timeout, MAX_FILE_BYTES if route.bare else MAX_JSON_BYTES)
 
     def _credentials(self) -> Optional[Credentials]:
         """Which key pair signs a route. ``any`` routes take the payment key unless told otherwise."""

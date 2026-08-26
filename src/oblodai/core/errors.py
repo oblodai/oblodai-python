@@ -12,10 +12,12 @@ repeating is safe. Subclasses exist for ``except`` ergonomics; the discriminator
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, Mapping, Optional, TypedDict
 
 __all__ = [
+    "MAX_RETRY_AFTER_SECONDS",
     "TRANSIENT_STATUSES",
+    "AmountError",
     "ApiError",
     "AuthenticationError",
     "ConfigError",
@@ -26,14 +28,22 @@ __all__ = [
     "InternalError",
     "NotFoundError",
     "OblodaiError",
-    "PermissionError",
+    "PermissionDeniedError",
     "RateLimitError",
+    "ResponseTooLargeError",
     "SignatureError",
     "TransportError",
     "UnavailableError",
     "ValidationError",
+    "WebhookPayloadError",
     "api_error_from",
+    "coerce_retry_after",
 ]
+
+#: Plausibility bound for any retry hint, seconds. Anything above it is a broken clock or a
+#: broken proxy, not a wait: clamping here is what keeps a hint out of native overflow. The
+#: delay actually slept is capped again, and much lower, by ``RetryOptions.max_retry_after_ms``.
+MAX_RETRY_AFTER_SECONDS = 24 * 3600.0
 
 
 class ErrorDetail(TypedDict, total=False):
@@ -119,7 +129,10 @@ class TransportError(OblodaiError):
             http_status=0,
             retryable=code in ("transport.timeout", "transport.network"),
         )
-        self.__cause__ = cause
+        # Only when there is one: assigning None would suppress the implicit context of a
+        # `raise ... from err` and hide the original traceback.
+        if cause is not None:
+            self.__cause__ = cause
 
 
 class ConfigError(OblodaiError):
@@ -141,8 +154,12 @@ class AuthenticationError(ApiError):
     """401 - bad signature, unknown key, clock skew, IP not in the allow-list."""
 
 
-class PermissionError(ApiError):
+class PermissionDeniedError(ApiError):
     """403 - the key is valid but not allowed to do this (wrong key kind, feature disabled)."""
+
+
+#: Deprecated spelling kept for 1.2 callers; it shadows the builtin, so it is not exported.
+PermissionError = PermissionDeniedError
 
 
 class NotFoundError(ApiError):
@@ -172,10 +189,32 @@ class InternalError(ApiError):
 class ContractError(OblodaiError):
     """The response could not be interpreted as the documented envelope."""
 
-    def __init__(self, message: str, http_status: int, raw: Any = None) -> None:
-        super().__init__(
-            "sdk.bad_envelope", message, http_status=http_status, retryable=False, raw=raw
-        )
+    def __init__(
+        self, message: str, http_status: int, raw: Any = None, code: str = "sdk.bad_envelope"
+    ) -> None:
+        super().__init__(code, message, http_status=http_status, retryable=False, raw=raw)
+
+
+class ResponseTooLargeError(ContractError):
+    """The response body passed the size cap the SDK reads under (``sdk.response_too_large``).
+
+    Not OOM and not a retryable transport failure: something answered with more than an answer.
+    """
+
+    def __init__(self, message: str, http_status: int) -> None:
+        super().__init__(message, http_status, None, code="sdk.response_too_large")
+
+
+class WebhookPayloadError(ContractError):
+    """A delivery whose signature verified but whose body is not a usable event.
+
+    Deliberately NOT a :class:`SignatureError`: the delivery is authentic, so a receiver that
+    answers 401 to signature failures must not answer 401 to this one - the core would keep
+    retrying a delivery that no retry can fix. Answer 400 and investigate the payload.
+    """
+
+    def __init__(self, message: str, raw: Any = None) -> None:
+        super().__init__(message, 0, raw, code="webhook.bad_payload")
 
 
 class SignatureError(OblodaiError):
@@ -185,8 +224,45 @@ class SignatureError(OblodaiError):
         super().__init__(code, message, http_status=0, retryable=False)
 
 
+class AmountError(ConfigError, ValueError):
+    """A string handed to the money helpers is not a decimal amount.
+
+    Also a :class:`ValueError`, so ``except ValueError`` around the helpers keeps working.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__("sdk.bad_amount", message, "amount")
+
+
 #: Statuses a response without an envelope may carry transiently (LB/proxy/timeouts).
 TRANSIENT_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def _text(value: Any) -> Optional[str]:
+    """A field the envelope declares as a string, or ``None`` when it is anything else."""
+    return value if isinstance(value, str) else None
+
+
+def coerce_retry_after(value: Any) -> Optional[float]:
+    """A retry hint in seconds: integer, float or numeric string, clamped and sane.
+
+    Anything else - ``true``, ``null``, a list, ``"soon"``, ``NaN``, an infinity, a negative
+    number - is no hint at all, and a hint bigger than :data:`MAX_RETRY_AFTER_SECONDS` is clamped
+    rather than believed. The arithmetic stays in ``float``, so no width can overflow.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    seconds = float(value)
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):  # NaN / +-inf
+        return None
+    return min(max(seconds, 0.0), MAX_RETRY_AFTER_SECONDS)
 
 
 def api_error_from(
@@ -197,23 +273,33 @@ def api_error_from(
     synthetic: bool = False,
     retry_after_header: Optional[float] = None,
 ) -> ApiError:
-    """Build the right subclass from an error envelope (or a synthesized one) and the status."""
-    code = detail.get("code") or "internal"
-    message = detail.get("message") or (
-        f"request failed with HTTP {http_status} ({detail.get('code') or 'no envelope'})"
-    )
+    """Build the right subclass from an error envelope (or a synthesized one) and the status.
+
+    Every field is decoded on its own: an envelope where one field has the wrong JSON type still
+    yields the rest, and never a ``TypeError`` from somewhere deeper in the SDK.
+    """
+    if not isinstance(detail, Mapping):
+        detail = {}
+    code = _text(detail.get("code")) or ""
+    if not code:
+        # No usable envelope: whatever answered did not speak the core's error shape.
+        code, synthetic = "internal", True
+    message = _text(detail.get("message")) or f"HTTP {http_status}"
+    if synthetic and not _text(detail.get("message")):
+        message = f"request failed with HTTP {http_status} (no envelope)"
     if synthetic:
         retryable = http_status in TRANSIENT_STATUSES
     else:
         declared = detail.get("retryable")
-        retryable = declared if declared is not None else http_status in (429, 503)
-    body_retry_after = detail.get("retry_after")
+        # A literal boolean is the core speaking; anything else is noise, and the status decides.
+        retryable = declared if isinstance(declared, bool) else http_status in (429, 503)
+    body_retry_after = coerce_retry_after(detail.get("retry_after"))
     kwargs: Dict[str, Any] = {
         "http_status": http_status,
         "retryable": retryable,
         "retry_after": body_retry_after if body_retry_after is not None else retry_after_header,
-        "request_id": detail.get("request_id"),
-        "field": detail.get("field"),
+        "request_id": _text(detail.get("request_id")),
+        "field": _text(detail.get("field")),
         "synthetic": synthetic,
         "raw": raw,
     }
@@ -222,7 +308,7 @@ def api_error_from(
     by_status = {
         400: ValidationError,
         401: AuthenticationError,
-        403: PermissionError,
+        403: PermissionDeniedError,
         404: NotFoundError,
         409: ConflictError,
         429: RateLimitError,

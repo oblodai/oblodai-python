@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from types import TracebackType
 from typing import Any, Optional, Type
 
@@ -10,6 +11,7 @@ import httpx
 
 from ..contract.types import RouteSpec
 from .engine import (
+    BodyReader,
     CallEngine,
     CallOptions,
     EngineSettings,
@@ -18,9 +20,10 @@ from .engine import (
     Pause,
     RawResponse,
     Send,
+    assert_not_redirected,
     unwrap_result,
 )
-from .errors import TransportError
+from .errors import OblodaiError, TransportError
 
 __all__ = ["AsyncTransport"]
 
@@ -88,26 +91,47 @@ class AsyncTransport:
     # -- internals ---------------------------------------------------------------------------
 
     async def _send(self, step: Send) -> RawResponse:
-        request = step.request
+        seconds = step.timeout_ms / 1000.0
         try:
-            response = await self._client.request(
-                request.method,
-                request.url,
-                headers=request.headers,
-                content=request.content,
-                timeout=step.timeout_ms / 1000.0,
-                follow_redirects=False,
-            )
+            # The attempt as a whole is bounded here: `httpx`' timeout is per socket operation,
+            # so a server dribbling one byte at a time would otherwise never trip it.
+            return await asyncio.wait_for(self._perform(step), seconds)
+        except asyncio.TimeoutError as err:
+            raise TransportError(
+                "transport.timeout", f"request timed out after {step.timeout_ms:.0f} ms", err
+            ) from err
         except httpx.TimeoutException as err:
             raise TransportError(
                 "transport.timeout", f"request timed out after {step.timeout_ms:.0f} ms", err
             ) from err
         except asyncio.CancelledError:
             raise
-        except Exception as err:
+        except OblodaiError:
+            # A size cap or a followed redirect: already the right error, and never to be
+            # re-labelled `transport.network` (which is retryable, and these are not).
+            raise
+        except (httpx.HTTPError, OSError) as err:
+            # Only a real transport failure becomes one; a bug inside this SDK stays a bug.
             raise TransportError("transport.network", f"network error: {err}", err) from err
-        return RawResponse(
-            status=response.status_code,
-            headers=dict(response.headers),
-            body=response.content,
-        )
+
+    async def _perform(self, step: Send) -> RawResponse:
+        request = step.request
+        seconds = step.timeout_ms / 1000.0
+        deadline = time.monotonic() + seconds
+        async with self._client.stream(
+            request.method,
+            request.url,
+            headers=request.headers,
+            content=request.content,
+            timeout=seconds,
+            follow_redirects=False,
+        ) as response:
+            assert_not_redirected(request.url, str(response.url), response.status_code)
+            reader = BodyReader(step, deadline)
+            async for chunk in response.aiter_bytes():
+                reader.feed(chunk, response.status_code)
+            return RawResponse(
+                status=response.status_code,
+                headers=dict(response.headers),
+                body=reader.finish(),
+            )

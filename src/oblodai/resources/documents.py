@@ -7,18 +7,33 @@ asynchronous jobs (:meth:`Documents.create_job` -> :meth:`Documents.job_info` ->
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional, cast
+from typing import Any, Dict, Mapping, Optional, TypedDict, Union, cast
 
 from ..contract.models import DocumentJob
 from ..contract.requests import DocumentsJobsBody
+from ..core.errors import ConfigError
 from ..core.request import Query
 from .base import FileResult, Resource
 
-__all__ = ["Documents"]
+__all__ = ["DocumentQuery", "Documents", "SignedLinkQuery"]
 
 #: ``lang`` is a 2-letter code (41 supported); ``format`` is ``pdf`` or ``csv`` where offered;
 #: ``from``/``to`` are ``YYYY-MM-DD``.
 DocumentQuery = Mapping[str, Any]
+
+
+class _SignedLink(TypedDict):
+    #: Expiry stamp from the ``document_url``.
+    exp: Union[int, str]
+    #: Signature from the ``document_url``.
+    sig: str
+
+
+class SignedLinkQuery(_SignedLink, total=False):
+    """The query of a public ``document_url``: both halves of its signature, plus the usual knobs."""
+
+    lang: str
+    format: str
 
 
 class Documents(Resource):
@@ -89,12 +104,22 @@ class Documents(Resource):
         """``GET /v1/documents/referrals`` - referral earnings report."""
         return self._file("GET /v1/documents/referrals", query=_query(query), **options)
 
-    def download(self, kind: str, id: str, query: DocumentQuery, **options: Any) -> FileResult:
+    def download(self, kind: str, id: str, query: SignedLinkQuery, **options: Any) -> FileResult:
         """``GET /v1/documents/{kind}/{id}`` - a public document by its signed link.
 
-        ``exp`` and ``sig`` come from a ``document_url``; no credentials needed. Prefer fetching
-        ``document_url`` directly.
+        ``exp`` and ``sig`` are the two halves of the signature the gateway put in a
+        ``document_url``; without both the gateway answers 403, so they are required here rather
+        than discovered at runtime. No credentials needed - prefer fetching ``document_url``
+        directly when you have it.
         """
+        missing = [name for name in ("exp", "sig") if not (query or {}).get(name)]
+        if missing:
+            raise ConfigError(
+                "sdk.bad_query",
+                f"documents.download needs {' and '.join(missing)} from the document_url "
+                "signature; a link without them is not downloadable",
+                missing[0],
+            )
         return self._file(
             "GET /v1/documents/{kind}/{id}",
             path_params={"kind": kind, "id": id},

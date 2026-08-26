@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from .errors import ValidationError
+from .errors import ConfigError
 from .util import uuid4
 
 __all__ = ["MAX_IDEMPOTENCY_KEY_LENGTH", "assert_idempotency_key", "new_idempotency_key"]
@@ -37,11 +37,6 @@ def assert_idempotency_key(key: str) -> None:
         raise _invalid("idempotency_key must be printable ASCII without spaces")
 
 
-def _invalid(message: str) -> ValidationError:
-    return ValidationError(
-        "sdk.bad_idempotency_key",
-        message,
-        http_status=0,
-        retryable=False,
-        field="idempotency_key",
-    )
+def _invalid(message: str) -> ConfigError:
+    """A key the caller wrote: refused before anything is signed, so it is a ConfigError."""
+    return ConfigError("sdk.bad_idempotency_key", message, "idempotency_key")

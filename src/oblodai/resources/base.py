@@ -9,16 +9,20 @@ from urllib.parse import unquote
 
 from ..contract.models.common import Paginate
 from ..contract.routes import ROUTES
+from ..contract.types import RouteSpec
 from ..core.engine import CallOptions
 from ..core.envelope import as_page, as_plain_list
+from ..core.errors import ConfigError
 from ..core.pagination import Page, PageResult
 from ..core.request import Query
 from ..core.transport import Transport
 
-__all__ = ["FileResult", "Resource"]
+__all__ = ["FileResult", "PagePlan", "Resource", "plan_page"]
 
 #: Per-call options every resource method accepts as trailing keyword arguments.
-OPTION_KEYS = frozenset({"idempotency_key", "timeout_ms", "deadline_ms", "prefer_payout_key"})
+OPTION_KEYS = frozenset(
+    {"idempotency_key", "timeout_ms", "deadline_ms", "prefer_payout_key", "headers"}
+)
 
 PathParams = Mapping[str, Union[str, int]]
 
@@ -51,6 +55,8 @@ class Resource:
         Overall budget for the call including retries.
     ``prefer_payout_key``
         Sign with the payout key on a route that accepts either key kind.
+    ``headers``
+        Extra headers for this call alone, merged over the client's own.
     """
 
     def __init__(self, transport: Transport) -> None:
@@ -79,6 +85,7 @@ class Resource:
             prefer_payout_key=bool(options.get("prefer_payout_key", False)),
             timeout_ms=options.get("timeout_ms"),
             deadline_ms=options.get("deadline_ms"),
+            headers=options.get("headers"),
         )
 
     def _call(
@@ -108,29 +115,13 @@ class Resource:
         **options: Any,
     ) -> Page[Any]:
         """Call a paged list route (``{items, paginate}``); returns a lazy :class:`Page`."""
-        rest: Dict[str, Any] = dict(params or {})
-        # `history({"limit": 50})` and `history(limit=50)` are both accepted.
-        for shortcut in ("limit", "offset"):
-            if shortcut in options:
-                rest[shortcut] = options.pop(shortcut)
-        limit = rest.pop("limit", None)
-        offset = rest.pop("offset", None)
-        # One key per page would be wrong on both sides: the core would replay page 1 forever.
-        page_options = {k: v for k, v in options.items() if k != "idempotency_key"}
-        route = ROUTES[key]
-        use_query = route.method == "GET" or via_query
+        plan = plan_page(key, params, via_query, options)
 
         def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
-            merged = {**rest, "limit": page_limit, "offset": page_offset}
-            call_options = self._options(
-                None if use_query else merged,
-                path_params,
-                merged if use_query else None,
-                page_options,
-            )
-            return _to_page(self._transport.call(route, call_options))
+            call_options = plan.call_options(page_limit, page_offset, path_params)
+            return _to_page(self._transport.call(plan.route, call_options))
 
-        return Page(fetch, limit, offset)
+        return Page(fetch, plan.limit, plan.offset)
 
     def _file(
         self,
@@ -150,6 +141,68 @@ class Resource:
             content_type=raw.content_type or "application/octet-stream",
             filename=filename_from(raw.header("content-disposition")),
         )
+
+
+@dataclass(frozen=True)
+class PagePlan:
+    """Everything a paged call needs, worked out once and shared by both client tiers."""
+
+    route: RouteSpec
+    use_query: bool
+    rest: Mapping[str, Any]
+    limit: Optional[int]
+    offset: Optional[int]
+    options: Mapping[str, Any]
+
+    def call_options(
+        self, page_limit: int, page_offset: int, path_params: Optional[PathParams]
+    ) -> CallOptions:
+        merged = {**self.rest, "limit": page_limit, "offset": page_offset}
+        return Resource._options(
+            None if self.use_query else merged,
+            path_params,
+            merged if self.use_query else None,
+            self.options,
+        )
+
+
+def plan_page(
+    key: str,
+    params: Optional[Mapping[str, Any]],
+    via_query: bool,
+    options: Dict[str, Any],
+) -> PagePlan:
+    """Split a list call into its paging arguments, its body/query and its per-call options.
+
+    One place for both tiers, so the sync and async ``_page`` cannot disagree about what a list
+    call sends.
+    """
+    route = ROUTES[key]
+    rest: Dict[str, Any] = dict(params or {})
+    # `history({"limit": 50})` and `history(limit=50)` are both accepted.
+    for shortcut in ("limit", "offset"):
+        if shortcut in options:
+            rest[shortcut] = options.pop(shortcut)
+    limit = rest.pop("limit", None)
+    offset = rest.pop("offset", None)
+    if options.get("idempotency_key") is not None and not route.idempotent:
+        # Silently dropping it would be worse: the caller believes the call is deduplicated, and
+        # reusing one key across pages would make the core replay page 1 forever.
+        raise ConfigError(
+            "sdk.idempotency_unsupported",
+            f"{route.method} {route.path} does not deduplicate by Idempotency-Key; "
+            "remove idempotency_key from this call",
+            "idempotency_key",
+        )
+    page_options = {k: v for k, v in options.items() if k != "idempotency_key"}
+    return PagePlan(
+        route=route,
+        use_query=route.method == "GET" or via_query,
+        rest=rest,
+        limit=limit,
+        offset=offset,
+        options=page_options,
+    )
 
 
 def _to_page(result: Any) -> PageResult[Any]:

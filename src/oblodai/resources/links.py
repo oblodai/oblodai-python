@@ -42,6 +42,11 @@ class PayoutLinks(Resource):
         """``POST /v1/payout/link`` - reserve funds and mint a claim token.
 
         ``claim_token``/``claim_url`` are returned once. Idempotent by ``reference``.
+
+        Codes worth branching on: ``payout_link.disabled``, ``payout.insufficient_funds``
+        (retryable), ``payout.funds_maturing`` (retryable), ``payout.bad_amount``,
+        ``payout.reference_collision`` (that ``reference`` already minted a different link),
+        ``merchant.wrong_key_kind``.
         """
         return cast(PayoutLink, self._call("POST /v1/payout/link", params, **options))
 
@@ -64,16 +69,27 @@ class PayoutLinks(Resource):
         return self._page("POST /v1/payout/link/list", params, **options)
 
     def cancel(self, link: LinkRef, **options: Any) -> PayoutLink:
-        """``POST /v1/payout/link/cancel`` - release the reserved funds of an unclaimed link."""
+        """``POST /v1/payout/link/cancel`` - release the reserved funds of an unclaimed link.
+
+        Codes worth branching on: ``payoutlink.already_claimed``,
+        ``payoutlink.claim_in_progress``, ``payout.not_pending``, ``payout.no_lookup``,
+        ``merchant.wrong_key_kind``.
+        """
         return cast(
             PayoutLink,
             self._call("POST /v1/payout/link/cancel", {"link_id": link_id_of(link)}, **options),
         )
 
     def batch(self, params: PayoutLinkBatchBody, **options: Any) -> Dict[str, List[BatchElement]]:
-        """``POST /v1/payout/link/batch`` - SYNCHRONOUS: many links in one signed call.
+        """``POST /v1/payout/link/batch`` - SYNCHRONOUS: at most 500 links in one signed call.
 
-        ``reference`` is required on every item; each element reports its own outcome.
+        ``reference`` is required on every item; each element reports its own outcome, so a call
+        that returns 200 can still contain failures - check every ``items[i]["ok"]``.
+
+        Call-level codes worth branching on: ``payout.batch_too_large`` (more than 500),
+        ``payout.empty_batch``, ``payout_link.disabled``, ``payout.insufficient_funds``
+        (retryable), ``merchant.wrong_key_kind``. Per-element failures arrive as
+        ``items[i]["error_code"]`` with the vocabulary of :meth:`create`.
         """
         return cast(
             Dict[str, List[BatchElement]],
@@ -94,7 +110,13 @@ class PayoutLinks(Resource):
         )
 
     def claim(self, token: str, params: ClaimTokenBody, **options: Any) -> ClaimResult:
-        """``POST /v1/claim/{token}`` - claim to an address (and passcode when the link has one)."""
+        """``POST /v1/claim/{token}`` - claim to an address (and passcode when the link has one).
+
+        Codes worth branching on: ``payoutlink.already_claimed``,
+        ``payoutlink.claim_in_progress``, ``payoutlink.passcode_required``,
+        ``payoutlink.passcode_wrong``, ``payoutlink.passcode_locked`` (too many wrong attempts),
+        ``payout.bad_address``, ``payout.address_network_mismatch``.
+        """
         return cast(
             ClaimResult,
             self._call("POST /v1/claim/{token}", params, path_params={"token": token}, **options),
@@ -105,7 +127,12 @@ class PaymentLinks(Resource):
     """Reusable payment links (tip jars, price tags): each checkout spawns an invoice."""
 
     def create(self, params: PaymentLinkBody, **options: Any) -> PaymentLinkCreated:
-        """``POST /v1/payment/link``."""
+        """``POST /v1/payment/link`` - a reusable link; each checkout spawns its own invoice.
+
+        Codes worth branching on: ``invoice.bad_price``, ``payment.bad_amount``,
+        ``request.unknown_currency``, ``payment.unsupported_network``,
+        ``payment.below_minimum``, ``idempotency.key_reused``.
+        """
         return cast(PaymentLinkCreated, self._call("POST /v1/payment/link", params, **options))
 
     def info(
@@ -153,7 +180,13 @@ class PaymentLinks(Resource):
     def checkout(
         self, link_id: str, params: Optional[LinkIdCheckoutBody] = None, **options: Any
     ) -> PublicPayment:
-        """``POST /v1/link/{id}/checkout`` - spawn an invoice from the link (rate-capped per IP)."""
+        """``POST /v1/link/{id}/checkout`` - spawn an invoice from the link (rate-capped per IP).
+
+        Codes worth branching on: ``pay.method_not_accepted``, ``pay.below_minimum``,
+        ``pay.minimum_unavailable`` (the rate feed is down - retryable),
+        ``payment.unsupported_network``, ``request.unknown_currency``,
+        ``request.rate_limited`` (retryable).
+        """
         return cast(
             PublicPayment,
             self._call(

@@ -10,6 +10,7 @@ import httpx
 
 from ..contract.types import RouteSpec
 from .engine import (
+    BodyReader,
     CallEngine,
     CallOptions,
     EngineSettings,
@@ -18,9 +19,10 @@ from .engine import (
     Pause,
     RawResponse,
     Send,
+    assert_not_redirected,
     unwrap_result,
 )
-from .errors import TransportError
+from .errors import OblodaiError, TransportError
 
 __all__ = ["Transport"]
 
@@ -85,23 +87,36 @@ class Transport:
 
     def _send(self, step: Send) -> RawResponse:
         request = step.request
+        seconds = step.timeout_ms / 1000.0
+        deadline = time.monotonic() + seconds
         try:
-            response = self._client.request(
+            with self._client.stream(
                 request.method,
                 request.url,
                 headers=request.headers,
                 content=request.content,
-                timeout=step.timeout_ms / 1000.0,
+                timeout=seconds,
                 follow_redirects=False,
-            )
+            ) as response:
+                assert_not_redirected(request.url, str(response.url), response.status_code)
+                reader = BodyReader(step, deadline)
+                for chunk in response.iter_bytes():
+                    reader.feed(chunk, response.status_code)
+                return RawResponse(
+                    status=response.status_code,
+                    headers=dict(response.headers),
+                    body=reader.finish(),
+                )
         except httpx.TimeoutException as err:
             raise TransportError(
                 "transport.timeout", f"request timed out after {step.timeout_ms:.0f} ms", err
             ) from err
-        except Exception as err:  # httpx.TransportError and anything a custom transport raises
+        except OblodaiError:
+            # A deadline, a size cap or a followed redirect: already the right error, and never
+            # to be re-labelled `transport.network` (which is retryable, and these are not).
+            raise
+        except (httpx.HTTPError, OSError) as err:
+            # Only a real transport failure becomes one. A TypeError from inside this SDK is a
+            # bug, and dressing it up as a retryable network error would hide it and re-send the
+            # request twice more.
             raise TransportError("transport.network", f"network error: {err}", err) from err
-        return RawResponse(
-            status=response.status_code,
-            headers=dict(response.headers),
-            body=response.content,
-        )

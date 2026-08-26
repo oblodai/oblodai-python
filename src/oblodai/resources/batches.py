@@ -11,7 +11,7 @@ from ..contract.requests import (
     TransferToPersonalBody,
     TransferToUserBody,
 )
-from ..core.errors import PermissionError as OblodaiPermissionError
+from ..core.errors import PermissionDeniedError
 from .base import Resource
 
 __all__ = ["Batches", "Transfers"]
@@ -28,7 +28,7 @@ class Batches(Resource):
         """
         try:
             return cast(BatchInfo, self._call("POST /v1/batch/info", params, **options))
-        except OblodaiPermissionError as err:
+        except PermissionDeniedError as err:
             if err.code != "merchant.wrong_key_kind" or options.get("prefer_payout_key"):
                 raise
         retry = dict(options)
@@ -40,7 +40,12 @@ class Transfers(Resource):
     """Internal, instant, fee-free moves between platform balances. Payout key."""
 
     def to_personal(self, params: TransferToPersonalBody, **options: Any) -> TransferToPersonal:
-        """``POST /v1/transfer/to-personal`` - business balance to the owner's personal wallet."""
+        """``POST /v1/transfer/to-personal`` - business balance to the owner's personal wallet.
+
+        Codes worth branching on: ``transfer.bad_amount``, ``payout.insufficient_funds``
+        (retryable), ``payout.funds_maturing`` (retryable), ``merchant.no_personal_wallet``,
+        ``merchant.wrong_key_kind``, ``idempotency.key_reused``.
+        """
         return cast(
             TransferToPersonal, self._call("POST /v1/transfer/to-personal", params, **options)
         )
@@ -49,6 +54,11 @@ class Transfers(Resource):
         """``POST /v1/transfer/to-user`` - business balance to another platform user's wallet.
 
         ``amount`` and ``currency`` are required.
+
+        Codes worth branching on: ``transfer.bad_amount``, ``transfer.bad_recipient``,
+        ``transfer.no_recipient``, ``transfer.recipient_not_found``,
+        ``payout.insufficient_funds`` (retryable), ``merchant.wrong_key_kind``,
+        ``idempotency.key_reused``.
         """
         return cast(TransferToUser, self._call("POST /v1/transfer/to-user", params, **options))
 
@@ -56,5 +66,10 @@ class Transfers(Resource):
         """``POST /v1/transfer/batch`` - ASYNCHRONOUS batch of :meth:`to_user` transfers.
 
         Poll ``batches.info``; ``order_id`` is required on every item.
+
+        Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
+        ``request.missing_field`` (an item without ``order_id``),
+        ``transfer.recipient_not_found``, ``merchant.wrong_key_kind``,
+        ``idempotency.key_reused``.
         """
         return cast(BatchSubmitted, self._call("POST /v1/transfer/batch", params, **options))

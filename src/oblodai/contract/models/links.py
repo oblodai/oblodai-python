@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple, TypedDict
 
-from ..enums import AmountMode, FeeBearer, PaymentStatus, PayoutLinkStatus, PayoutStatus
+from ..enums import AmountMode, FeeBearer, PaymentStatus, PayoutLinkStatus
 from .common import Money, Timestamp
 
 

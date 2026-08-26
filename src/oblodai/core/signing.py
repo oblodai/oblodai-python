@@ -18,6 +18,7 @@ import hmac
 from typing import Optional, Union
 
 __all__ = [
+    "HEADER_ADMIN_TOKEN",
     "HEADER_IDEMPOTENCY_KEY",
     "HEADER_PUBLIC_ID",
     "HEADER_SIGNATURE",
@@ -80,6 +81,9 @@ HEADER_PUBLIC_ID = "X-Public-Id"
 HEADER_SIGNATURE = "X-Signature"
 HEADER_TIMESTAMP = "X-Timestamp"
 HEADER_IDEMPOTENCY_KEY = "Idempotency-Key"
+
+#: Gate on the unsigned onboarding routes of a self-hosted gateway. Not part of the signature.
+HEADER_ADMIN_TOKEN = "X-Admin-Token"
 
 #: Accepted clock skew on the core side, in seconds.
 SIGNATURE_SKEW_SECONDS = 300

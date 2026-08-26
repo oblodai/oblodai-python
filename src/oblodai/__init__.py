@@ -44,6 +44,7 @@ from .contract.routes import ROUTE_KEYS, ROUTES
 from .contract.types import RouteAuth, RouteSpec
 from .contract.version import CONTRACT_CORE_COMMIT, CONTRACT_EXPORTED_AT, CONTRACT_HASH
 from .core.errors import (
+    AmountError,
     ApiError,
     AuthenticationError,
     ConfigError,
@@ -53,12 +54,14 @@ from .core.errors import (
     InternalError,
     NotFoundError,
     OblodaiError,
-    PermissionError,
+    PermissionDeniedError,
     RateLimitError,
+    ResponseTooLargeError,
     SignatureError,
     TransportError,
     UnavailableError,
     ValidationError,
+    WebhookPayloadError,
 )
 from .core.idempotency import new_idempotency_key
 from .core.pagination import AsyncPage, Page, PageResult
@@ -79,7 +82,7 @@ from .helpers import (
     subtract_amounts,
 )
 from .resources import FileResult
-from .webhooks import WebhookDeliveryInfo, is_test_event
+from .webhooks import WebhookDeliveryInfo, is_known_event, is_test_event
 
 # Webhook verification also lives in `oblodai.webhooks` and needs no client.
 from .webhooks import is_stale as verify_is_stale
@@ -88,6 +91,9 @@ from .webhooks import verify as verify_webhook
 from .webhooks import verify_delivery as verify_webhook_delivery
 
 _model_names = _models_all
+
+#: PEP 396 spelling of :data:`SDK_VERSION`, for tools that look for it.
+__version__ = SDK_VERSION
 
 __all__ = [
     "CONTRACT_CORE_COMMIT",
@@ -106,6 +112,8 @@ __all__ = [
     "ROUTES",
     "ROUTE_KEYS",
     "SDK_VERSION",
+    "__version__",
+    "AmountError",
     "ApiError",
     "AsyncOblodai",
     "AsyncPage",
@@ -130,8 +138,9 @@ __all__ = [
     "PaymentStatus",
     "PayoutLinkStatus",
     "PayoutStatus",
-    "PermissionError",
+    "PermissionDeniedError",
     "RateLimitError",
+    "ResponseTooLargeError",
     "RetryOptions",
     "RouteAuth",
     "RouteSpec",
@@ -140,6 +149,7 @@ __all__ = [
     "UnavailableError",
     "ValidationError",
     "WebhookDeliveryInfo",
+    "WebhookPayloadError",
     "WebhookKind",
     "add_amounts",
     "amount_equals",
@@ -150,6 +160,7 @@ __all__ = [
     "is_payment_underpaid",
     "is_payout_final",
     "is_payout_succeeded",
+    "is_known_event",
     "is_test_event",
     "is_zero_amount",
     "new_idempotency_key",
