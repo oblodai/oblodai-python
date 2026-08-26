@@ -1,7 +1,7 @@
 """Route coverage: every route the core declares has exactly one SDK method behind it.
 
 The table below is the SDK's coverage ledger. A new core route fails this suite until a method is
-wired to it, and a method wired to the wrong verb, path, key or idempotency wrapper fails too.
+wired to it, and a method wired to the wrong verb, path, gate or idempotency wrapper fails too.
 """
 
 from __future__ import annotations
@@ -55,19 +55,28 @@ def _script(key: str) -> MockHTTP:
 
 
 def _assert_wire(mock: MockHTTP, key: str) -> None:
-    """One request, on the declared verb and path, with the declared key and idempotency wrapper."""
+    """One request, on the declared verb and path, with the declared gate and idempotency wrapper.
+
+    The gate is the whole credential story: a merchant has ONE API key, so every signed route
+    carries it, a public route carries no signature at all, and the admin token appears on the
+    onboarding routes and nowhere else - it is gateway-wide, and leaking it onto a merchant call
+    would be worse than any 403.
+    """
     spec = ROUTES[key]
     assert len(mock.calls) == 1, f"{key}: expected exactly one request, got {len(mock.calls)}"
     call = mock.calls[0]
     assert call.method == spec.method
     assert _path_pattern(spec.path).match(call.path), f"{key}: sent to {call.path}"
     if spec.auth == "public":
-        assert "x-signature" not in call.headers
+        assert "x-signature" not in call.headers, f"{key}: signed a public route"
+        assert "x-admin-token" not in call.headers
     elif spec.auth == "onboard":
         assert "x-signature" not in call.headers
         assert call.headers["x-admin-token"] == "adm"
     else:
-        assert call.headers["x-public-id"] == ("wk" if spec.auth == "payout" else "pk")
+        assert spec.auth == "key", f"{key}: unknown gate {spec.auth!r}"
+        assert call.headers["x-public-id"] == "pk", f"{key}: signed with something else"
+        assert "x-admin-token" not in call.headers, f"{key}: leaked the admin token"
     if spec.idempotent:
         assert "idempotency-key" in call.headers, f"{key}: idempotent route sent no key"
     else:
@@ -80,8 +89,6 @@ def test_sync_method_is_wired_to_the_route(key: str) -> None:
     client = Oblodai(
         public_id="pk",
         secret="s",
-        payout_public_id="wk",
-        payout_secret="s2",
         admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,
@@ -98,8 +105,6 @@ async def test_async_method_is_wired_to_the_route(key: str) -> None:
     client = AsyncOblodai(
         public_id="pk",
         secret="s",
-        payout_public_id="wk",
-        payout_secret="s2",
         admin_token="adm",
         base_url="https://api.test",
         http_client=mock.async_client,
@@ -176,6 +181,13 @@ def test_the_field_comparison_catches_a_flipped_flag() -> None:
     assert ROUTES[key].auth != route_field(declared, "auth")
 
 
+def test_the_contract_only_ever_names_the_three_gates_this_sdk_implements() -> None:
+    """`public` | `key` | `onboard`. A fourth would mean a credential the client cannot supply."""
+    declared = {route["auth"] for route in _declared_routes().values()}
+    assert declared <= {"public", "key", "onboard"}, f"unknown gate in the contract: {declared}"
+    assert {spec.auth for spec in ROUTES.values()} == declared
+
+
 def test_every_recorded_fixture_belongs_to_a_known_route() -> None:
     for route in load_fixtures():
         assert route in ROUTES, f"{route}: fixture for a route the SDK does not know"
@@ -202,8 +214,6 @@ def _client(mock: MockHTTP) -> Oblodai:
     return Oblodai(
         public_id="pk",
         secret="s",
-        payout_public_id="wk",
-        payout_secret="s2",
         admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,

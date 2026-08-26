@@ -29,8 +29,12 @@ of the calling code too — see [MIGRATION-1.3.md](MIGRATION-1.3.md).
 - Automatic idempotency keys on create routes, reused across that call's retries.
 - Clock-skew correction: a 401 `merchant.bad_signature`/`auth.bad_timestamp` re-signs once with
   the server's `Date`, and the offset is kept only if that attempt got past authentication.
-- Dual key pairs (payment + payout) picked per route; `batches.info` retries a
-  `merchant.wrong_key_kind` with the payout key.
+- One API key: `public_id` + `secret` sign every route the gateway gates (`auth == "key"`),
+  money-in and money-out alike. The payout credential pair (`payout_public_id` /
+  `payout_secret`, `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET`) and the
+  `prefer_payout_key` per-call option are gone, as is the `batches.info` retry with a second key;
+  onboarding returns a single `api_key`. `merchant.wrong_key_kind` has left the error catalogue —
+  the gateway raises it only for a legacy `oblodai_pk_…` / `oblodai_wk_…` pair.
 - `oblodai.webhooks` — `verify`, `verify_delivery`, `parse`, `is_stale`, `is_test_event`: raw-byte
   verification, rotation-aware (`previous_secret`, `X-Webhook-Signature-Prev`), no client needed.
   Accepts any header shape (`dict`, `email.message.Message`, `httpx.Headers`, ASGI pairs).
@@ -49,7 +53,7 @@ of the calling code too — see [MIGRATION-1.3.md](MIGRATION-1.3.md).
   to the same reserved-name and value checks.
 - `oblodai.__version__` beside `SDK_VERSION`, both read from the installed distribution's
   metadata, so `pyproject.toml` is the only place a version is written.
-- `contract/` ships the gateway's export (routes, schemas, enums, 471 error codes, signing
+- `contract/` ships the gateway's export (routes, schemas, enums, 469 error codes, signing
   vectors, golden bodies, real signed webhook deliveries). `scripts/codegen.py` generates the
   route registry, enums, error codes and request `TypedDict`s; `scripts/gen_async.py` mirrors the
   resource layer for the async client; `scripts/check_drift.py` fails CI when either is stale.

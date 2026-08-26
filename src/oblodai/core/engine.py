@@ -64,8 +64,6 @@ class CallOptions:
     path_params: Optional[Mapping[str, Union[str, int]]] = None
     #: Supply your own key to make the call idempotent across process restarts.
     idempotency_key: Optional[str] = None
-    #: Prefer the payout key pair on an ``any``-gated route.
-    prefer_payout_key: bool = False
     timeout_ms: Optional[float] = None
     deadline_ms: Optional[float] = None
     #: Extra headers for this call alone, merged over the client's own. The SDK still owns the
@@ -84,7 +82,6 @@ class EngineSettings:
     base_url: str
     user_agent: str
     credentials: Optional[Credentials] = None
-    payout_credentials: Optional[Credentials] = None
     headers: Optional[Mapping[str, str]] = field(default=None, repr=False)
     admin_token: Optional[str] = field(default=None, repr=False)
     retry: RetryOptions = DEFAULT_RETRY
@@ -96,7 +93,7 @@ class EngineSettings:
     def __repr__(self) -> str:
         return (
             f"EngineSettings(base_url={self.base_url!r}, user_agent={self.user_agent!r}, "
-            f"credentials={self.credentials!r}, payout_credentials={self.payout_credentials!r}, "
+            f"credentials={self.credentials!r}, "
             f"headers={'[redacted]' if self.headers else None}, "
             f"admin_token={'[redacted]' if self.admin_token else None}, "
             f"retry={self.retry!r}, timeout_ms={self.timeout_ms!r}, "
@@ -243,7 +240,7 @@ class CallEngine:
                 user_agent=settings.user_agent,
                 path_params=self._options.path_params,
                 query=self._options.query,
-                credentials=self._credentials(),
+                credentials=settings.credentials,
                 idempotency_key=self._idempotency_key,
                 extra_headers=extra,
                 admin_token=settings.admin_token,
@@ -263,14 +260,6 @@ class CallEngine:
         remaining = max(1.0, self._deadline_at - self._now_ms())
         timeout = min(self._options.timeout_ms or settings.timeout_ms, remaining)
         return Send(request, timeout, MAX_FILE_BYTES if route.bare else MAX_JSON_BYTES)
-
-    def _credentials(self) -> Optional[Credentials]:
-        """Which key pair signs a route. ``any`` routes take the payment key unless told otherwise."""
-        route = self._route
-        settings = self._settings
-        if route.auth == "payout" or (route.auth == "any" and self._options.prefer_payout_key):
-            return settings.payout_credentials or settings.credentials
-        return settings.credentials
 
     def _classify(self, raw: RawResponse) -> BaseException:
         try:

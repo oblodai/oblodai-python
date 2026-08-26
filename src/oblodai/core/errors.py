@@ -155,7 +155,7 @@ class AuthenticationError(ApiError):
 
 
 class PermissionDeniedError(ApiError):
-    """403 - the key is valid but not allowed to do this (wrong key kind, feature disabled)."""
+    """403 - the key is valid but not allowed to do this (feature disabled, IP not allowed)."""
 
 
 #: Deprecated spelling kept for 1.2 callers; it shadows the builtin, so it is not exported.

@@ -37,7 +37,7 @@ class AsyncWebhooks(AsyncResource):
     async def rotate_secret(self, **options: Any) -> WebhookSecretRotated:
         """``POST /v1/webhooks/rotate-secret`` - new secret; the old one keeps verifying.
 
-        Until ``previous_secret_valid_until``. Payout key.
+        Until ``previous_secret_valid_until``.
         """
         return cast(
             WebhookSecretRotated, await self._call("POST /v1/webhooks/rotate-secret", **options)

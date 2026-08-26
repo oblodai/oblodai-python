@@ -186,7 +186,7 @@ ROWS: List[Row] = [
     row("POST /v1/sandbox/reset", lambda r: r, M.SANDBOX_RESET_KEYS),
     row("POST /v1/sandbox/webhooks/replay", lambda r: r, M.SANDBOX_REPLAY_KEYS),
     row("POST /v1/merchants", lambda r: r, M.MERCHANT_ONBOARDED_KEYS),
-    row("POST /v1/merchants", lambda r: r["api_key"], ["public_id", "secret", "kind"]),
+    row("POST /v1/merchants", lambda r: r["api_key"], ["public_id", "secret"]),
     row("POST /v1/merchants/{id}/sandbox", lambda r: r, M.SANDBOX_STORE_KEYS),
 ]
 

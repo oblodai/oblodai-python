@@ -1,4 +1,4 @@
-"""Outgoing transfers to external addresses. Every route here needs the payout key."""
+"""Outgoing transfers to external addresses."""
 
 # GENERATED FILE - do not edit. Source: src/oblodai/resources/payouts.py
 # Regenerate with: python scripts/gen_async.py
@@ -38,7 +38,7 @@ PayoutLookup = Union[str, Mapping[str, str]]
 
 
 class AsyncPayouts(AsyncResource):
-    """Payouts. Payout key."""
+    """Payouts."""
 
     async def create(self, params: PayoutBody, **options: Any) -> Payout:
         """``POST /v1/payout`` - create and (for API keys) auto-approve a payout.
@@ -49,7 +49,7 @@ class AsyncPayouts(AsyncResource):
         with the SAME key), ``payout.funds_maturing`` (retryable - deposits not yet mature),
         ``payout.bad_address``, ``payout.address_network_mismatch``, ``payout.memo_required``,
         ``payout.amount_below_fee``, ``payout.frozen``, ``payout.order_id_required``,
-        ``idempotency.key_reused``, ``merchant.wrong_key_kind`` (a payment key on a payout route).
+        ``idempotency.key_reused``.
         """
         return cast(Payout, await self._call("POST /v1/payout", params, **options))
 
@@ -109,8 +109,8 @@ class AsyncPayouts(AsyncResource):
         contain failures - check every ``items[i]["ok"]``.
 
         Call-level codes worth branching on: ``payout.batch_too_large`` (more than 100),
-        ``payout.empty_batch``, ``payout.insufficient_funds`` (retryable), ``payout.frozen``,
-        ``merchant.wrong_key_kind``. Per-element failures arrive as ``items[i]["error_code"]``
+        ``payout.empty_batch``, ``payout.insufficient_funds`` (retryable), ``payout.frozen``.
+        Per-element failures arrive as ``items[i]["error_code"]``
         with the same vocabulary as :meth:`create`.
         """
         return cast(
@@ -125,7 +125,7 @@ class AsyncPayouts(AsyncResource):
 
         Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
         ``payout.order_id_required``, ``payout.reference_collision``, ``payout.frozen``,
-        ``merchant.wrong_key_kind``, ``idempotency.key_reused``. Insufficient funds surface per
+        ``idempotency.key_reused``. Insufficient funds surface per
         element while the batch runs, not on submission.
         """
         return cast(BatchSubmitted, await self._call("POST /v1/payout/batch", params, **options))

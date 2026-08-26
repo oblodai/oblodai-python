@@ -52,28 +52,33 @@ package as well, at `importlib.resources.files("oblodai") / "AGENTS.md"`. Coming
 
 ## Where to get keys
 
-Keys live in the [dashboard](https://my.oblodai.com) under **API keys**. There are two kinds, and
-the SDK picks the right one per call once both are configured:
+A merchant has **one API key**. It is issued in the [dashboard](https://my.oblodai.com) under
+**API keys** as a public id and a secret, and it signs every route in this SDK — money-in and
+money-out alike:
 
-| key | configured as | used for |
-| --- | ------------- | -------- |
-| **payment key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | money-in and reporting: `payments.*`, `payment_links.create/info/list/toggle`, `wallets.create/qr/block`, `documents.*`, `settings.*` except auto-withdraw and the API allow-list, `account.*`, `webhooks.register/deliveries`, `webhooks.test("payment" / "wallet", …)`, `sandbox.deposit/webhooks/replay` |
-| **payout key** | `payout_public_id` / `payout_secret` (`OBLODAI_PAYOUT_PUBLIC_ID`, `OBLODAI_PAYOUT_SECRET`) | everything money-out: `payouts.*`, `refunds.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, `settings.*_auto_withdraw`, `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout", …)`, `sandbox.faucet`, `sandbox.reset` |
+| credential | configured as | used for |
+| ---------- | ------------- | -------- |
+| **API key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | every signed route: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.*`, `batches.info`, `documents.*`, `settings.*`, `account.*`, `webhooks.*`, `sandbox.*` |
+| **admin token** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | provisioning only, on a self-hosted gateway: `merchants.create`, `merchants.create_sandbox` |
 
-A call made with the wrong kind is a 403 `merchant.wrong_key_kind`. `batches.info` accepts either
-kind. The payer-facing routes need no key at all: `catalog.currencies`,
+The payer-facing routes need no credentials at all: `catalog.currencies`,
 `catalog.exchange_rates`, `payments.public_view/select/public_qr`,
 `payment_links.public_view/checkout`, `payout_links.claim_preview/claim` and
 `documents.download` (a pre-signed link).
 
-**Sandbox versus live.** A sandbox key pair is issued against a chainless copy of the gateway and is
-recognisable by its `test_` prefix (`test_oblodai_…` / `oblodai_test_…`); a live pair carries no such
-prefix. In the sandbox one pair acts as both payment and payout key, so a single `public_id` /
-`secret` is enough; live stores get two separate pairs. Only a `test_` key may call `sandbox.*`.
+**Sandbox versus live.** A sandbox key is issued against a chainless copy of the gateway and is
+recognisable by its `test_` prefix (`test_oblodai_…` / `oblodai_test_…`); a live key carries no such
+prefix. Only a `test_` key may call `sandbox.*`.
 
-**Onboarding.** `merchants.create` and `merchants.create_sandbox` provision a store. They are
-unsigned and carry `X-Admin-Token`, taken from `admin_token` (or `OBLODAI_ADMIN_TOKEN`) — an
-administrator's token on a self-hosted gateway, not a merchant key.
+**Onboarding.** `merchants.create` and `merchants.create_sandbox` provision a store and return the
+single `api_key` it signs with. They are unsigned and carry `X-Admin-Token`, taken from
+`admin_token` (or `OBLODAI_ADMIN_TOKEN`) — an administrator's token on a self-hosted gateway, not a
+merchant key.
+
+**Legacy split pairs.** A store onboarded long before 1.3 may still hold an old
+`oblodai_pk_…` / `oblodai_wk_…` pair, which the gateway still gates by kind: using one of those
+where the other belongs is the 403 `merchant.wrong_key_kind`, and that is the only case in which
+that code can still appear. Issue a current key and the distinction is gone.
 
 ## Quick start
 
@@ -94,7 +99,7 @@ invoice = oblodai.payments.create(
 print(invoice["url"], invoice["address"], invoice["status"])  # "created"
 ```
 
-Money out is the mirror image, on the payout key:
+Money out is the mirror image, signed with the same key:
 
 ```python
 payout = oblodai.payouts.create(
@@ -178,14 +183,14 @@ instead of blocks, and real signed webhooks. Integrate against it first — noth
 chain.
 
 ```python
-oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # payout key
+oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # test funds, out of thin air
 oblodai.sandbox.deposit(
     {"invoice_id": invoice["uuid"], "amount": "25", "confirmations": 20, "txid": "demo-tx-1"}
 )
 for delivery in oblodai.sandbox.webhooks(limit=5):  # the delivery log, payloads included
     print(delivery["event_type"], delivery["status"])
 oblodai.sandbox.replay(delivery_id)  # re-send a terminal (delivered/dead) delivery
-oblodai.sandbox.reset()  # cancel open invoices, zero the balances; payout key
+oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 ```
 
 Repeat `sandbox.deposit` with the same `txid` to add confirmations. Rehearsal deliveries — from
@@ -218,9 +223,9 @@ Sixteen namespaces cover all 107 routes of the gateway.
 | `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
 
 Every method takes the same trailing keyword arguments: `idempotency_key`, `timeout_ms` (per
-attempt), `deadline_ms` (the whole call, retries included), `prefer_payout_key` and `headers`
-(extra headers for this call alone). List methods also take `limit=` / `offset=`. Anything else
-raises `TypeError` before a request is sent.
+attempt), `deadline_ms` (the whole call, retries included) and `headers` (extra headers for this
+call alone). List methods also take `limit=` / `offset=`. Anything else raises `TypeError` before a
+request is sent.
 
 The payer-facing routes — `payments.public_view/select/public_qr`,
 `payment_links.public_view/checkout`, `payout_links.claim_preview/claim` — need no credentials at
@@ -311,7 +316,7 @@ except OblodaiError as err:
 | ----- | ---- | ---- |
 | `ValidationError` | 400 | malformed request or a broken business rule (`field` says which) |
 | `AuthenticationError` | 401 | bad signature, unknown key, clock skew, IP not allowed |
-| `PermissionDeniedError` | 403 | valid key, wrong kind or a disabled feature |
+| `PermissionDeniedError` | 403 | a valid key that may not do this (a disabled feature, an IP outside the allow-list) |
 | `NotFoundError` | 404 | no such object |
 | `ConflictError` / `IdempotencyConflictError` | 409 | state conflict; the same key with a different body |
 | `RateLimitError` | 429 | too many requests (`retry_after`) |
@@ -330,9 +335,9 @@ support asks for, `err.synthetic` marks an answer that came from a proxy rather 
 
 Branch on `err.code`, which is always `family.reason`. Codes worth handling by name:
 `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
-`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`, `merchant.wrong_key_kind`,
+`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
 `merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ERROR_CODES`
-(471 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
+(469 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
 
 ## Retries, idempotency and timeouts
 
@@ -357,8 +362,7 @@ exponential backoff with jitter. Tune with `RetryOptions(max_retries=…, base_d
 `RetryOptions(max_retries=0)`.
 
 Per-call bounds: `timeout_ms` (one attempt, default 30 s) and `deadline_ms` (the whole call, retries
-included, default 90 s); `prefer_payout_key` forces the payout key on a call that would otherwise
-use the payment one; `headers` adds headers for this call alone. There is no `AbortSignal`
+included, default 90 s); `headers` adds headers for this call alone. There is no `AbortSignal`
 equivalent: cancel an async call by cancelling its task (`CancelledError` propagates untouched).
 
 Signed requests carry a timestamp, so a machine with a wrong clock would fail authentication; the
@@ -375,8 +379,7 @@ always wins over the environment.
 
 | option | default | what it does |
 | ------ | ------- | ------------ |
-| `public_id`, `secret` | environment | the payment key pair |
-| `payout_public_id`, `payout_secret` | environment | the payout key pair |
+| `public_id`, `secret` | environment | the merchant's API key |
 | `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
 | `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
 | `admin_token` | environment | `X-Admin-Token` for `merchants.*` on a self-hosted gateway |
@@ -392,15 +395,15 @@ With no arguments at all the client configures itself from the environment:
 
 | variable | what it sets |
 | -------- | ------------ |
-| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the payment key pair |
-| `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET` | the payout key pair |
+| `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the merchant's API key |
 | `OBLODAI_ADMIN_TOKEN` | gates `merchants.*` on a self-hosted gateway |
 | `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
 
-A full annotated file is in [`.env.example`](.env.example). A half-configured pair (a `public_id`
-without its `secret`, or the other way round) is a `ConfigError` at construction, not a 401 later.
+A full annotated file is in [`.env.example`](.env.example) — those six variables are the whole
+environment the client reads. A half-configured key (a `public_id` without its `secret`, or the
+other way round) is a `ConfigError` at construction, not a 401 later.
 
 **Secrets never reach the log.** Field values that carry a key, a signature, a cheque passcode or a
 claim URL are redacted before they are handed to the logger, so even `OBLODAI_LOG=debug` — which
@@ -422,13 +425,13 @@ and carries `X-Admin-Token` when `admin_token` is set.
 `contract/` — in the repository and in the sdist, not in the installed wheel — holds the gateway's
 own export: the route registry, request schemas, all enums and error codes, signing vectors, golden
 response bodies for every route and real signed webhook deliveries. It pins one core commit
-(`CONTRACT_CORE_COMMIT`), and the 107 routes and 471 error codes this SDK exposes are exactly the
+(`CONTRACT_CORE_COMMIT`), and the 107 routes and 469 error codes this SDK exposes are exactly the
 ones in it.
 
 ```python
 from oblodai import CONTRACT_CORE_COMMIT, ROUTES
 
-ROUTES["POST /v1/payout"].auth  # "payout"
+ROUTES["POST /v1/payout"].auth  # "key" - signed with the merchant's API key
 ROUTES["POST /v1/payout"].idempotent  # True
 ROUTES["POST /v1/payout"].safe  # False - never re-sent after a transport failure without a key
 ```

@@ -25,7 +25,7 @@ class AsyncSandbox(AsyncResource):
     """Everything a dev store can do that a live store cannot."""
 
     async def faucet(self, params: SandboxFaucetBody, **options: Any) -> FaucetResult:
-        """``POST /v1/sandbox/faucet`` - credit test funds. Payout key."""
+        """``POST /v1/sandbox/faucet`` - credit test funds."""
         return cast(FaucetResult, await self._call("POST /v1/sandbox/faucet", params, **options))
 
     async def deposit(self, params: SandboxDepositBody, **options: Any) -> SandboxDeposit:
@@ -51,5 +51,5 @@ class AsyncSandbox(AsyncResource):
         )
 
     async def reset(self, **options: Any) -> SandboxReset:
-        """``POST /v1/sandbox/reset`` - cancel open invoices and zero balances. Payout key."""
+        """``POST /v1/sandbox/reset`` - cancel open invoices and zero balances."""
         return cast(SandboxReset, await self._call("POST /v1/sandbox/reset", **options))

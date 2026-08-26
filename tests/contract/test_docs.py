@@ -2,7 +2,7 @@
 
 Every Python block in the prose must parse; every SDK name it mentions must exist; every route,
 error-code and environment-variable count it quotes must be the real one. A doc that lies about
-which key a route needs costs somebody a production incident, not five minutes.
+what a route needs costs somebody a production incident, not five minutes.
 
 The Russian README is held to the same standard, plus one of its own: its code blocks must be
 byte-identical to the English ones, so a reader of either file runs the same snippets.
@@ -81,7 +81,7 @@ def test_every_sdk_name_the_docs_import_exists() -> None:
 
 def test_the_route_and_error_code_counts_the_docs_quote_are_the_real_ones() -> None:
     routes, codes = len(ROUTES), len(ERROR_CODES)
-    assert (routes, codes) == (107, 471), "the counts below need updating with the contract"
+    assert (routes, codes) == (107, 469), "the counts below need updating with the contract"
     for name in ("README.md", "README.ru.md", "AGENTS.md", "CHANGELOG.md"):
         text = read(name)
         for wrong in (f"{routes - 1} routes", f"{routes + 1} routes"):
@@ -106,14 +106,63 @@ def test_the_docs_name_every_environment_variable_the_client_reads() -> None:
         assert not undocumented, f"{name} does not mention {undocumented}"
 
 
-def test_the_payout_key_route_list_is_the_same_everywhere() -> None:
-    """The READMEs and AGENTS.md must not disagree about which routes need the payout key."""
-    marks = ("payouts.", "refunds.", "payout_links.", "transfers.", "splits.")
+#: The two-key model of 1.2, in every spelling the prose used to carry.
+_RETIRED_KEY_MODEL = (
+    "payout key",
+    "Payout key",
+    "payment key",
+    "Payment key",
+    "payout_public_id",
+    "payout_secret",
+    "OBLODAI_PAYOUT_PUBLIC_ID",
+    "OBLODAI_PAYOUT_SECRET",
+    "prefer_payout_key",
+)
+#: The same claim in Russian, for the translation. ("выплатные ссылки" is a product, not a key.)
+_RETIRED_KEY_MODEL_RU = (
+    "выплатной ключ",
+    "выплатного ключа",
+    "выплатным ключом",
+    "платёжный ключ",
+    "платёжного ключа",
+    "Видов ключей два",
+)
+
+
+@pytest.mark.parametrize("document", ALL_DOCS + (".env.example",))
+def test_no_document_still_describes_the_retired_two_key_model(document: str) -> None:
+    """A merchant has ONE key. A doc that says otherwise sends somebody hunting for a second."""
+    text = read(document)
+    if document in ("CHANGELOG.md", "MIGRATION-1.3.md"):
+        # These two exist to say what went away, so they may name it - in the past tense.
+        return
+    marks = _RETIRED_KEY_MODEL + (_RETIRED_KEY_MODEL_RU if document in TRANSLATIONS else ())
+    left = sorted({mark for mark in marks if mark in text})
+    assert not left, f"{document} still describes the two-key model: {left}"
+
+
+def test_the_readmes_agree_that_one_key_signs_every_route() -> None:
+    """The claim itself, not just the absence of the old one: both READMEs must make it."""
     for name in READMES + ("AGENTS.md",):
         text = read(name)
-        for mark in ("wallets.refund_blocked_deposit", 'webhooks.test("payout"', "sandbox.faucet"):
-            assert mark in text, f"{name} omits {mark} from the payout-key list"
-        assert all(mark in text for mark in marks)
+        for mark in ("public_id", "secret", "OBLODAI_PUBLIC_ID", "OBLODAI_SECRET"):
+            assert mark in text, f"{name} does not say how the API key is configured"
+        assert "X-Admin-Token" in text or "admin_token" in text, (
+            f"{name} does not say what the admin token is for"
+        )
+
+
+def test_the_legacy_key_kind_error_is_documented_exactly_once() -> None:
+    """`merchant.wrong_key_kind` left the catalogue; it survives only as a legacy-pair note."""
+    assert "merchant.wrong_key_kind" not in ERROR_CODES
+    for name in READMES:
+        assert read(name).count("merchant.wrong_key_kind") == 1, (
+            f"{name} should mention the legacy split-key error once, as legacy"
+        )
+    for name in ("AGENTS.md",):
+        assert "merchant.wrong_key_kind" not in read(name), (
+            f"{name} lists it among live codes; it is not in the catalogue any more"
+        )
 
 
 def method_overview(document: str) -> List[str]:

@@ -53,6 +53,11 @@ ENUM_NAMES = {
 # Vocabularies the core does not export as enums yet; pinned here from its handlers.
 LOCAL_ENUMS = {"AmountMode": ("fixed", "open", "range")}
 
+#: The whole auth vocabulary: `public` is unsigned, `key` is signed with the merchant's one API
+#: key, `onboard` carries `X-Admin-Token`. A snapshot that still splits the merchant key into
+#: `payment`/`payout`/`any` predates the single-key cleanup and must not be generated from.
+ROUTE_AUTH = ("public", "key", "onboard")
+
 
 def header(core_commit: str) -> str:
     return (
@@ -76,6 +81,23 @@ def is_safe(route: Dict[str, Any]) -> bool:
             "re-export the contract from a core that declares it"
         )
     return value
+
+
+def auth_of(route: Dict[str, Any]) -> str:
+    """The route's gate, refused unless it is one of :data:`ROUTE_AUTH`.
+
+    The SDK signs every non-public, non-onboard route with the same credentials, so a snapshot
+    that still names a key kind would generate a client that silently ignores the distinction.
+    Better to stop here than to ship it.
+    """
+    value = route.get("auth")
+    if value not in ROUTE_AUTH:
+        raise SystemExit(
+            f"contract.json: {route['method']} {route['path']} has auth={value!r}; "
+            f"this SDK generates only from {', '.join(ROUTE_AUTH)} - re-export the contract "
+            "from a core that has the single-key gate"
+        )
+    return str(value)
 
 
 def type_name(route_key: str, used: Dict[str, str]) -> str:
@@ -120,9 +142,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     head = header(contract["core_commit"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Fail loudly rather than silently guessing retry safety from the shape of a path.
+    # Fail loudly rather than silently guessing retry safety from the shape of a path, or
+    # generating from an auth vocabulary this SDK does not implement.
     for route in contract["routes"]:
         is_safe(route)
+        auth_of(route)
 
     routes = sorted(
         (r for r in contract["routes"] if not SKIP_PATH.match(r["path"])),
@@ -143,7 +167,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         list_kind = f'"{route["list"]}"' if route.get("list") else "None"
         out.append(
             f'    "{key}": RouteSpec('
-            f'method="{route["method"]}", path="{route["path"]}", auth="{route["auth"]}", '
+            f'method="{route["method"]}", path="{route["path"]}", auth="{auth_of(route)}", '
             f"idempotent={route['idempotent']}, safe={is_safe(route)}, bare={route['bare']}, "
             f"list_kind={list_kind}),"
         )

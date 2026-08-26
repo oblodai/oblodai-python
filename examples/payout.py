@@ -1,8 +1,8 @@
 """Send money out: quote the fee, dry-run the payout, then create it.
 
-    OBLODAI_PAYOUT_PUBLIC_ID=... OBLODAI_PAYOUT_SECRET=... python examples/payout.py
+    OBLODAI_PUBLIC_ID=... OBLODAI_SECRET=... python examples/payout.py
 
-Payouts need the payout key. Pass both pairs and the SDK picks the right one per call.
+Money out is signed with the merchant's one API key, exactly like money in.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ ADDRESS = "TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx"
 
 
 def main() -> None:
-    oblodai = Oblodai()  # OBLODAI_PAYOUT_PUBLIC_ID / OBLODAI_PAYOUT_SECRET are picked up too
+    oblodai = Oblodai()  # OBLODAI_PUBLIC_ID / OBLODAI_SECRET
 
     quote = oblodai.payouts.calculate({"amount": "10", "currency": "USDT", "network": "tron"})
     print(f"commission {quote['commission']} {quote['currency']}, bearer {quote['fee_bearer']}")

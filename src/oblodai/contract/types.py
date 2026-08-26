@@ -12,8 +12,10 @@ from typing import Literal, Optional
 
 HttpMethod = Literal["GET", "POST"]
 
-#: Which credential the core's gate expects. Mirrors api_conformance_test.go constants.
-RouteAuth = Literal["public", "payment", "payout", "any", "onboard"]
+#: Which credential the core's gate expects. Mirrors api_conformance_test.go constants:
+#: ``public`` - unsigned; ``key`` - signed with the merchant's one API key; ``onboard`` -
+#: ``X-Admin-Token``. A merchant has a single key, so there is no kind to choose between.
+RouteAuth = Literal["public", "key", "onboard"]
 
 ListKind = Literal["paged", "plain"]
 

@@ -31,7 +31,7 @@ PaymentLookup = Union[str, Mapping[str, str]]
 
 
 class Payments(Resource):
-    """Invoices. Payment key."""
+    """Invoices."""
 
     def create(self, params: PaymentBody, **options: Any) -> Payment:
         """``POST /v1/payment`` - create an invoice.

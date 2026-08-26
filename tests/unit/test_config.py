@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from oblodai import Oblodai
+from oblodai import config as config_module
 from oblodai.config import resolve_config
 from oblodai.core.errors import ConfigError
 from oblodai.helpers import (
@@ -34,6 +38,39 @@ def test_reads_credentials_and_base_url_from_the_environment() -> None:
     assert config.base_url == "https://x.test"
 
 
+def test_the_client_reads_exactly_six_environment_variables() -> None:
+    """One key pair, one admin token, and the three knobs - nothing else is honoured.
+
+    Pinned because a variable the SDK silently stopped reading (or quietly started reading) is
+    a credential that ends up somewhere its owner did not expect.
+    """
+    source = Path(config_module.__file__).read_text("utf-8")
+    honoured = set(re.findall(r'environ\.get\("(OBLODAI_[A-Z_]+)"\)', source))
+    assert honoured == {
+        "OBLODAI_PUBLIC_ID",
+        "OBLODAI_SECRET",
+        "OBLODAI_ADMIN_TOKEN",
+        "OBLODAI_BASE_URL",
+        "OBLODAI_LOG",
+        "OBLODAI_ALLOW_INSECURE",
+    }
+
+
+def test_a_stale_payout_pair_in_the_environment_changes_nothing() -> None:
+    """The 1.2 variables may still sit in somebody's .env; they must not resurrect a second key."""
+    config = resolve_config(
+        env={
+            "OBLODAI_PUBLIC_ID": "pk",
+            "OBLODAI_SECRET": "s",
+            "OBLODAI_PAYOUT_PUBLIC_ID": "wk",
+            "OBLODAI_PAYOUT_SECRET": "s2",
+        }
+    )
+    assert config.credentials is not None
+    assert config.credentials.public_id == "pk"
+    assert not hasattr(config, "payout_credentials")
+
+
 def test_refuses_plain_http_except_for_loopback_or_when_allowed() -> None:
     with pytest.raises(ConfigError, match="https"):
         resolve_config(base_url="http://api.oblodai.com", env={})
@@ -53,7 +90,7 @@ def test_refuses_half_a_key_pair() -> None:
     with pytest.raises(ConfigError, match="together"):
         resolve_config(public_id="pk", env={})
     with pytest.raises(ConfigError, match="together"):
-        resolve_config(payout_public_id="wk", env={})
+        resolve_config(secret="s", env={})
     with pytest.raises(ConfigError):
         Oblodai(public_id="pk", base_url="https://api.test", env={})
 

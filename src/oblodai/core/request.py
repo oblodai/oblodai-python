@@ -120,13 +120,12 @@ def build_request(
     if route.auth == "onboard" and admin_token:
         headers[HEADER_ADMIN_TOKEN] = admin_token
 
-    if route.auth not in ("public", "onboard"):
+    if route.auth == "key":
         if credentials is None:
-            kind = "merchant" if route.auth == "any" else route.auth
             raise ConfigError(
                 "sdk.missing_credentials",
-                f"{route.method} {route.path} needs a {kind} API key: pass public_id/secret to "
-                "Oblodai() or set OBLODAI_PUBLIC_ID / OBLODAI_SECRET",
+                f"{route.method} {route.path} needs the merchant's API key: pass "
+                "public_id/secret to Oblodai() or set OBLODAI_PUBLIC_ID / OBLODAI_SECRET",
             )
         headers[HEADER_PUBLIC_ID] = credentials.public_id
         headers[HEADER_TIMESTAMP] = str(ts)

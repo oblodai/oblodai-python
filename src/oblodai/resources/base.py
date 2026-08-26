@@ -20,9 +20,7 @@ from ..core.transport import Transport
 __all__ = ["FileResult", "PagePlan", "Resource", "plan_page"]
 
 #: Per-call options every resource method accepts as trailing keyword arguments.
-OPTION_KEYS = frozenset(
-    {"idempotency_key", "timeout_ms", "deadline_ms", "prefer_payout_key", "headers"}
-)
+OPTION_KEYS = frozenset({"idempotency_key", "timeout_ms", "deadline_ms", "headers"})
 
 PathParams = Mapping[str, Union[str, int]]
 
@@ -53,8 +51,6 @@ class Resource:
         Per-attempt timeout.
     ``deadline_ms``
         Overall budget for the call including retries.
-    ``prefer_payout_key``
-        Sign with the payout key on a route that accepts either key kind.
     ``headers``
         Extra headers for this call alone, merged over the client's own.
     """
@@ -82,7 +78,6 @@ class Resource:
             query=query,
             path_params=path_params,
             idempotency_key=options.get("idempotency_key"),
-            prefer_payout_key=bool(options.get("prefer_payout_key", False)),
             timeout_ms=options.get("timeout_ms"),
             deadline_ms=options.get("deadline_ms"),
             headers=options.get("headers"),

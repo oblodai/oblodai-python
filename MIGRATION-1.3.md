@@ -28,10 +28,34 @@ print(invoice["url"], invoice["status"])
   in `oblodai.contract.models`.
 - Amounts are decimal **strings** everywhere. Use `add_amounts` / `compare_amounts`; never
   `float()`, and never `<` on the raw strings (`"10" < "9"` is `True`).
-- Every method takes the same five trailing keyword arguments: `idempotency_key`, `timeout_ms`
-  (per attempt), `deadline_ms` (the whole call, retries included), `prefer_payout_key` and
-  `headers` (extra headers for this call alone). List methods also take `limit=` / `offset=`.
-  Anything else raises `TypeError` before a request is sent.
+- Every method takes the same four trailing keyword arguments: `idempotency_key`, `timeout_ms`
+  (per attempt), `deadline_ms` (the whole call, retries included) and `headers` (extra headers for
+  this call alone). List methods also take `limit=` / `offset=`. Anything else raises `TypeError`
+  before a request is sent.
+
+## One API key, not two
+
+1.2 modelled a merchant as a payment key plus a payout key and chose between them per route. A
+merchant now has a single API key, and it signs everything the SDK sends:
+
+```python
+Oblodai(public_id="oblodai_…", secret="oblodai_live_…")  # or OBLODAI_PUBLIC_ID / OBLODAI_SECRET
+```
+
+What went away, and what to do instead:
+
+| gone in 1.3 | instead |
+| ----------- | ------- |
+| `payout_public_id` / `payout_secret` | nothing: `public_id` / `secret` sign money-out too |
+| `OBLODAI_PAYOUT_PUBLIC_ID` / `OBLODAI_PAYOUT_SECRET` | delete them from your environment |
+| `prefer_payout_key=True` on a call | drop the argument; passing it now raises `TypeError` |
+| `batches.info` retrying with the other key | one call, one key |
+| `api_key` / `payment_key` / `payout_key` in the onboarding response | `api_key`, on its own |
+| `merchant.wrong_key_kind` in `ERROR_CODES` | gone from the catalogue; the gateway raises it only for a legacy `oblodai_pk_…` / `oblodai_wk_…` pair issued before the change |
+
+`ROUTES[key].auth` reads `"key"`, `"public"` or `"onboard"` — the merchant's API key, no
+credentials at all, or the admin token. The former `"payment"` / `"payout"` / `"any"` values are
+gone with the split.
 
 ## Renames
 

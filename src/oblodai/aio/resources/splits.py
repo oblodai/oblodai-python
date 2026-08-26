@@ -1,4 +1,4 @@
-"""Revenue splits: a percentage of every payment forwarded to a partner. Payout key."""
+"""Revenue splits: a percentage of every payment forwarded to a partner."""
 
 # GENERATED FILE - do not edit. Source: src/oblodai/resources/splits.py
 # Regenerate with: python scripts/gen_async.py

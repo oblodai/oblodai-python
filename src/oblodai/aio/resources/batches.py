@@ -14,7 +14,6 @@ from ...contract.requests import (
     TransferToPersonalBody,
     TransferToUserBody,
 )
-from ...core.errors import PermissionDeniedError
 from ..base import AsyncResource
 
 __all__ = ["AsyncBatches", "AsyncTransfers"]
@@ -26,21 +25,13 @@ class AsyncBatches(AsyncResource):
     async def info(self, params: BatchInfoBody, **options: Any) -> BatchInfo:
         """``POST /v1/batch/info`` - status, counters and per-row outcomes.
 
-        Accepts either key kind; the core requires the kind that created the batch, so a payout
-        batch is retried with the payout key when one is configured.
+        Signed with the merchant's API key, whatever kind of batch it was that created the rows.
         """
-        try:
-            return cast(BatchInfo, await self._call("POST /v1/batch/info", params, **options))
-        except PermissionDeniedError as err:
-            if err.code != "merchant.wrong_key_kind" or options.get("prefer_payout_key"):
-                raise
-        retry = dict(options)
-        retry["prefer_payout_key"] = True
-        return cast(BatchInfo, await self._call("POST /v1/batch/info", params, **retry))
+        return cast(BatchInfo, await self._call("POST /v1/batch/info", params, **options))
 
 
 class AsyncTransfers(AsyncResource):
-    """Internal, instant, fee-free moves between platform balances. Payout key."""
+    """Internal, instant, fee-free moves between platform balances."""
 
     async def to_personal(
         self, params: TransferToPersonalBody, **options: Any
@@ -49,7 +40,7 @@ class AsyncTransfers(AsyncResource):
 
         Codes worth branching on: ``transfer.bad_amount``, ``payout.insufficient_funds``
         (retryable), ``payout.funds_maturing`` (retryable), ``merchant.no_personal_wallet``,
-        ``merchant.wrong_key_kind``, ``idempotency.key_reused``.
+        ``idempotency.key_reused``.
         """
         return cast(
             TransferToPersonal, await self._call("POST /v1/transfer/to-personal", params, **options)
@@ -62,8 +53,7 @@ class AsyncTransfers(AsyncResource):
 
         Codes worth branching on: ``transfer.bad_amount``, ``transfer.bad_recipient``,
         ``transfer.no_recipient``, ``transfer.recipient_not_found``,
-        ``payout.insufficient_funds`` (retryable), ``merchant.wrong_key_kind``,
-        ``idempotency.key_reused``.
+        ``payout.insufficient_funds`` (retryable), ``idempotency.key_reused``.
         """
         return cast(
             TransferToUser, await self._call("POST /v1/transfer/to-user", params, **options)
@@ -76,7 +66,6 @@ class AsyncTransfers(AsyncResource):
 
         Codes worth branching on: ``payout.batch_too_large``, ``payout.empty_batch``,
         ``request.missing_field`` (an item without ``order_id``),
-        ``transfer.recipient_not_found``, ``merchant.wrong_key_kind``,
-        ``idempotency.key_reused``.
+        ``transfer.recipient_not_found``, ``idempotency.key_reused``.
         """
         return cast(BatchSubmitted, await self._call("POST /v1/transfer/batch", params, **options))

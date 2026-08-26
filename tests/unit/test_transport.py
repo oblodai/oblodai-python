@@ -185,26 +185,33 @@ def test_times_out_and_reports_transport_timeout() -> None:
     assert excinfo.value.code == "transport.timeout"
 
 
-def test_uses_the_payout_credentials_for_payout_routes_when_configured() -> None:
-    mock = MockHTTP([ok({"uuid": "p"}), ok({"uuid": "i"})])
-    api = client(mock, payout_public_id="wk_test_1", payout_secret="s2")
+def test_one_api_key_signs_money_in_money_out_and_batch_routes_alike() -> None:
+    """The merchant has a single key; nothing in the SDK may reach for a second one."""
+    mock = MockHTTP([ok({"uuid": "p"}), ok({"uuid": "i"}), ok({"batch_id": "b1"})])
+    api = client(mock)
     api.payouts.create({"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"})
     api.payments.create({"amount": "1", "currency": "USDT"})
-    assert mock.calls[0].headers["x-public-id"] == "wk_test_1"
-    assert mock.calls[1].headers["x-public-id"] == "pk_test_1"
+    api.batches.info({"batch_id": "b1"})
+    assert [call.headers["x-public-id"] for call in mock.calls] == ["pk_test_1"] * 3
 
 
-def test_batches_info_retries_a_wrong_key_kind_with_the_payout_key() -> None:
-    mock = MockHTTP(
-        [
-            api_error(403, {"code": "merchant.wrong_key_kind", "retryable": False}),
-            ok({"batch_id": "b1"}),
-        ]
-    )
-    api = client(mock, payout_public_id="wk_test_1", payout_secret="s2")
-    assert api.batches.info({"batch_id": "b1"})["batch_id"] == "b1"
-    assert mock.calls[0].headers["x-public-id"] == "pk_test_1"
-    assert mock.calls[1].headers["x-public-id"] == "wk_test_1"
+def test_batches_info_sends_exactly_one_request() -> None:
+    """There is no second key to fall back to, so a refusal is a refusal."""
+    mock = MockHTTP([api_error(403, {"code": "merchant.frozen", "retryable": False})])
+    with pytest.raises(OblodaiError) as excinfo:
+        client(mock).batches.info({"batch_id": "b1"})
+    assert excinfo.value.code == "merchant.frozen"
+    assert len(mock.calls) == 1
+
+
+def test_a_per_call_option_the_sdk_no_longer_has_is_refused_before_a_request() -> None:
+    mock = MockHTTP([])
+    with pytest.raises(TypeError, match="prefer_payout_key"):
+        client(mock).payouts.create(
+            {"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"},
+            prefer_payout_key=True,
+        )
+    assert not mock.calls
 
 
 def test_refuses_a_signed_call_with_no_credentials_but_allows_public_ones() -> None:

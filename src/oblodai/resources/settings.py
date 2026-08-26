@@ -84,7 +84,7 @@ class Settings(Resource):
         )
 
     def list_auto_withdraw(self, **options: Any) -> List[AutoWithdrawRule]:
-        """``POST /v1/auto-withdraw/list``. Payout key."""
+        """``POST /v1/auto-withdraw/list``."""
         return cast(
             List[AutoWithdrawRule], self._plain_list("POST /v1/auto-withdraw/list", **options)
         )
@@ -106,7 +106,7 @@ class Settings(Resource):
         )
 
     def list_api_allowlist(self, **options: Any) -> ApiAllowlist:
-        """``POST /v1/api-allowlist/list`` - source IPs allowed to use the API keys. Payout key."""
+        """``POST /v1/api-allowlist/list`` - source IPs allowed to use the API key."""
         return cast(ApiAllowlist, self._call("POST /v1/api-allowlist/list", **options))
 
     def add_api_allowlist(self, cidr: str, **options: Any) -> ApiAllowlist:

@@ -15,7 +15,7 @@ __all__ = ["AsyncWallets"]
 
 
 class AsyncWallets(AsyncResource):
-    """Static wallets. Payment key, except the blocked-deposit refund (payout key)."""
+    """Static wallets: one address per customer, credited whenever it is paid."""
 
     async def create(self, params: WalletBody, **options: Any) -> Wallet:
         """``POST /v1/wallet`` - a permanent deposit address for one customer.
@@ -47,11 +47,8 @@ class AsyncWallets(AsyncResource):
     ) -> Payout:
         """``POST /v1/wallet/blocked-address-refund`` - send funds off a blocked address back.
 
-        Payout key.
-
         Codes worth branching on: ``wallet.abandoned``, ``refund.nothing_to_refund``,
-        ``refund.dust``, ``refund.no_address``, ``payout.insufficient_funds`` (retryable),
-        ``merchant.wrong_key_kind``.
+        ``refund.dust``, ``refund.no_address``, ``payout.insufficient_funds`` (retryable).
         """
         return cast(
             Payout, await self._call("POST /v1/wallet/blocked-address-refund", params, **options)

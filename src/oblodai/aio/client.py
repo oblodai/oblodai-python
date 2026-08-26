@@ -39,7 +39,7 @@ __all__ = ["AsyncOblodai"]
 class AsyncOblodai:
     """The async twin of :class:`~oblodai.Oblodai`; same namespaces, same options, awaited.
 
-    >>> async with AsyncOblodai(public_id="pk_live_...", secret="...") as oblodai:
+    >>> async with AsyncOblodai(public_id="oblodai_...", secret="oblodai_live_...") as oblodai:
     ...     invoice = await oblodai.payments.create({"amount": "25", "currency": "USDT"})
     ...     async for payment in oblodai.payments.history(limit=50):
     ...         ...
@@ -50,8 +50,6 @@ class AsyncOblodai:
         *,
         public_id: Optional[str] = None,
         secret: Optional[str] = None,
-        payout_public_id: Optional[str] = None,
-        payout_secret: Optional[str] = None,
         base_url: Optional[str] = None,
         timeout_ms: Optional[float] = None,
         deadline_ms: Optional[float] = None,
@@ -66,8 +64,6 @@ class AsyncOblodai:
         config = resolve_config(
             public_id=public_id,
             secret=secret,
-            payout_public_id=payout_public_id,
-            payout_secret=payout_secret,
             base_url=base_url,
             timeout_ms=timeout_ms,
             deadline_ms=deadline_ms,
@@ -82,7 +78,6 @@ class AsyncOblodai:
             base_url=config.base_url,
             user_agent=user_agent(),
             credentials=config.credentials,
-            payout_credentials=config.payout_credentials,
             headers=config.headers,
             admin_token=config.admin_token,
             retry=config.retry,

@@ -12,15 +12,14 @@ samples and real signed webhook deliveries).
   objects. Every body has a `TypedDict` in `oblodai.contract.requests` (`PaymentBody`, `PayoutBody`,
   …) and every response one in `oblodai.contract.models` (`Payment`, `Payout`, …). Responses are
   dicts too: `invoice["url"]`, not `invoice.url`.
-- Every method's trailing keyword arguments are the same five: `idempotency_key`, `timeout_ms`
-  (per attempt), `deadline_ms` (whole call), `prefer_payout_key`, `headers` (this call only).
-  Anything else raises `TypeError` before a request is sent (list methods also accept `limit=` /
-  `offset=`).
-- Two key kinds. The **payout key** is required for `payouts.*`, `refunds.*`, `payout_links.*`,
-  `transfers.*`, `splits.*`, `wallets.refund_blocked_deposit`, `settings.*_auto_withdraw`,
-  `settings.*_api_allowlist`, `webhooks.rotate_secret`, `webhooks.test("payout", …)`,
-  `sandbox.faucet`, `sandbox.reset`. Configure it with `payout_public_id`/`payout_secret` (or
-  `OBLODAI_PAYOUT_*`); the wrong kind is a 403 `merchant.wrong_key_kind`.
+- Every method's trailing keyword arguments are the same four: `idempotency_key`, `timeout_ms`
+  (per attempt), `deadline_ms` (whole call), `headers` (this call only). Anything else raises
+  `TypeError` before a request is sent (list methods also accept `limit=` / `offset=`).
+- **One API key.** `public_id` + `secret` (or `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET`) sign every
+  route with `ROUTES[key].auth == "key"` — money-in and money-out alike. `auth == "public"` means
+  no credentials at all, `auth == "onboard"` means `X-Admin-Token` (`admin_token`), and that token
+  goes on `merchants.*` and nowhere else. There is no second pair to configure and no per-call
+  key selection.
 - List methods return a lazy `Page`: `.first()` = one page (`.items`, `.paginate`, `.total`,
   `.has_pages`), iteration = every item, `.all(max_items=…)` = a list. Nothing is requested until
   the result is consumed. On `AsyncOblodai` it is awaited or walked with `async for`.
@@ -31,9 +30,8 @@ samples and real signed webhook deliveries).
   guesses it from a path.
 - Amounts never go through `float()` and never through `<` (`"10" < "9"` is `True` for strings);
   `compare_amounts` is the only correct ordering, and a non-decimal string raises `AmountError`.
-- Environment: `OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`, `OBLODAI_PAYOUT_PUBLIC_ID`,
-  `OBLODAI_PAYOUT_SECRET`, `OBLODAI_BASE_URL`, `OBLODAI_ALLOW_INSECURE`, `OBLODAI_ADMIN_TOKEN`,
-  `OBLODAI_LOG`.
+- Environment, in full: `OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`, `OBLODAI_ADMIN_TOKEN`,
+  `OBLODAI_BASE_URL`, `OBLODAI_LOG`, `OBLODAI_ALLOW_INSECURE`. Six variables, nothing else.
 
 ## Naming
 
@@ -63,7 +61,7 @@ Subclasses: `ValidationError` 400, `AuthenticationError` 401, `PermissionDeniedE
 `AmountError` (money helpers). `err.to_dict()` is log-safe.
 
 Codes worth handling: `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
-`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`, `merchant.wrong_key_kind`,
+`idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
 `merchant.bad_signature`, `request.rate_limited`. Full list: `oblodai.ERROR_CODES`.
 
 ## Statuses
@@ -97,7 +95,7 @@ money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events w
 ## Machine-readable surface
 
 `ROUTES` (107 routes: `method`, `path`, `auth`, `idempotent`, `safe`, `bare`, `list_kind`),
-`oblodai.contract.requests` (a `TypedDict` per route body), `ERROR_CODES` (471), `NETWORKS`,
+`oblodai.contract.requests` (a `TypedDict` per route body), `ERROR_CODES` (469), `NETWORKS`,
 `PAYMENT_STATUSES`, `PAYOUT_STATUSES`, `EVENT_TYPES`, and — in the repository and the sdist, not
 in the installed wheel — `contract/` itself (schemas, golden response bodies per route, error
 samples, signed webhook samples). Every field of every `RouteSpec` is asserted against
