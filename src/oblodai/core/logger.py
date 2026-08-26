@@ -2,7 +2,7 @@
 
 Anything with ``debug/info/warning/error(message, extra)`` fits (``logging.Logger``, structlog, a
 test double). Field values that carry secrets are redacted before they reach the logger, so a debug
-log never leaks a key, a signature or a cheque passcode.
+log never leaks a key, a signature, a cheque passcode or a claim URL.
 """
 
 from __future__ import annotations
@@ -77,7 +77,11 @@ def console_logger(level: str = "warning") -> StdlibLogger:
     return StdlibLogger(logger)
 
 
-_SENSITIVE = re.compile(r"secret|signature|passcode|token|authorization|password", re.IGNORECASE)
+#: Key names whose value is never logged. ``claim_url`` is spelled out because it does not read
+#: like a secret and is one: the claim page URL embeds the cheque's one-time ``claim_token``.
+_SENSITIVE = re.compile(
+    r"secret|signature|passcode|token|authorization|password|claim_url", re.IGNORECASE
+)
 
 T = TypeVar("T")
 

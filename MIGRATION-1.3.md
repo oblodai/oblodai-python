@@ -111,7 +111,8 @@ A caller `idempotency_key` on a route the gateway does not deduplicate raises
 `Credentials`, `EngineSettings` (reachable as `client.transport.settings`) and the client redact
 in `repr()`, and log fields are redacted **before** they reach a logger you injected, not only the
 built-in one. Secret-bearing response fields (`WebhookEndpoint.secret`,
-`WebhookSecretRotated.secret`, `PayoutLink.passcode` / `claim_token`) are plain dict entries —
+`WebhookSecretRotated.secret`, `PayoutLink.passcode` / `claim_token` / `claim_url` — the claim URL
+embeds the token) are plain dict entries —
 they redact wherever the SDK logs them, but a `print(result)` of your own still shows them.
 
 ## Model corrections

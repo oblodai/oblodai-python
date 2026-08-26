@@ -37,7 +37,8 @@ class PayoutLink(_PayoutLinkRequired, total=False):
 
     #: Present on create and batch-create only — the secret the recipient claims with.
     claim_token: str
-    #: The claim page URL carrying `claim_token` (create and batch-create only).
+    #: The claim page URL carrying `claim_token` (create and batch-create only). It embeds the
+    #: token, so it is a bearer secret too: the SDK redacts it wherever it logs a field by that name.
     claim_url: str
     #: Id of the batch the cheque was created in (batch-create only).
     batch_id: str
