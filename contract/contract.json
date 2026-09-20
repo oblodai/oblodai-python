@@ -21,6 +21,7 @@
     "X-Webhook-Signature-Prev",
     "X-Webhook-Event",
     "X-Webhook-Id",
+    "X-Webhook-Event-Id",
     "X-Webhook-Event-Time"
    ]
   }

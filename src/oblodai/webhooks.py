@@ -9,7 +9,9 @@ Deliveries are signed as::
     X-Webhook-Signature: hex(HMAC-SHA256(secret, "<ts>." + raw_body))
     X-Webhook-Signature-Prev: same, with the previous secret - only during a rotation overlap
     X-Webhook-Event: invoice.<status> | payout.<status> | wallet.paid
-    X-Webhook-Id: stable per delivery (identical across retries) - use it as your idempotency key
+    X-Webhook-Id: stable per delivery (identical across retries of THAT delivery)
+    X-Webhook-Event-Id: stable per STATE - the same for a resend of a state you already handled,
+        and different as soon as the state differs. This is the idempotency key to keep.
     X-Webhook-Event-Time: unix seconds when the state change committed (order events by it)
     X-Webhook-Test: "true" on a rehearsal delivery (`webhooks.test`, sandbox) - the body carries
         `test: true` as well; never act on one as if money moved
@@ -41,6 +43,7 @@ from .core.util import HeaderSource, constant_time_equal, header_value
 
 __all__ = [
     "HEADER_WEBHOOK_EVENT",
+    "HEADER_WEBHOOK_EVENT_ID",
     "HEADER_WEBHOOK_EVENT_TIME",
     "HEADER_WEBHOOK_ID",
     "HEADER_WEBHOOK_SIGNATURE",
@@ -64,6 +67,7 @@ HEADER_WEBHOOK_SIGNATURE = "X-Webhook-Signature"
 HEADER_WEBHOOK_SIGNATURE_PREV = "X-Webhook-Signature-Prev"
 HEADER_WEBHOOK_EVENT = "X-Webhook-Event"
 HEADER_WEBHOOK_ID = "X-Webhook-Id"
+HEADER_WEBHOOK_EVENT_ID = "X-Webhook-Event-Id"
 HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
 HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
@@ -87,8 +91,16 @@ class WebhookDeliveryInfo:
     event: AnyWebhookEvent
     #: ``X-Webhook-Timestamp`` - unix seconds when this attempt was sent.
     sent_at: int
-    #: ``X-Webhook-Id`` - stable across retries of the same delivery; use it to deduplicate.
+    #: ``X-Webhook-Id`` - stable across retries of the same DELIVERY. It is NOT enough to
+    #: deduplicate on: a resend (``POST /v1/payment/resend``) is a new delivery of the state you
+    #: may already have handled, and it carries a new id. Use :attr:`event_id`.
     id: Optional[str] = None
+    #: ``X-Webhook-Event-Id`` - the id of the STATE this delivery carries: identical for the
+    #: original, every retry of it and every resend of the same state, and different as soon as the
+    #: state differs (an invoice that goes back to ``paid`` after a reorg, with another txid, is a
+    #: new event and must be processed). Keep the ids you have handled and skip repeats of them.
+    #: ``None`` from a core older than 2026-09-20; fall back to (uuid, status) idempotency then.
+    event_id: Optional[str] = None
     #: ``X-Webhook-Event`` - ``invoice.<status>`` | ``payout.<status>`` | ``wallet.paid``.
     event_type: Optional[str] = None
     #: ``X-Webhook-Event-Time`` - unix seconds when the state change committed.
@@ -189,6 +201,7 @@ def verify_delivery(
         event=event,
         sent_at=ts,
         id=header_value(headers, HEADER_WEBHOOK_ID),
+        event_id=header_value(headers, HEADER_WEBHOOK_EVENT_ID),
         event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
         event_time=_ascii_int(header_value(headers, HEADER_WEBHOOK_EVENT_TIME)),
         is_test=header_value(headers, HEADER_WEBHOOK_TEST) == "true" or is_test_event(event),
@@ -248,6 +261,12 @@ def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -
     Keep the last ``sequence`` you processed per object and skip anything not newer. An event with
     no usable ``sequence`` is never stale - dropping a delivery because a field was missing would
     lose money, so the safe answer is to process it - and this never raises.
+
+    This is ORDERING, not deduplication, and the two used to be confused here. A resend carries a
+    deliberately HIGHER sequence (a lower one could be discarded as a straggler, and a resend has
+    to be able to correct a reorg reversal), so it is never stale and never a duplicate by
+    ``X-Webhook-Id`` either. Deduplicate on :attr:`WebhookDeliveryInfo.event_id`; a handler that
+    relied on these two alone shipped a resent ``invoice.paid`` twice.
     """
     if last_processed_sequence is None:
         return False
