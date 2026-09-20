@@ -257,3 +257,55 @@ def test_is_known_event_narrows_without_dropping_anything() -> None:
     assert webhooks.is_known_event({}) is False
     for kind in webhooks.KNOWN_EVENT_KINDS:
         assert webhooks.is_known_event({"type": kind}) is True
+
+
+def test_resend_is_deduplicated_by_the_event_id_not_the_delivery_id() -> None:
+    """A resend is a new DELIVERY of a state the receiver may already have handled.
+
+    `POST /v1/payment/resend` queues a fresh delivery with a new `X-Webhook-Id` and a deliberately
+    HIGHER `sequence` — deliberately, because a lower number may be discarded as a straggler and a
+    resend has to be able to correct a reorg reversal. So neither of the two rules this SDK used to
+    teach (dedupe by id, skip by sequence) drops it, and a fulfilment that was not idempotent by
+    (uuid, status) shipped the goods twice. `X-Webhook-Event-Id` is the key that answers it.
+    """
+    body = {"type": "payment", "uuid": "inv-1", "status": "paid", "sequence": 7}
+    ts = 1_800_000_000
+    raw_first = json.dumps(body)
+    raw_resend = json.dumps({**body, "sequence": 42})
+
+    def headers(raw: str, delivery_id: str, event_id: str) -> dict:
+        return {
+            "X-Webhook-Timestamp": str(ts),
+            "X-Webhook-Signature": sign_webhook(SECRET, ts, raw.encode()),
+            "X-Webhook-Event": "invoice.paid",
+            "X-Webhook-Id": delivery_id,
+            "X-Webhook-Event-Id": event_id,
+        }
+
+    state = "5d9f1c0e-0000-5000-8000-000000000001"
+    first = webhooks.verify_delivery(raw_first, headers(raw_first, "d-1", state), secret=SECRET, now=ts)
+    resend = webhooks.verify_delivery(raw_resend, headers(raw_resend, "d-2", state), secret=SECRET, now=ts)
+
+    assert first.id != resend.id, "a resend is a different delivery"
+    assert not webhooks.is_stale(resend.event, last_processed_sequence=7), "a resend is never stale"
+    assert first.event_id == resend.event_id == state, "the state id is what repeats"
+
+
+def test_event_id_is_absent_on_an_older_core() -> None:
+    """A core that predates the header must not make the field lie: it is None, and the receiver
+    falls back to (uuid, status) idempotency."""
+    body = {"type": "payment", "uuid": "inv-2", "status": "paid", "sequence": 1}
+    ts = 1_800_000_000
+    raw = json.dumps(body)
+    delivery = webhooks.verify_delivery(
+        raw,
+        {
+            "X-Webhook-Timestamp": str(ts),
+            "X-Webhook-Signature": sign_webhook(SECRET, ts, raw.encode()),
+            "X-Webhook-Event": "invoice.paid",
+            "X-Webhook-Id": "d-9",
+        },
+        secret=SECRET,
+        now=ts,
+    )
+    assert delivery.event_id is None
