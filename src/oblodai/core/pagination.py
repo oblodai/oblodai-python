@@ -75,8 +75,8 @@ class PageResult(Generic[T]):
 class Page(Generic[T]):
     """A lazy list handle.
 
-    ``for item in page`` walks every item across every page; ``page.first()`` (or ``page.items`` /
-    ``page.paginate``) gives just the first page. Nothing is fetched until one of those happens.
+    ``for item in page`` walks every item across every page, ``page.by_page()`` every page;
+    ``page.first()`` (or ``page.items`` / ``page.paginate``) gives just the first page. Nothing is fetched until one of those happens.
     """
 
     __slots__ = ("_fetch", "_first", "_limit", "_offset")
@@ -105,17 +105,21 @@ class Page(Generic[T]):
         """Pagination block of the first page."""
         return self.first().paginate
 
-    def __iter__(self) -> Iterator[T]:
+    def by_page(self) -> Iterator[PageResult[T]]:
+        """Every page in turn, one request each (the first page is reused when already fetched)."""
         offset = self._offset
-        reuse = True
+        page = self.first()
         while True:
-            page = self.first() if reuse else self._fetch(self._limit, offset)
-            reuse = False
-            yield from page.items
+            yield page
             got = len(page.items)
             offset += got
             if got == 0 or not page.has_pages:
                 return
+            page = self._fetch(self._limit, offset)
+
+    def __iter__(self) -> Iterator[T]:
+        for page in self.by_page():
+            yield from page.items
 
     def all(self, max_items: Optional[int] = None) -> List[T]:
         """Collect every item into a list (bounded by ``max_items`` when given)."""
@@ -135,7 +139,8 @@ class Page(Generic[T]):
 
 
 class AsyncPage(Generic[T]):
-    """The async twin of :class:`Page`: ``await page`` for one page, ``async for`` for all items."""
+    """The async twin of :class:`Page`: ``await page`` for one page, ``async for`` for all items,
+    ``async for page in page.by_page()`` for every page."""
 
     __slots__ = ("_fetch", "_first", "_limit", "_offset")
 
@@ -156,18 +161,22 @@ class AsyncPage(Generic[T]):
     def __await__(self) -> Generator[Any, None, PageResult[T]]:
         return self.first().__await__()
 
-    async def __aiter__(self) -> AsyncIterator[T]:
+    async def by_page(self) -> AsyncIterator[PageResult[T]]:
+        """Every page in turn, one request each (the first page is reused when already fetched)."""
         offset = self._offset
-        reuse = True
+        page = await self.first()
         while True:
-            page = await self.first() if reuse else await self._fetch(self._limit, offset)
-            reuse = False
-            for item in page.items:
-                yield item
+            yield page
             got = len(page.items)
             offset += got
             if got == 0 or not page.has_pages:
                 return
+            page = await self._fetch(self._limit, offset)
+
+    async def __aiter__(self) -> AsyncIterator[T]:
+        async for page in self.by_page():
+            for item in page.items:
+                yield item
 
     async def all(self, max_items: Optional[int] = None) -> List[T]:
         """Collect every item into a list (bounded by ``max_items`` when given)."""
