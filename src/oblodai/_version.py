@@ -17,7 +17,7 @@ _UNKNOWN = "0.0.0+unknown"
 
 
 def _from_pyproject() -> str:
-    """`version = "2.0.0"` out of the repository's own pyproject.toml, if it is next to us."""
+    """`version = "X.Y.Z"` out of the repository's own pyproject.toml, if it is next to us."""
     path = Path(__file__).resolve().parents[2] / "pyproject.toml"
     try:
         text = path.read_text("utf-8")
