@@ -294,7 +294,7 @@ def test_a_payout_links_claim_url_is_redacted_like_the_token_it_embeds() -> None
 def test_a_per_call_header_wins_over_the_clients_own() -> None:
     mock = MockHTTP([ok({"uuid": "u"}), ok({"uuid": "u"})])
     api = client(mock, headers={"X-Trace": "client"})
-    create(api, headers={"X-Trace": "call", "X-Extra": "e"})
+    create(api, extra_headers={"X-Trace": "call", "X-Extra": "e"})
     create(api)
     assert mock.calls[0].headers["x-trace"] == "call"
     assert mock.calls[0].headers["x-extra"] == "e"
@@ -305,8 +305,8 @@ def test_a_per_call_header_wins_over_the_clients_own() -> None:
 def test_a_per_call_header_obeys_the_same_rules_as_a_client_one() -> None:
     mock = MockHTTP([])
     with pytest.raises(ConfigError) as excinfo:
-        create(client(mock), headers={"X-Trace": "one\r\nX-Injected: yes"})
+        create(client(mock), extra_headers={"X-Trace": "one\r\nX-Injected: yes"})
     assert excinfo.value.code == "sdk.bad_header"
     signed = MockHTTP([ok({"uuid": "u"})])
-    create(client(signed), headers={"X-Signature": "hijacked"})
+    create(client(signed), extra_headers={"X-Signature": "hijacked"})
     assert signed.calls[0].headers["x-signature"] != "hijacked"

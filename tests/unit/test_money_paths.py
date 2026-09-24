@@ -233,7 +233,7 @@ def test_stops_retrying_when_the_overall_deadline_would_be_exceeded() -> None:
         ]
     )
     with pytest.raises(TransportError) as excinfo:
-        client(mock, deadline_ms=100).account.balance()
+        client(mock, deadline=0.1).account.balance()
     assert excinfo.value.code == "transport.deadline"
     assert len(mock.calls) == 1
 

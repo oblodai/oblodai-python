@@ -9,7 +9,7 @@ from typing import Any, Mapping, Optional, Type
 import httpx
 
 from ._version import SDK_VERSION
-from .config import resolve_config
+from .config import TimeoutLike, resolve_config
 from .contract.version import CONTRACT_HASH
 from .core.clock import SkewCorrectingClock
 from .core.engine import EngineSettings
@@ -64,8 +64,8 @@ class Oblodai:
         public_id: Optional[str] = None,
         secret: Optional[str] = None,
         base_url: Optional[str] = None,
-        timeout_ms: Optional[float] = None,
-        deadline_ms: Optional[float] = None,
+        timeout: Optional[TimeoutLike] = None,
+        deadline: Optional[float] = None,
         retry: Optional[RetryOptions] = None,
         logger: Optional[Logger] = None,
         headers: Optional[Mapping[str, str]] = None,
@@ -78,8 +78,8 @@ class Oblodai:
             public_id=public_id,
             secret=secret,
             base_url=base_url,
-            timeout_ms=timeout_ms,
-            deadline_ms=deadline_ms,
+            timeout=timeout,
+            deadline=deadline,
             retry=retry,
             logger=logger,
             headers=headers,
@@ -94,8 +94,8 @@ class Oblodai:
             headers=config.headers,
             admin_token=config.admin_token,
             retry=config.retry,
-            timeout_ms=config.timeout_ms,
-            deadline_ms=config.deadline_ms,
+            timeout=config.timeout,
+            deadline=config.deadline,
             clock=SkewCorrectingClock(),
             logger=config.logger or NoopLogger(),
         )

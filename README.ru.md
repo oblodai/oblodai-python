@@ -224,9 +224,10 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 | `sandbox` | `faucet` `deposit` `webhooks` `replay` `reset` | `/v1/sandbox/*` |
 | `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
 
-У всех методов один и тот же набор завершающих именованных аргументов: `idempotency_key`,
-`timeout_ms` (на одну попытку), `deadline_ms` (на весь вызов, вместе с ретраями) и `headers`
-(дополнительные заголовки только для этого вызова). Списочные методы принимают ещё `limit=` /
+У всех методов один и тот же набор завершающих именованных аргументов (поля
+`oblodai.RequestOptions`): `idempotency_key`, `timeout` (секунды, на одну попытку), `max_retries`,
+`extra_headers` (дополнительные заголовки только для этого вызова) и `request_id` (уходит в
+`X-Request-ID`; если не задан — uuid4). Списочные методы принимают ещё `limit=` /
 `offset=`. Всё остальное вызывает `TypeError` до отправки запроса.
 
 Маршруты для плательщика — `payments.public_view/select/public_qr`,
@@ -365,8 +366,10 @@ oblodai.payouts.create({...}, idempotency_key=f"payout-{order_id}")
 base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс, потолок 4 с, потолок учитываемого
 `Retry-After` — 30 с); полностью отключается через `RetryOptions(max_retries=0)`.
 
-Ограничения на вызов: `timeout_ms` (одна попытка, по умолчанию 30 с) и `deadline_ms` (весь вызов
-вместе с ретраями, по умолчанию 90 с); `headers` добавляет заголовки только этому вызову. Аналога
+Ограничения: `timeout` (секунды, одна попытка, по умолчанию 30 с; задаётся и на вызов) и `deadline`
+клиента (секунды, весь вызов вместе с ретраями, по умолчанию 90 с); `extra_headers` добавляет
+заголовки только этому вызову. Каждый запрос несёт `X-Request-ID` — ваш (`request_id=`) или
+сгенерированный uuid4, один на все попытки вызова. Аналога
 `AbortSignal` здесь нет: асинхронный вызов отменяется отменой его задачи (`CancelledError`
 пробрасывается нетронутым).
 
@@ -389,8 +392,8 @@ base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс,
 | `base_url` | `https://api.oblodai.com` | origin API; префикс пути (`https://gw.corp/oblodai`) сохраняется |
 | `allow_insecure_base_url` | `False` | разрешает `http://` на не-локальный хост |
 | `admin_token` | окружение | `X-Admin-Token` для `merchants.*` на self-hosted-шлюзе |
-| `timeout_ms` | `30000` | на одну попытку |
-| `deadline_ms` | `90000` | на весь вызов, вместе с ретраями |
+| `timeout` | `30.0` | секунды на одну попытку; принимается и `httpx.Timeout` (его наибольшая граница) |
+| `deadline` | `90.0` | секунды на весь вызов, вместе с ретраями |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
 | `headers` | — | дополнительные заголовки на каждый запрос |
 | `logger` | нет | что угодно с `debug/info/warning/error(message, fields)` |

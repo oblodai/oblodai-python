@@ -8,18 +8,20 @@ asks for, so both clients share exactly the same rules.
 
 from __future__ import annotations
 
+import dataclasses
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Union
 
-from ..contract.types import RouteSpec
 from .clock import SkewCorrectingClock
 from .envelope import decode_envelope
 from .errors import ConfigError, ContractError, OblodaiError, TransportError
 from .idempotency import assert_idempotency_key, new_idempotency_key
 from .logger import Logger, NoopLogger, redact
-from .request import Credentials, Query, build_request, serialize_body
+from .request import HEADER_REQUEST_ID, Credentials, Query, build_request, serialize_body
 from .retry import DEFAULT_RETRY, RetryOptions, retry_delay_ms, should_retry
+from .route import RouteSpec
 from .signing import SIGNATURE_SKEW_SECONDS
 from .steps import (
     MAX_FILE_BYTES,
@@ -64,11 +66,16 @@ class CallOptions:
     path_params: Optional[Mapping[str, Union[str, int]]] = None
     #: Supply your own key to make the call idempotent across process restarts.
     idempotency_key: Optional[str] = None
-    timeout_ms: Optional[float] = None
-    deadline_ms: Optional[float] = None
+    #: Per-attempt timeout in seconds; the client's ``timeout`` when None.
+    timeout: Optional[float] = None
+    #: Retries after the first attempt; the client's ``RetryOptions.max_retries`` when None.
+    max_retries: Optional[int] = None
     #: Extra headers for this call alone, merged over the client's own. The SDK still owns the
     #: names in ``RESERVED_HEADERS``, and a value with CR/LF or non-ASCII bytes is a ConfigError.
-    headers: Optional[Mapping[str, str]] = None
+    extra_headers: Optional[Mapping[str, str]] = None
+    #: ``X-Request-ID`` for every attempt of this call; a caller ``X-Request-ID`` header, else a
+    #: fresh ``uuid4``, when None.
+    request_id: Optional[str] = None
 
 
 @dataclass
@@ -85,8 +92,10 @@ class EngineSettings:
     headers: Optional[Mapping[str, str]] = field(default=None, repr=False)
     admin_token: Optional[str] = field(default=None, repr=False)
     retry: RetryOptions = DEFAULT_RETRY
-    timeout_ms: float = 30_000.0
-    deadline_ms: float = 90_000.0
+    #: Per-attempt timeout, seconds.
+    timeout: float = 30.0
+    #: Budget for the whole call including retries, seconds.
+    deadline: float = 90.0
     clock: SkewCorrectingClock = field(default_factory=SkewCorrectingClock)
     logger: Logger = field(default_factory=NoopLogger)
 
@@ -96,8 +105,8 @@ class EngineSettings:
             f"credentials={self.credentials!r}, "
             f"headers={'[redacted]' if self.headers else None}, "
             f"admin_token={'[redacted]' if self.admin_token else None}, "
-            f"retry={self.retry!r}, timeout_ms={self.timeout_ms!r}, "
-            f"deadline_ms={self.deadline_ms!r})"
+            f"retry={self.retry!r}, timeout={self.timeout!r}, "
+            f"deadline={self.deadline!r})"
         )
 
 
@@ -132,11 +141,28 @@ class CallEngine:
         self._deadline_at = 0.0
         self._last_error: Optional[BaseException] = None
         self._label = f"{route.method} {route.path}"
+        self._headers: Optional[Mapping[str, str]] = None
+        self._request_id = ""
+        self._retry = settings.retry
 
     # -- lifecycle ---------------------------------------------------------------------------
 
     def begin(self) -> Step:
         route = self._route
+        options = self._options
+        self._headers = self._settings.headers
+        if options.extra_headers:
+            # Per-call headers win over the client's; both go through the same reserved-name and
+            # value checks in `build_request`.
+            merged: Dict[str, str] = dict(self._settings.headers or {})
+            merged.update(options.extra_headers)
+            self._headers = merged
+        # One id for every attempt: it names the call, not the attempt.
+        self._request_id = (
+            options.request_id or _header(self._headers, HEADER_REQUEST_ID) or str(uuid.uuid4())
+        )
+        if options.max_retries is not None:
+            self._retry = dataclasses.replace(self._retry, max_retries=options.max_retries)
         try:
             self._body = serialize_body(self._options.body, route.method)
             key = self._options.idempotency_key
@@ -161,8 +187,7 @@ class CallEngine:
         self._safe_to_repeat = route.safe or (
             route.idempotent and self._idempotency_key is not None
         )
-        budget = self._options.deadline_ms or self._settings.deadline_ms
-        self._deadline_at = self._now_ms() + budget
+        self._deadline_at = self._now_ms() + self._settings.deadline * 1000.0
         return self._send()
 
     def on_response(self, raw: RawResponse) -> Step:
@@ -223,13 +248,6 @@ class CallEngine:
     def _send(self) -> Step:
         route = self._route
         settings = self._settings
-        extra: Optional[Mapping[str, str]] = settings.headers
-        if self._options.headers:
-            # Per-call headers win over the client's; both go through the same reserved-name and
-            # value checks in `build_request`.
-            merged: Dict[str, str] = dict(settings.headers or {})
-            merged.update(self._options.headers)
-            extra = merged
         ts, self._signed_offset = settings.clock.now_with_offset()
         try:
             request = build_request(
@@ -242,8 +260,9 @@ class CallEngine:
                 query=self._options.query,
                 credentials=settings.credentials,
                 idempotency_key=self._idempotency_key,
-                extra_headers=extra,
+                extra_headers=self._headers,
                 admin_token=settings.admin_token,
+                request_id=self._request_id,
             )
         except OblodaiError as err:
             return Fail(err)
@@ -253,12 +272,16 @@ class CallEngine:
                 {
                     "route": self._label,
                     "attempt": self._attempt,
+                    "request_id": self._request_id,
                     "idempotency_key": self._idempotency_key,
                 }
             ),
         )
         remaining = max(1.0, self._deadline_at - self._now_ms())
-        timeout = min(self._options.timeout_ms or settings.timeout_ms, remaining)
+        per_attempt = (
+            self._options.timeout if self._options.timeout is not None else settings.timeout
+        )
+        timeout = min(per_attempt * 1000.0, remaining)
         return Send(request, timeout, MAX_FILE_BYTES if route.bare else MAX_JSON_BYTES)
 
     def _classify(self, raw: RawResponse) -> BaseException:
@@ -280,9 +303,9 @@ class CallEngine:
 
     def _after_failure(self, error: BaseException) -> Step:
         self._last_error = error
-        if not should_retry(error, self._attempt, self._safe_to_repeat, self._settings.retry):
+        if not should_retry(error, self._attempt, self._safe_to_repeat, self._retry):
             return Fail(error)
-        delay = retry_delay_ms(error, self._attempt, self._settings.retry)
+        delay = retry_delay_ms(error, self._attempt, self._retry)
         if self._now_ms() + delay > self._deadline_at:
             return Fail(
                 TransportError(
@@ -295,6 +318,14 @@ class CallEngine:
             self._attempt += 1
             return self._send()
         return Pause(delay)
+
+
+def _header(headers: Optional[Mapping[str, str]], name: str) -> Optional[str]:
+    want = name.lower()
+    for key, value in (headers or {}).items():
+        if key.lower() == want:
+            return value
+    return None
 
 
 def unwrap_result(route: RouteSpec, raw: RawResponse) -> Any:

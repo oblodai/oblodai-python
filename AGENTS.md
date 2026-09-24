@@ -12,8 +12,9 @@ samples and real signed webhook deliveries).
   objects. Every body has a `TypedDict` in `oblodai.contract.requests` (`PaymentBody`, `PayoutBody`,
   …) and every response one in `oblodai.contract.models` (`Payment`, `Payout`, …). Responses are
   dicts too: `invoice["url"]`, not `invoice.url`.
-- Every method's trailing keyword arguments are the same four: `idempotency_key`, `timeout_ms`
-  (per attempt), `deadline_ms` (whole call), `headers` (this call only). Anything else raises
+- Every method's trailing keyword arguments are the same five (`oblodai.RequestOptions`):
+  `idempotency_key`, `timeout` (seconds, per attempt), `max_retries`, `extra_headers` (this call
+  only), `request_id` (sent as `X-Request-ID`; a uuid4 when omitted). Anything else raises
   `TypeError` before a request is sent (list methods also accept `limit=` / `offset=`).
 - **One API key.** `public_id` + `secret` (or `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET`) sign every
   route with `ROUTES[key].auth == "key"` — money-in and money-out alike. `auth == "public"` means

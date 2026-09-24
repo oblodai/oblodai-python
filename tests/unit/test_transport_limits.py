@@ -1,7 +1,7 @@
 """What bounds a call: the per-attempt deadline, the body size cap, redirects, concurrency.
 
 Every test here fails on the code as it was before the 1.3 hardening pass, which is the point:
-a drip-feeding server used to hold a call open long past its ``timeout_ms``, an unbounded body
+a drip-feeding server used to hold a call open long past its ``timeout``, an unbounded body
 used to be read into memory whole, and two threads correcting the clock used to fight.
 """
 
@@ -64,7 +64,7 @@ def test_a_drip_feeding_server_hits_the_attempt_timeout_instead_of_holding_the_c
     client = Oblodai(http_client=httpx.Client(transport=transport, timeout=10.0), **CREDS)
     started = time.monotonic()
     with pytest.raises(TransportError) as excinfo:
-        client.account.balance(timeout_ms=120)
+        client.account.balance(timeout=0.12)
     assert excinfo.value.code == "transport.timeout"
     assert time.monotonic() - started < 2.0  # not the 8 x 0.05 s the server wanted to take
 
@@ -74,7 +74,7 @@ async def test_the_async_client_bounds_the_whole_attempt_too() -> None:
     client = AsyncOblodai(http_client=httpx.AsyncClient(transport=transport, timeout=10.0), **CREDS)
     started = time.monotonic()
     with pytest.raises(TransportError) as excinfo:
-        await client.account.balance(timeout_ms=120)
+        await client.account.balance(timeout=0.12)
     assert excinfo.value.code == "transport.timeout"
     assert time.monotonic() - started < 2.0
 
@@ -83,7 +83,7 @@ def test_the_attempt_timeout_reaches_httpx_as_well() -> None:
     """The value is not just held in the engine: the socket gets it, so a stalled connect dies."""
     transport = RecordingTransport()
     client = Oblodai(http_client=httpx.Client(transport=transport), **CREDS)
-    client.account.balance(timeout_ms=1234)
+    client.account.balance(timeout=1.234)
     timeout = transport.timeouts[0] or {}
     assert timeout.get("connect") == pytest.approx(1.234)
     assert timeout.get("read") == pytest.approx(1.234)
@@ -91,8 +91,10 @@ def test_the_attempt_timeout_reaches_httpx_as_well() -> None:
 
 def test_the_call_deadline_caps_the_attempt_timeout() -> None:
     transport = RecordingTransport()
-    client = Oblodai(http_client=httpx.Client(transport=transport), **CREDS)
-    client.account.balance(timeout_ms=30_000, deadline_ms=500)
+    client = Oblodai(
+        http_client=httpx.Client(transport=transport), timeout=30, deadline=0.5, **CREDS
+    )
+    client.account.balance()
     timeout = transport.timeouts[0] or {}
     assert 0 < (timeout.get("read") or 0) <= 0.5
 

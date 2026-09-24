@@ -64,6 +64,7 @@ from .core.errors import (
     WebhookPayloadError,
 )
 from .core.idempotency import new_idempotency_key
+from .core.options import RequestOptions
 from .core.pagination import AsyncPage, Page, PageResult
 from .core.retry import RetryOptions
 from .core.signing import canonical_string, sign_request, sign_webhook
@@ -140,6 +141,7 @@ __all__ = [
     "PayoutStatus",
     "PermissionDeniedError",
     "RateLimitError",
+    "RequestOptions",
     "ResponseTooLargeError",
     "RetryOptions",
     "RouteAuth",

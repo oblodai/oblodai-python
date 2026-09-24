@@ -222,9 +222,9 @@ Sixteen namespaces cover all 107 routes of the gateway.
 | `sandbox` | `faucet` `deposit` `webhooks` `replay` `reset` | `/v1/sandbox/*` |
 | `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
 
-Every method takes the same trailing keyword arguments: `idempotency_key`, `timeout_ms` (per
-attempt), `deadline_ms` (the whole call, retries included) and `headers` (extra headers for this
-call alone). List methods also take `limit=` / `offset=`. Anything else raises `TypeError` before a
+Every method takes the same trailing keyword arguments (the fields of `oblodai.RequestOptions`):
+`idempotency_key`, `timeout` (seconds, per attempt), `max_retries`, `extra_headers` (extra headers
+for this call alone) and `request_id` (sent as `X-Request-ID`; a uuid4 when omitted). List methods also take `limit=` / `offset=`. Anything else raises `TypeError` before a
 request is sent.
 
 The payer-facing routes — `payments.public_view/select/public_qr`,
@@ -361,8 +361,10 @@ exponential backoff with jitter. Tune with `RetryOptions(max_retries=…, base_d
 2 retries, 250 ms base, 4 s cap, 30 s cap on an honoured `Retry-After`), or switch retries off with
 `RetryOptions(max_retries=0)`.
 
-Per-call bounds: `timeout_ms` (one attempt, default 30 s) and `deadline_ms` (the whole call, retries
-included, default 90 s); `headers` adds headers for this call alone. There is no `AbortSignal`
+Bounds: `timeout` (seconds, one attempt, default 30 s; per call too) and the client's `deadline`
+(seconds, the whole call, retries included, default 90 s); `extra_headers` adds headers for this
+call alone. Every request carries an `X-Request-ID` - yours (`request_id=`) or a generated uuid4,
+the same for every attempt of the call. There is no `AbortSignal`
 equivalent: cancel an async call by cancelling its task (`CancelledError` propagates untouched).
 
 Signed requests carry a timestamp, so a machine with a wrong clock would fail authentication; the
@@ -383,8 +385,8 @@ always wins over the environment.
 | `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
 | `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
 | `admin_token` | environment | `X-Admin-Token` for `merchants.*` on a self-hosted gateway |
-| `timeout_ms` | `30000` | per attempt |
-| `deadline_ms` | `90000` | the whole call, retries included |
+| `timeout` | `30.0` | seconds per attempt; an `httpx.Timeout` is accepted (its largest bound) |
+| `deadline` | `90.0` | seconds for the whole call, retries included |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
 | `headers` | — | extra headers on every request |
 | `logger` | none | anything with `debug/info/warning/error(message, fields)` |

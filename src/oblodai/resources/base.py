@@ -4,25 +4,46 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
 from urllib.parse import unquote
 
 from ..contract.models.common import Paginate
 from ..contract.routes import ROUTES
-from ..contract.types import RouteSpec
 from ..core.engine import CallOptions
 from ..core.envelope import as_page, as_plain_list
 from ..core.errors import ConfigError
+from ..core.options import RequestOptions, options_from_kwargs
 from ..core.pagination import Page, PageResult
 from ..core.request import Query
+from ..core.route import RouteSpec
 from ..core.transport import Transport
 
-__all__ = ["FileResult", "PagePlan", "Resource", "plan_page"]
-
-#: Per-call options every resource method accepts as trailing keyword arguments.
-OPTION_KEYS = frozenset({"idempotency_key", "timeout_ms", "deadline_ms", "headers"})
+__all__ = ["FileResult", "PagePlan", "Resource", "call_options", "plan_page"]
 
 PathParams = Mapping[str, Union[str, int]]
+
+T = TypeVar("T")
+
+
+def call_options(
+    options: RequestOptions,
+    body: Any = None,
+    path_params: Optional[PathParams] = None,
+    query: Optional[Query] = None,
+) -> CallOptions:
+    """What the engine runs one call with: the request itself plus the caller's overrides."""
+    if not isinstance(options, RequestOptions):
+        raise TypeError(f"options must be RequestOptions, not {type(options).__name__}")
+    return CallOptions(
+        body=body,
+        query=query,
+        path_params=path_params,
+        idempotency_key=options.idempotency_key,
+        timeout=options.timeout,
+        max_retries=options.max_retries,
+        extra_headers=options.extra_headers,
+        request_id=options.request_id,
+    )
 
 
 @dataclass(frozen=True)
@@ -42,23 +63,29 @@ class FileResult:
 class Resource:
     """Base of every namespace on :class:`~oblodai.Oblodai`.
 
-    Every method accepts the same trailing keyword arguments:
-
-    ``idempotency_key``
-        Your own key; generated automatically on create routes when omitted, and rejected on
-        routes the core does not deduplicate.
-    ``timeout_ms``
-        Per-attempt timeout.
-    ``deadline_ms``
-        Overall budget for the call including retries.
-    ``headers``
-        Extra headers for this call alone, merged over the client's own.
+    Every method accepts the fields of :class:`~oblodai.RequestOptions` as trailing keyword
+    arguments: ``idempotency_key``, ``timeout`` (seconds, per attempt), ``max_retries``,
+    ``extra_headers`` and ``request_id`` (sent as ``X-Request-ID``). Anything else is a TypeError.
     """
 
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
 
     # -- internals ---------------------------------------------------------------------------
+
+    def _request(
+        self,
+        route: RouteSpec,
+        body: Any,
+        options: RequestOptions,
+        *,
+        path_params: Optional[PathParams] = None,
+        query: Optional[Query] = None,
+        parse: Optional[Callable[[Any], T]] = None,
+    ) -> Any:
+        """Call an envelope route; return its ``result``, or ``parse(result)`` when given."""
+        result = self._transport.call(route, call_options(options, body, path_params, query))
+        return parse(result) if parse is not None else result
 
     @staticmethod
     def _options(
@@ -67,21 +94,8 @@ class Resource:
         query: Optional[Query],
         options: Mapping[str, Any],
     ) -> CallOptions:
-        unknown = sorted(set(options) - OPTION_KEYS)
-        if unknown:
-            raise TypeError(
-                f"unexpected keyword argument(s) {', '.join(unknown)}; "
-                f"resource methods accept {', '.join(sorted(OPTION_KEYS))}"
-            )
-        return CallOptions(
-            body=body,
-            query=query,
-            path_params=path_params,
-            idempotency_key=options.get("idempotency_key"),
-            timeout_ms=options.get("timeout_ms"),
-            deadline_ms=options.get("deadline_ms"),
-            headers=options.get("headers"),
-        )
+        """The hand-written resources' ``**options`` adapter (until generated resources)."""
+        return call_options(options_from_kwargs(options), body, path_params, query)
 
     def _call(
         self,

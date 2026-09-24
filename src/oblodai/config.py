@@ -4,17 +4,34 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Union
 from urllib.parse import urlsplit
+
+import httpx
 
 from .core.errors import ConfigError
 from .core.logger import Logger, console_logger
 from .core.request import Credentials
 from .core.retry import DEFAULT_RETRY, RetryOptions
 
-__all__ = ["DEFAULT_BASE_URL", "ResolvedConfig", "resolve_config"]
+__all__ = [
+    "DEFAULT_BASE_URL",
+    "DEFAULT_DEADLINE",
+    "DEFAULT_TIMEOUT",
+    "ResolvedConfig",
+    "TimeoutLike",
+    "resolve_config",
+    "timeout_seconds",
+]
 
 DEFAULT_BASE_URL = "https://api.oblodai.com"
+#: Per-attempt timeout, seconds.
+DEFAULT_TIMEOUT = 30.0
+#: Budget for the whole call including retries, seconds.
+DEFAULT_DEADLINE = 90.0
+
+#: Seconds, or an ``httpx.Timeout`` (its largest bound becomes the per-attempt timeout).
+TimeoutLike = Union[float, httpx.Timeout]
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
@@ -25,8 +42,10 @@ class ResolvedConfig:
 
     base_url: str
     credentials: Optional[Credentials] = None
-    timeout_ms: float = 30_000.0
-    deadline_ms: float = 90_000.0
+    #: Per-attempt timeout, seconds.
+    timeout: float = DEFAULT_TIMEOUT
+    #: Budget for the whole call including retries, seconds.
+    deadline: float = DEFAULT_DEADLINE
     retry: RetryOptions = DEFAULT_RETRY
     logger: Optional[Logger] = None
     headers: Optional[Mapping[str, str]] = None
@@ -38,8 +57,8 @@ def resolve_config(
     public_id: Optional[str] = None,
     secret: Optional[str] = None,
     base_url: Optional[str] = None,
-    timeout_ms: Optional[float] = None,
-    deadline_ms: Optional[float] = None,
+    timeout: Optional[TimeoutLike] = None,
+    deadline: Optional[float] = None,
     retry: Optional[RetryOptions] = None,
     logger: Optional[Logger] = None,
     headers: Optional[Mapping[str, str]] = None,
@@ -76,13 +95,34 @@ def resolve_config(
     return ResolvedConfig(
         base_url=resolved_base,
         credentials=Credentials(pid, sec) if pid and sec else None,
-        timeout_ms=30_000.0 if timeout_ms is None else timeout_ms,
-        deadline_ms=90_000.0 if deadline_ms is None else deadline_ms,
+        timeout=DEFAULT_TIMEOUT if timeout is None else timeout_seconds(timeout),
+        deadline=DEFAULT_DEADLINE if deadline is None else _positive("deadline", deadline),
         retry=retry or DEFAULT_RETRY,
         logger=chosen_logger,
         headers=headers,
         admin_token=admin_token or environ.get("OBLODAI_ADMIN_TOKEN"),
     )
+
+
+def timeout_seconds(timeout: TimeoutLike) -> float:
+    """The per-attempt timeout in seconds.
+
+    The SDK bounds a whole attempt (connect, write and every byte of the response) with one
+    number, so an ``httpx.Timeout`` contributes its largest bound; one with no bounds at all
+    leaves the attempt to the call's ``deadline``.
+    """
+    if isinstance(timeout, httpx.Timeout):
+        bounds = [
+            b for b in (timeout.connect, timeout.read, timeout.write, timeout.pool) if b is not None
+        ]
+        return _positive("timeout", max(bounds)) if bounds else float("inf")
+    return _positive("timeout", timeout)
+
+
+def _positive(name: str, value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+        raise ConfigError("sdk.bad_config", f"{name} must be a positive number of seconds", name)
+    return float(value)
 
 
 def _assert_base_url(base_url: str, allow_insecure: bool) -> None:
