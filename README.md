@@ -317,6 +317,9 @@ except OblodaiError as err:
     print(err.code, err.http_status, err.retryable, err.request_id, err.field)
 ```
 
+`str(err)` is ready for a log line: `[payment.bad_amount] amount must be positive (request_id=rq-9)`
+(the suffix only when there is an id); `err.message` stays the bare text.
+
 | class | HTTP | when |
 | ----- | ---- | ---- |
 | `ValidationError` | 400 | malformed request or a broken business rule (`field` says which) |
