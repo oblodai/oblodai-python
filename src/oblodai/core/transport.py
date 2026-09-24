@@ -8,7 +8,6 @@ from typing import Any, Optional, Type
 
 import httpx
 
-from ..contract.types import RouteSpec
 from .engine import (
     BodyReader,
     CallEngine,
@@ -23,6 +22,7 @@ from .engine import (
     unwrap_result,
 )
 from .errors import OblodaiError, TransportError
+from .route import RouteSpec
 
 __all__ = ["Transport"]
 

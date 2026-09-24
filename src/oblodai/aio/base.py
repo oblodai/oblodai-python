@@ -2,34 +2,53 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Mapping, Optional
+from typing import Any, Callable, List, Mapping, Optional, TypeVar
 
 from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
+from ..core.options import RequestOptions
 from ..core.pagination import AsyncPage, PageResult
 from ..core.request import Query
+from ..core.route import RouteSpec
 from ..resources.base import (
     FileResult,
     PathParams,
     Resource,
     _to_page,
+    call_options,
     filename_from,
     plan_page,
 )
 
 __all__ = ["AsyncResource", "FileResult"]
 
+T = TypeVar("T")
+
 
 class AsyncResource:
     """Base of every namespace on :class:`~oblodai.AsyncOblodai`.
 
     The trailing keyword arguments are identical to the synchronous client's
-    (:class:`oblodai.resources.base.Resource`): ``idempotency_key``, ``timeout_ms``,
-    ``deadline_ms``, ``headers``.
+    (:class:`oblodai.resources.base.Resource`): the fields of :class:`~oblodai.RequestOptions`.
     """
 
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
+
+    async def _request(
+        self,
+        route: RouteSpec,
+        body: Any,
+        options: RequestOptions,
+        *,
+        path_params: Optional[PathParams] = None,
+        query: Optional[Query] = None,
+        parse: Optional[Callable[[Any], T]] = None,
+    ) -> Any:
+        """Call an envelope route; return its ``result``, or ``parse(result)`` when given."""
+        opts = call_options(options, body, path_params, query)
+        result = await self._transport.call(route, opts)
+        return parse(result) if parse is not None else result
 
     async def _call(
         self,

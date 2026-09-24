@@ -156,7 +156,7 @@ async def test_cancellation_is_the_callers_decision_and_is_not_swallowed() -> No
 
     injected = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     api = AsyncOblodai(http_client=injected, **CREDS)
-    task = asyncio.ensure_future(api.account.balance(timeout_ms=5_000))
+    task = asyncio.ensure_future(api.account.balance(timeout=5))
     await asyncio.sleep(0.01)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):

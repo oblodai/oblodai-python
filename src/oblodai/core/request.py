@@ -12,8 +12,8 @@ from decimal import Decimal
 from typing import Any, Dict, Mapping, Optional, Union
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from ..contract.types import RouteSpec
 from .errors import ConfigError
+from .route import RouteSpec
 from .signing import (
     HEADER_ADMIN_TOKEN,
     HEADER_IDEMPOTENCY_KEY,
@@ -24,6 +24,7 @@ from .signing import (
 )
 
 __all__ = [
+    "HEADER_REQUEST_ID",
     "RESERVED_HEADERS",
     "BuiltRequest",
     "Credentials",
@@ -42,6 +43,10 @@ Query = Mapping[str, QueryValue]
 #: Headers the SDK owns; a caller-supplied header with one of these names is dropped, compared
 #: case-insensitively. An overridden ``Accept`` or ``User-Agent`` is merely wrong; an overridden
 #: signing header would produce a request the core cannot verify.
+#: Ties one call's attempts to the core's logs; one value for every attempt of a call. Not
+#: reserved: a caller's own ``X-Request-ID`` header is the call's id when ``request_id`` is unset.
+HEADER_REQUEST_ID = "X-Request-ID"
+
 RESERVED_HEADERS = frozenset(
     h.lower()
     for h in (
@@ -95,6 +100,7 @@ def build_request(
     idempotency_key: Optional[str] = None,
     extra_headers: Optional[Mapping[str, str]] = None,
     admin_token: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> BuiltRequest:
     """Assemble (and sign) one attempt of one call."""
     origin, prefix = join_url(base_url)
@@ -106,6 +112,8 @@ def build_request(
     for name, value in (extra_headers or {}).items():
         if name.lower() in RESERVED_HEADERS:
             continue  # the SDK owns this one; a caller copy would be ignored or break signing
+        if request_id and name.lower() == HEADER_REQUEST_ID.lower():
+            continue  # replaced by the call's own id below, never sent twice  # the SDK owns this one; a caller copy would be ignored or break signing
         assert_header_value(name, value)
         headers[name] = value
     headers["Accept"] = "application/json"
@@ -115,6 +123,9 @@ def build_request(
         headers["Content-Type"] = "application/json"
     if idempotency_key:
         headers[HEADER_IDEMPOTENCY_KEY] = idempotency_key
+    if request_id:
+        assert_header_value(HEADER_REQUEST_ID, request_id)
+        headers[HEADER_REQUEST_ID] = request_id
     # Onboarding is the only surface the admin token gates; sending it anywhere else would leak a
     # gateway-wide credential onto every merchant request.
     if route.auth == "onboard" and admin_token:
