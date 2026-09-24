@@ -26,8 +26,10 @@ old-to-new table.
 - Long-running operations (batches, document exports) return a `Job` with `wait()`; which calls
   are long-running, what to poll and which statuses end the wait come from the contract's
   `x-sdk-poll` (`oblodai.lro`, generated), each job waiting for its own terminal statuses.
-- `webhooks.to_model(event)`, `webhooks.WEBHOOK_MODELS` (kind → model) and
-  `webhooks.WEBHOOK_EVENTS` (event name → kind), generated from the contract's webhooks.
+- `webhooks.to_model(event)`, `webhooks.WEBHOOK_MODELS` (kind → model),
+  `webhooks.WEBHOOK_EVENTS` (event name → kind) and `webhooks.WEBHOOK_ID_FIELDS` (kind → the body
+  field holding the object's id, read by `webhooks.object_id(event)`), generated from the
+  contract's webhooks. `webhooks.parse` requires only `type` of a kind it does not know.
 - The README method table is generated from the contract (between `sdkgen:methods` markers), and
   the generator adds new method names to `names.lock` itself; `names.2.0.txt` freezes the names
   2.0 shipped with, which `MIGRATION-2.0.md` maps.
