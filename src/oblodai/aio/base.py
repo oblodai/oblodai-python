@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Mapping, Optional, TypeVar
+from typing import Any, Awaitable, Callable, List, Mapping, Optional, TypeVar
 
 from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
 from ..core.options import RequestOptions
 from ..core.pagination import AsyncPage, PageResult
+from ..core.poller import AsyncJob, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
@@ -17,7 +18,7 @@ from ..resources.base import (
     Resource,
     _to_page,
     call_options,
-    filename_from,
+    file_result,
     plan_page,
     raw_copy,
 )
@@ -36,6 +37,11 @@ class AsyncResource:
 
     #: Set on the copy :attr:`with_raw_response` hands out, never on the namespace itself.
     _raw_response = False
+    #: Routes by ``operationId`` for follow-up calls (polling a long-running operation);
+    #: ``None`` means the generated route table.
+    _operations: Optional[Mapping[str, RouteSpec]] = None
+    #: Parsers of poll answers by model name; ``None`` means the generated models.
+    _models: Optional[Parsers] = None
 
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
@@ -56,12 +62,51 @@ class AsyncResource:
         query: Optional[Query] = None,
         parse: Optional[Callable[[Any], T]] = None,
     ) -> Any:
-        """Call an envelope route; return its ``result``, or ``parse(result)`` when given."""
+        """Call an envelope route; return its ``result``, or ``parse(result)`` when given.
+
+        A long-running operation (:mod:`oblodai.lro`) returns an
+        :class:`~oblodai.core.poller.AsyncJob` around that value.
+        """
         opts = call_options(options, body, path_params, query)
+        parser: Optional[Callable[[Any], Any]] = parse
+        plan = plan_job(route, self._operations, self._models)
+        if plan is not None:
+            parser = self._job_parser(plan, options, parse)
         if self._raw_response:
-            return RawAPIResponse(route, await self._transport.call_raw(route, opts), parse)
+            return RawAPIResponse(route, await self._transport.call_raw(route, opts), parser)
         result = await self._transport.call(route, opts)
-        return parse(result) if parse is not None else result
+        return parser(result) if parser is not None else result
+
+    def _job_parser(
+        self, plan: JobPlan, options: RequestOptions, parse: Optional[Callable[[Any], Any]]
+    ) -> Callable[[Any], AsyncJob[Any]]:
+        transport = self._transport
+        follow = poll_options(options)
+
+        def build(result: Any) -> AsyncJob[Any]:
+            id = job_id(plan, result)
+
+            async def poll() -> Any:
+                body = {plan.id_field: id}
+                answer = await transport.call(plan.poll_route, call_options(follow, body))
+                return plan.parse(answer) if plan.parse is not None else answer
+
+            def download(route: RouteSpec) -> Callable[[], Awaitable[FileResult]]:
+                async def fetch() -> FileResult:
+                    query = {plan.id_field: id}
+                    raw = await transport.call_raw(route, call_options(follow, query=query))
+                    return file_result(raw)
+
+                return fetch
+
+            return AsyncJob(
+                id,
+                parse(result) if parse is not None else result,
+                poll,
+                download(plan.download_route) if plan.download_route is not None else None,
+            )
+
+        return build
 
     async def _call(
         self,
@@ -117,8 +162,4 @@ class AsyncResource:
         raw = await self._transport.call_raw(
             ROUTES[key], Resource._options(body, path_params, query, options)
         )
-        return FileResult(
-            content=raw.body,
-            content_type=raw.content_type or "application/octet-stream",
-            filename=filename_from(raw.header("content-disposition")),
-        )
+        return file_result(raw)

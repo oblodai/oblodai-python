@@ -67,6 +67,7 @@ from .core.hooks import Hooks, RequestInfo, ResponseInfo
 from .core.idempotency import new_idempotency_key
 from .core.options import RequestOptions
 from .core.pagination import AsyncPage, Page, PageResult
+from .core.poller import AsyncJob, Job
 from .core.raw import RawAPIResponse
 from .core.retry import RetryOptions
 from .core.signing import canonical_string, sign_request, sign_webhook
@@ -138,6 +139,8 @@ __all__ = [
     "OblodaiError",
     "Page",
     "PageResult",
+    "Job",
+    "AsyncJob",
     "PaymentStatus",
     "PayoutLinkStatus",
     "PayoutStatus",
