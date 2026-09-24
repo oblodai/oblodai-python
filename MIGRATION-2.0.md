@@ -14,6 +14,12 @@ from it. The wire does not change - only the Python surface does.
   enum value stays a plain string and an unknown field lands in `.extra`.
 - **Bodies:** keyword arguments (`payments.create(amount="25", currency="USDT")`), a mapping with
   the wire names (as in 1.x), or a request model such as `PaymentRequest`.
+- **Query parameters** of the `GET` routes are keyword arguments with the wire names; the positional
+  id and the `query=` mapping of 1.x are gone. `documents.batch_report(batch_id)` becomes
+  `documents.get_batch(uuid=batch_id)`, `documents.statement({"from": ..., "to": ...})` becomes
+  `documents.get_statement(from_=..., to=...)` (`from` is a Python keyword), and the same goes for
+  `lang=`, `format=`, `documents.get_split/get_payment_link/get_wallet_statement(uuid=...)`,
+  `documents.download_job_file(job_id=...)` and `documents.get_signed(kind, id, exp=..., sig=...)`.
 - **Per-call options** are the fields of `oblodai.RequestOptions`, passed as keywords:
 
   | 1.x | 2.0 |

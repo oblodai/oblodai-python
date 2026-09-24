@@ -18,7 +18,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - run: pytest tests/unit tests/contract -q
+      - run: pytest tests/unit tests/contract tests/conformance -q
 
   quality:
     runs-on: ubuntu-latest
@@ -27,10 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -e ".[dev]"
-      # The committed contract mirror must be exactly what the generators produce. The check
-      # regenerates into a temporary directory, so it works on a clean checkout and leaves the
-      # working tree untouched either way.
-      - run: python scripts/check_drift.py
+      # src/oblodai/generated must be exactly what the backend generator makes of the contract. The
+      # check needs a backend checkout (OBLODAI_BACKEND); without one it says it skipped.
+      - run: python scripts/check_generated.py
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy

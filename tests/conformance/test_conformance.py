@@ -1,6 +1,7 @@
 """The shared conformance suite every Oblodai SDK runs (backend ``tools/sdkgen/conformance``).
 
-Scenarios are read from ``$SDKGEN_CONFORMANCE`` (default: the sdkgen worktree next to this clone).
+Scenarios are read from ``$SDKGEN_CONFORMANCE``, else from ``tools/sdkgen/conformance`` of the
+backend checkout the drift check uses (``$OBLODAI_BACKEND``, else ``../oblodai-backend``).
 Signing vectors are not in the scenario files: each suite names the backend ``openapi.json`` and a
 pointer into its ``x-oblodai-signing``, and the vectors are read from there.
 
@@ -30,17 +31,17 @@ from oblodai.core import atransport, transport
 from oblodai.core.errors import OblodaiError, SignatureError, WebhookPayloadError
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
 from oblodai.webhooks import verify
+from scripts.check_generated import backend_root
 from tests.support.clients import PUBLIC_ID, SECRET
 
-DEFAULT_DIR = "/root/oblodai/wt-be/sdkgen/tools/sdkgen/conformance"
 _EXPLICIT = os.environ.get("SDKGEN_CONFORMANCE")
-CONFORMANCE = Path(_EXPLICIT or DEFAULT_DIR)
+CONFORMANCE = Path(_EXPLICIT) if _EXPLICIT else backend_root() / "tools" / "sdkgen" / "conformance"
 
 if not CONFORMANCE.is_dir():
-    if _EXPLICIT:
-        raise RuntimeError(f"SDKGEN_CONFORMANCE={_EXPLICIT} is not a directory")
+    if _EXPLICIT or os.environ.get("OBLODAI_BACKEND"):
+        raise RuntimeError(f"conformance suite not found at {CONFORMANCE}")
     pytest.skip(
-        f"conformance suite not found at {DEFAULT_DIR}; set SDKGEN_CONFORMANCE",
+        f"conformance suite not found at {CONFORMANCE}; set OBLODAI_BACKEND or SDKGEN_CONFORMANCE",
         allow_module_level=True,
     )
 
