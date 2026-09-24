@@ -119,7 +119,9 @@ def test_a_non_finite_float_in_a_body_is_named_instead_of_becoming_the_token_nan
     """`json.dumps` renders NaN as the bare word NaN, which is not JSON and not an amount."""
     mock = MockHTTP([])
     with pytest.raises(ConfigError) as excinfo:
-        client(mock).payments.create(cast(Any, {"amount": float("nan"), "currency": "USDT"}))
+        client(mock).payments.create(
+            cast(Any, {"amount": "1", "currency": "USDT", "accuracy_payment_percent": float("nan")})
+        )
     assert excinfo.value.code == "sdk.bad_body"
     assert mock.calls == []
 
