@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import copy
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
 from urllib.parse import unquote
 
 from ..contract.models.common import Paginate
 from ..contract.routes import ROUTES
-from ..core.engine import CallOptions
+from ..core.engine import CallOptions, unwrap_result
 from ..core.envelope import as_page, as_plain_list
 from ..core.errors import ConfigError
 from ..core.options import RequestOptions, options_from_kwargs
-from ..core.pagination import Page, PageResult
+from ..core.pagination import DEFAULT_PAGE_LIMIT, Page, PageResult
 from ..core.poller import Job, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
 from ..core.request import Query
@@ -25,10 +25,12 @@ from ..core.transport import Transport
 __all__ = [
     "FileResult",
     "PagePlan",
+    "PagedRequest",
     "Resource",
     "call_options",
     "file_result",
     "plan_page",
+    "plan_paged",
     "raw_copy",
 ]
 
@@ -118,12 +120,25 @@ class Resource:
         query: Optional[Query] = None,
         parse: Optional[Callable[[Any], T]] = None,
     ) -> Any:
-        """Call an envelope route; return its ``result``, or ``parse(result)`` when given.
+        """Call a route the way its kind asks; the one entry point of generated methods.
 
-        A long-running operation (:mod:`oblodai.lro`) returns a :class:`~oblodai.core.poller.Job`
-        around that value. Through :attr:`with_raw_response` it returns a
-        :class:`RawAPIResponse` whose ``parse()`` does the same.
+        An envelope route returns its ``result``, or ``parse(result)`` when given; a long-running
+        operation (:mod:`oblodai.lro`) returns a :class:`~oblodai.core.poller.Job` around that
+        value. A paged list (``list_kind="paged"``) returns a lazy :class:`Page` whose items go
+        through ``parse``; ``limit``/``offset`` in the body (query for GET) pick the first page.
+        A ``bare`` route returns a :class:`FileResult`. Through :attr:`with_raw_response` each
+        returns a :class:`RawAPIResponse` whose ``parse()`` gives the same value (for a list, a
+        :class:`Page` that starts from the raw response's page).
         """
+        if route.bare:
+            opts = call_options(options, body, path_params, query)
+            if self._raw_response:
+                return RawAPIResponse(
+                    route, self._transport.call_raw(route, opts), decode=file_result
+                )
+            return file_result(self._transport.call_raw(route, opts))
+        if route.list_kind == "paged":
+            return self._paged(plan_paged(route, body, query, options, path_params, parse))
         opts = call_options(options, body, path_params, query)
         parser: Optional[Callable[[Any], Any]] = parse
         plan = plan_job(route, self._operations, self._models)
@@ -133,6 +148,22 @@ class Resource:
             return RawAPIResponse(route, self._transport.call_raw(route, opts), parser)
         result = self._transport.call(route, opts)
         return parser(result) if parser is not None else result
+
+    def _paged(self, plan: PagedRequest) -> Any:
+        transport = self._transport
+
+        def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
+            return plan.page(transport.call(plan.route, plan.call_options(page_limit, page_offset)))
+
+        if not self._raw_response:
+            return Page(fetch, plan.limit, plan.offset)
+        raw = transport.call_raw(plan.route, plan.first_call_options())
+
+        def decode(response: RawResponse) -> Page[Any]:
+            page = plan.page(unwrap_result(plan.route, response))
+            return Page(fetch, plan.limit, plan.offset, first=page)
+
+        return RawAPIResponse(plan.route, raw, decode=decode)
 
     def _job_parser(
         self, plan: JobPlan, options: RequestOptions, parse: Optional[Callable[[Any], Any]]
@@ -293,6 +324,90 @@ def plan_page(
         limit=limit,
         offset=offset,
         options=page_options,
+    )
+
+
+@dataclass(frozen=True)
+class PagedRequest:
+    """A generated paged-list call, worked out once and shared by both client tiers."""
+
+    route: RouteSpec
+    #: The request without ``limit``/``offset``; they go into ``query`` for GET, else ``body``.
+    body: Dict[str, Any]
+    query: Optional[Dict[str, Any]]
+    limit: Optional[int]
+    offset: Optional[int]
+    options: RequestOptions
+    path_params: Optional[PathParams]
+    parse: Optional[Callable[[Any], Any]]
+
+    @property
+    def use_query(self) -> bool:
+        return self.route.method == "GET"
+
+    def call_options(self, page_limit: int, page_offset: int) -> CallOptions:
+        paging = {"limit": page_limit, "offset": page_offset}
+        if self.use_query:
+            body = self.body or None
+            query: Optional[Dict[str, Any]] = {**(self.query or {}), **paging}
+        else:
+            body, query = {**self.body, **paging}, self.query
+        return call_options(self.options, body, self.path_params, query)
+
+    def first_call_options(self) -> CallOptions:
+        """The first page's request, with the same defaults :class:`Page` applies."""
+        return self.call_options(
+            DEFAULT_PAGE_LIMIT if self.limit is None else self.limit,
+            0 if self.offset is None else self.offset,
+        )
+
+    def page(self, result: Any) -> PageResult[Any]:
+        page = _to_page(result)
+        if self.parse is not None:
+            page.items = [self.parse(item) for item in page.items]
+        return page
+
+
+def plan_paged(
+    route: RouteSpec,
+    body: Any,
+    query: Optional[Query],
+    options: RequestOptions,
+    path_params: Optional[PathParams],
+    parse: Optional[Callable[[Any], Any]],
+) -> PagedRequest:
+    """Split a generated list call into its first page and the request every page repeats."""
+    if not isinstance(options, RequestOptions):
+        raise TypeError(f"options must be RequestOptions, not {type(options).__name__}")
+    if body is None:
+        rest: Dict[str, Any] = {}
+    elif isinstance(body, Mapping):
+        rest = dict(body)
+    else:
+        raise TypeError(f"a list call's body must be a mapping, not {type(body).__name__}")
+    rest_query = dict(query) if query is not None else None
+    limit = rest.pop("limit", None)
+    offset = rest.pop("offset", None)
+    if rest_query is not None:
+        limit = rest_query.pop("limit", limit)
+        offset = rest_query.pop("offset", offset)
+    if options.idempotency_key is not None and not route.idempotent:
+        # Same rule as plan_page: one key reused across pages would replay page 1 forever.
+        raise ConfigError(
+            "sdk.idempotency_unsupported",
+            f"{route.method} {route.path} does not deduplicate by Idempotency-Key; "
+            "remove idempotency_key from this call",
+            "idempotency_key",
+        )
+    return PagedRequest(
+        route=route,
+        body=rest,
+        query=rest_query,
+        limit=limit,
+        offset=offset,
+        options=replace(options, idempotency_key=None),
+        path_params=path_params,
+        parse=parse,
     )
 
 

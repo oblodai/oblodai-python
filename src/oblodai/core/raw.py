@@ -22,11 +22,19 @@ class RawAPIResponse(Generic[T]):
     """
 
     def __init__(
-        self, route: RouteSpec, raw: RawResponse, parse: Optional[Callable[[Any], T]] = None
+        self,
+        route: RouteSpec,
+        raw: RawResponse,
+        parse: Optional[Callable[[Any], T]] = None,
+        *,
+        decode: Optional[Callable[[RawResponse], Any]] = None,
     ) -> None:
         self._route = route
         self._raw = raw
         self._parse = parse
+        #: Turns the response into the value ``parse`` gets; the envelope's ``result`` by default
+        #: (a ``bare`` route decodes to its file, a paged one to its first page).
+        self._decode = decode
         self._parsed: Any = _UNPARSED
 
     @property
@@ -53,9 +61,12 @@ class RawAPIResponse(Generic[T]):
     def parse(self) -> T:
         """The value the method returns without ``with_raw_response`` (computed once)."""
         if self._parsed is _UNPARSED:
-            from .engine import unwrap_result
+            if self._decode is not None:
+                result = self._decode(self._raw)
+            else:
+                from .engine import unwrap_result
 
-            result = unwrap_result(self._route, self._raw)
+                result = unwrap_result(self._route, self._raw)
             self._parsed = self._parse(result) if self._parse is not None else result
         return self._parsed  # type: ignore[no-any-return]
 
