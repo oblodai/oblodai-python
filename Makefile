@@ -20,4 +20,4 @@ typecheck:
 	$(BIN)/mypy
 
 test:
-	$(PY) -m pytest tests/unit tests/contract -q
+	$(PY) -m pytest tests/unit tests/contract tests/conformance -q

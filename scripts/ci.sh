@@ -30,8 +30,8 @@ ruff check .
 echo "== typecheck"
 mypy
 
-echo "== unit + contract tests"
-"$PY" -m pytest tests/unit tests/contract -q
+echo "== unit + contract + conformance tests"
+"$PY" -m pytest tests/unit tests/contract tests/conformance -q
 
 echo "== package"
 if "$PY" -c "import build" >/dev/null 2>&1; then
