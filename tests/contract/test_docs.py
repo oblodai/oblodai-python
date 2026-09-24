@@ -24,7 +24,14 @@ ERROR_CODES = [code.value for code in ErrorCode]
 
 ROOT = Path(oblodai.__file__).resolve().parents[2]
 #: The English prose. Checked for English-only text.
-DOCS = ("README.md", "AGENTS.md", "MIGRATION-1.3.md", "CHANGELOG.md", "RELEASING.md")
+DOCS = (
+    "README.md",
+    "AGENTS.md",
+    "MIGRATION-1.3.md",
+    "MIGRATION-2.0.md",
+    "CHANGELOG.md",
+    "RELEASING.md",
+)
 #: Translations. Same code, same claims, another language.
 TRANSLATIONS = ("README.ru.md",)
 ALL_DOCS = DOCS + TRANSLATIONS
@@ -135,7 +142,7 @@ _RETIRED_KEY_MODEL_RU = (
 def test_no_document_still_describes_the_retired_two_key_model(document: str) -> None:
     """A merchant has ONE key. A doc that says otherwise sends somebody hunting for a second."""
     text = read(document)
-    if document in ("CHANGELOG.md", "MIGRATION-1.3.md"):
+    if document in ("CHANGELOG.md", "MIGRATION-1.3.md", "MIGRATION-2.0.md"):
         # These two exist to say what went away, so they may name it - in the past tense.
         return
     marks = _RETIRED_KEY_MODEL + (_RETIRED_KEY_MODEL_RU if document in TRANSLATIONS else ())
@@ -262,3 +269,10 @@ def test_the_russian_readme_is_a_translation_of_the_english_one() -> None:
 
     headings = [len(re.findall(r"^## ", text, re.M)) for text in (english, russian)]
     assert headings[0] == headings[1] == 12, f"the READMEs disagree on their sections: {headings}"
+
+
+def test_the_2_0_migration_maps_every_locked_name() -> None:
+    """MIGRATION-2.0.md is built from names.lock; a name added since must be added there too."""
+    text = read("MIGRATION-2.0.md")
+    missing = [n for n in read("names.lock").split() if f"| `{n}` |" not in text]
+    assert not missing, f"MIGRATION-2.0.md does not map {missing}"

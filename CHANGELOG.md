@@ -4,6 +4,50 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — unreleased (release candidate)
+
+Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every
+method name follows `client.<resource>.<method>` from the contract's tags and operation ids, and
+results are typed models instead of dicts — see [MIGRATION-2.0.md](MIGRATION-2.0.md) for the full
+old-to-new table.
+
+### Added
+
+- Typed models for every request and response (frozen dataclasses): money is `Decimal`, enums are
+  `str` enums; an unknown enum value stays a plain string and an unknown field lands in `.extra`,
+  so a newer gateway never breaks parsing.
+- Bodies as keyword arguments, as a wire-shaped mapping or as a request model.
+- `names.lock`: the public method names are pinned; the generator refuses to drop or rename one.
+- Explicit per-call options (`oblodai.RequestOptions`): `idempotency_key`, `timeout` (seconds),
+  `max_retries`, `extra_headers`, `request_id`; every request carries an `X-Request-ID`.
+- `client.with_options(...)`, `resource.with_raw_response.<method>(...)` (`RawAPIResponse`) and
+  request/response `Hooks`.
+- `Page.by_page()` — page by page, one request per page.
+- Long-running operations (batches, document exports) return a `Job` with `wait()`.
+- `str(err)` reads well in a log line: `[code] message (request_id=…)`.
+- The shared conformance suite (`tests/conformance`) every Oblodai SDK runs: signing and webhook
+  vectors read from the contract's `x-oblodai-signing`, retries and idempotency keys, `Retry-After`,
+  `409 idempotency.in_progress`, float amounts, forward compatibility.
+- Every code block of both READMEs runs in the test suite against a mock gateway.
+
+### Changed
+
+- Python 3.10 or newer (was 3.9).
+- Whether a POST may be re-sent without a key comes from the contract's `x-retry-safe`, not from a
+  table in the SDK.
+- `ROUTES` is keyed by `operationId`.
+- Timeouts are in seconds: `timeout_ms` became `timeout`, the client's `deadline_ms` became
+  `deadline`; per-call `headers` became `extra_headers`.
+- A `float` anywhere in a request body is a `ConfigError` (`sdk.float_amount`) before anything is
+  sent.
+
+### Removed
+
+- `merchants.create` — `POST /v1/merchants` is not part of the merchant API contract.
+  `merchants.create_sandbox` is `sandbox.onboard_store`.
+- `webhooks.test(kind, …)` — one method per kind: `webhooks.send_test_payment` and its siblings.
+- The hand-written resources and the per-call `deadline_ms`.
+
 ## [1.3.0] — 2026-08-26
 
 Rewrite generated from the gateway's contract snapshot. The 1.x line signed four fields and got a

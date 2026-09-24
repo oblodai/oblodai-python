@@ -1,8 +1,10 @@
 # Oblodai Python SDK — guide for coding agents
 
-Package `oblodai` (1.3). Everything below is verified against the gateway's contract snapshot in
-`contract/contract.json` in the repository (`contract/` also holds golden response bodies, error
-samples and real signed webhook deliveries).
+Package `oblodai` (2.0). The resources, models and route table are generated from the gateway's
+OpenAPI contract (`services/core/api/openapi.json` in the backend) by its `tools/sdkgen`;
+`names.lock` pins every public method name. `contract/` in the repository keeps the core's older
+export (golden response bodies, error samples, real signed webhook deliveries) for the contract
+tests.
 
 ## Non-negotiables
 
@@ -19,9 +21,9 @@ samples and real signed webhook deliveries).
   only), `request_id` (sent as `X-Request-ID`; a uuid4 when omitted). Anything else raises
   `TypeError` before a request is sent (list methods also accept `limit=` / `offset=`).
 - **One API key.** `public_id` + `secret` (or `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET`) sign every
-  route with `ROUTES[key].auth == "key"` — money-in and money-out alike. `auth == "public"` means
+  route with `ROUTES[operation_id].auth == "key"` — money-in and money-out alike. `auth == "public"` means
   no credentials at all, `auth == "onboard"` means `X-Admin-Token` (`admin_token`), and that token
-  goes on `merchants.*` and nowhere else. There is no second pair to configure and no per-call
+  goes on `sandbox.onboard_store` and nowhere else. There is no second pair to configure and no per-call
   key selection.
 - List methods return a lazy `Page`: `.first()` = one page (`.items`, `.paginate`, `.total`,
   `.has_pages`), iteration = every item, `.all(max_items=…)` = a list. Nothing is requested until
@@ -29,7 +31,8 @@ samples and real signed webhook deliveries).
 - Idempotency keys are generated automatically on create routes and reused across retries. Passing
   `idempotency_key` to a route the gateway does not deduplicate raises `sdk.idempotency_unsupported`
   — list methods included, where it is refused rather than dropped.
-- Retry safety is `ROUTES[key].safe`, the gateway's own read-only classification. Nothing in the SDK
+- Retry safety is `ROUTES[operation_id].safe`, the gateway's own read-only classification
+  (`x-retry-safe`). Nothing in the SDK
   guesses it from a path.
 - Amounts never go through `float()` and never through `<` (`"10" < "9"` is `True` for strings);
   `compare_amounts` is the only correct ordering, and a non-decimal string raises `AmountError`.
@@ -40,14 +43,20 @@ samples and real signed webhook deliveries).
 
 | intent            | call |
 | ----------------- | ---- |
-| fetch one         | `.info(uuid \| {"order_id": …})` (alias `.get`) |
-| fetch many        | `.history(params)` on payments/payouts (alias `.list`), `.list(params)` elsewhere |
-| create            | `.create(params)`; webhooks: `.register(url)` |
-| many, synchronous | `payouts.mass`, `payout_links.batch` — <=100, per-element `{"idx", "ok", "result", "message"}` |
-| many, async       | `payments.batch`, `payouts.batch`, `refunds.batch`, `transfers.batch` — <=5000, poll `batches.info` |
-| documents         | `documents.*_report / statement / fee_schedule / balance_certificate` → `FileResult(content, content_type, filename)` |
-| provisioning      | `merchants.create({"email", "name"})`, `merchants.create_sandbox(merchant_id)` — unsigned; `admin_token` on self-hosted gateways |
-| payer-facing      | `payments.public_view/select/public_qr`, `payment_links.public_view/checkout`, `payout_links.claim_preview/claim` — no credentials |
+Method = `client.<resource>.<method>`: the resource from the operation's tag, the method its
+`operationId` without the resource name (`getPaymentInfo` → `payments.get_info`).
+[MIGRATION-2.0.md](MIGRATION-2.0.md) lists all 120 with their 1.x names.
+
+| intent            | call |
+| ----------------- | ---- |
+| fetch one         | `.get_info(uuid=… \| order_id=…)`; `payment_links.get`, `payout_links.get` |
+| fetch many        | `.list_history(...)` on payments/payouts, `.list(...)` / `.list_*(...)` elsewhere |
+| create            | `.create(...)`; webhooks: `.register(url=…)` |
+| many, synchronous | `payouts.create_mass`, `payout_links.create_batch` — <=100, per-element results |
+| many, async       | `batches.create_payment/create_payout/create_refund`, `payouts.create_transfer_batch` — a `Job`; `.wait()` polls `batches.get_info` |
+| documents         | `documents.get_*` → `FileResult(content, content_type, filename)`; `documents.create_job` → a `Job` |
+| provisioning      | `sandbox.onboard_store(id)` — unsigned; `admin_token` on self-hosted gateways |
+| payer-facing      | `checkout.*`, `payout_links.get_payout_claim/claim_payout`, `documents.get_signed` — no credentials |
 
 ## Errors
 
@@ -65,12 +74,12 @@ Subclasses: `ValidationError` 400, `AuthenticationError` 401, `PermissionDeniedE
 
 Codes worth handling: `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
-`merchant.bad_signature`, `request.rate_limited`. Full list: `oblodai.ERROR_CODES`.
+`merchant.bad_signature`, `request.rate_limited`. Full list: `oblodai.ErrorCode`.
 
 ## Statuses
 
 - Payment: `select → created → confirm_check → paid | paid_over | wrong_amount | expired | cancelled`.
-  `is_payment_paid` = paid/paid_over. `wrong_amount` needs `refunds.resolve({"uuid", "action"})`.
+  `is_payment_paid` = paid/paid_over. `wrong_amount` needs `payments.resolve(uuid=…, action=…)`.
 - Payout: `pending → approved → awaiting_cosign → broadcasting → sent → confirmed | failed | cancelled`.
 - Webhook event types: `invoice.<status>`, `payout.<status>`, `wallet.paid`; the body's `type` is
   `"payment" | "payout" | "wallet"`.
