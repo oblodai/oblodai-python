@@ -189,22 +189,29 @@ def test_percent_encodes_path_parameters() -> None:
     assert mock.calls[0].url == "https://api.test/v1/pay/a%20b%3Fc"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=TypeError,
-    reason="openapi.json declares no query parameters for the GET /v1/documents/* routes, so the "
-    "generated get_batch() cannot send the batch's uuid (backend contract gap)",
-)
 def test_sends_uuid_for_document_reports_keyed_by_batch_or_link_id() -> None:
     mock = MockHTTP(
         [Scripted(status=200, text="%PDF", headers={"content-type": "application/pdf"})]
     )
-    get_batch: Any = client(mock).documents.get_batch
-    document = get_batch(uuid="b-1", format="csv")
+    document = client(mock).documents.get_batch(uuid="b-1", format="csv")
     assert mock.calls[0].query("uuid") == "b-1"
     assert mock.calls[0].query("format") == "csv"
     assert document.content_type == "application/pdf"
     assert document.content == b"%PDF"
+
+
+def test_sends_the_report_period_and_the_signed_link_query() -> None:
+    pdf = Scripted(status=200, text="%PDF", headers={"content-type": "application/pdf"})
+    mock = MockHTTP([pdf, pdf, pdf])
+    api = client(mock)
+    api.documents.get_statement(from_="2026-01-01", to="2026-01-31", lang="ru")
+    assert mock.calls[0].query("from") == "2026-01-01"
+    assert mock.calls[0].query("to") == "2026-01-31"
+    assert mock.calls[0].query("lang") == "ru"
+    api.documents.download_job_file(job_id="j-1")
+    assert mock.calls[1].query("job_id") == "j-1"
+    api.documents.get_signed("payment", "p-1", exp=1700000000, sig="abc")
+    assert mock.calls[2].url.endswith("/v1/documents/payment/p-1?exp=1700000000&sig=abc")
 
 
 def test_reads_the_filename_from_content_disposition() -> None:

@@ -4480,6 +4480,9 @@ class AsyncDocuments(AsyncResource):
         id: str,
         /,
         *,
+        exp: Union[int, Unset] = UNSET,
+        sig: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4522,12 +4525,19 @@ class AsyncDocuments(AsyncResource):
                 "kind": kind,
                 "id": id,
             },
+            query=merge_params(
+                None,
+                exp=exp,
+                sig=sig,
+                lang=lang,
+            ),
             parse=None,
         )
 
     async def get_balance(
         self,
         *,
+        lang: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4559,12 +4569,20 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                lang=lang,
+            ),
             parse=None,
         )
 
     async def get_fees(
         self,
         *,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4598,12 +4616,23 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_ledger(
         self,
         *,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4638,12 +4667,21 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_split(
         self,
         *,
+        uuid: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4675,6 +4713,11 @@ class AsyncDocuments(AsyncResource):
                 max_retries=max_retries,
                 extra_headers=extra_headers,
                 request_id=request_id,
+            ),
+            query=merge_params(
+                None,
+                uuid=uuid,
+                lang=lang,
             ),
             parse=None,
         )
@@ -4729,6 +4772,10 @@ class AsyncDocuments(AsyncResource):
     async def get_statement(
         self,
         *,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4761,12 +4808,22 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_batch(
         self,
         *,
+        uuid: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4798,12 +4855,23 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                uuid=uuid,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_payment_link(
         self,
         *,
+        uuid: Union[str, Unset] = UNSET,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4837,12 +4905,25 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                uuid=uuid,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_wallet_statement(
         self,
         *,
+        uuid: Union[str, Unset] = UNSET,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4875,12 +4956,24 @@ class AsyncDocuments(AsyncResource):
                 extra_headers=extra_headers,
                 request_id=request_id,
             ),
+            query=merge_params(
+                None,
+                uuid=uuid,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
+            ),
             parse=None,
         )
 
     async def get_referrals(
         self,
         *,
+        from_: Union[str, Unset] = UNSET,
+        to: Union[str, Unset] = UNSET,
+        lang: Union[str, Unset] = UNSET,
+        format: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -4910,6 +5003,13 @@ class AsyncDocuments(AsyncResource):
                 max_retries=max_retries,
                 extra_headers=extra_headers,
                 request_id=request_id,
+            ),
+            query=merge_params(
+                None,
+                **{"from": from_},
+                to=to,
+                lang=lang,
+                format=format,
             ),
             parse=None,
         )
@@ -5017,6 +5117,7 @@ class AsyncDocuments(AsyncResource):
     async def download_job_file(
         self,
         *,
+        job_id: Union[str, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -5046,6 +5147,10 @@ class AsyncDocuments(AsyncResource):
                 max_retries=max_retries,
                 extra_headers=extra_headers,
                 request_id=request_id,
+            ),
+            query=merge_params(
+                None,
+                job_id=job_id,
             ),
             parse=None,
         )
@@ -5679,6 +5784,8 @@ class AsyncSandbox(AsyncResource):
     async def list_webhooks(
         self,
         *,
+        limit: Union[int, Unset] = UNSET,
+        offset: Union[int, Unset] = UNSET,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
@@ -5702,6 +5809,11 @@ class AsyncSandbox(AsyncResource):
                 max_retries=max_retries,
                 extra_headers=extra_headers,
                 request_id=request_id,
+            ),
+            query=merge_params(
+                None,
+                limit=limit,
+                offset=offset,
             ),
             parse=SandboxDelivery.from_dict,
         )
