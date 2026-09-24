@@ -19,7 +19,7 @@ from ._version import SDK_VERSION
 from .aio import AsyncOblodai
 from .client import Oblodai
 from .config import DEFAULT_BASE_URL, resolve_config
-from .contract.version import CONTRACT_CORE_COMMIT, CONTRACT_EXPORTED_AT, CONTRACT_HASH
+from .contract.version import CONTRACT_HASH, CONTRACT_VERSION
 from .core.errors import (
     AmountError,
     ApiError,
@@ -88,9 +88,8 @@ _generated_names = sorted(
 __version__ = SDK_VERSION
 
 __all__ = [
-    "CONTRACT_CORE_COMMIT",
-    "CONTRACT_EXPORTED_AT",
     "CONTRACT_HASH",
+    "CONTRACT_VERSION",
     "DEFAULT_BASE_URL",
     "FINAL_PAYMENT_STATUSES",
     "FINAL_PAYOUT_STATUSES",

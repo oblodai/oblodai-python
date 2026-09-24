@@ -19,6 +19,7 @@ from oblodai.core.errors import (
     ValidationError,
 )
 from oblodai.core.retry import RetryOptions
+from oblodai.generated import contract as generated_contract
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
 from tests.support.samples import sample
 
@@ -236,6 +237,7 @@ def test_the_user_agent_names_the_sdk_and_the_contract() -> None:
     client(mock).account.get_balance()
     agent = mock.calls[0].headers["user-agent"]
     assert agent.startswith(f"oblodai-python/{oblodai.__version__} (contract ")
+    assert f"(contract {generated_contract.CONTRACT_HASH[:12]};" in agent
 
 
 def test_unknown_per_call_options_are_rejected_before_anything_is_sent() -> None:

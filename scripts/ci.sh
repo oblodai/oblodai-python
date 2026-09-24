@@ -43,13 +43,13 @@ import pathlib, tarfile, zipfile, sys
 dist = pathlib.Path("dist")
 sdist = next(dist.glob("*.tar.gz"))
 names = tarfile.open(sdist).getnames()
-for path in ("contract/contract.json", "AGENTS.md", "examples/accept_payment.py"):
+for path in ("contract/webhook-samples.json", "AGENTS.md", "examples/accept_payment.py"):
     if not any(name.endswith("/" + path) for name in names):
         sys.exit(f"sdist is missing {path}")
 wheel = next(dist.glob("*.whl"))
 if "oblodai/AGENTS.md" not in zipfile.ZipFile(wheel).namelist():
     sys.exit("wheel is missing oblodai/AGENTS.md")
-print(f"package: {sdist.name} and {wheel.name} carry the contract, AGENTS.md and examples")
+print(f"package: {sdist.name} and {wheel.name} carry the recordings, AGENTS.md and examples")
 EOF
 else
   echo "  (skipped: install the 'build' package to run the packaging gate locally)"

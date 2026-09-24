@@ -58,6 +58,9 @@ old-to-new table.
   `merchants.create_sandbox` is `sandbox.onboard_store`.
 - `webhooks.test(kind, …)` — one method per kind: `webhooks.send_test_payment` and its siblings.
 - The hand-written resources and the per-call `deadline_ms`.
+- `contract/contract.json` (the 1.3 snapshot) and `CONTRACT_CORE_COMMIT` / `CONTRACT_EXPORTED_AT`,
+  which described it. `CONTRACT_HASH` (sha256 of `openapi.json`, in the User-Agent) and the new
+  `CONTRACT_VERSION` are generated with the code.
 
 ### Fixed
 

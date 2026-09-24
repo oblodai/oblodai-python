@@ -1,18 +1,33 @@
-"""Loaders for the shared contract data in ``contract/``."""
+"""Loaders for the recorded data in ``contract/`` (golden bodies, error samples, signed webhook
+deliveries) and for the signing vectors of the backend spec's ``x-oblodai-signing``."""
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 CONTRACT_DIR = Path(__file__).resolve().parent.parent.parent / "contract"
 
 
-def load_contract() -> Dict[str, Any]:
-    """``contract.json``: routes, enums, error codes, signing and webhook vectors."""
-    data: Dict[str, Any] = json.loads((CONTRACT_DIR / "contract.json").read_text("utf-8"))
-    return data
+def backend_spec_path() -> Path:
+    """The backend's ``openapi.json`` (``$OBLODAI_BACKEND``, else ``../oblodai-backend``)."""
+    from scripts.check_generated import backend_root
+
+    return backend_root() / "services" / "core" / "api" / "openapi.json"
+
+
+def load_signing() -> Optional[Dict[str, Any]]:
+    """``x-oblodai-signing`` of the backend spec — the one source of the signing vectors — or
+    ``None`` when there is no backend checkout (an error when ``$OBLODAI_BACKEND`` names one)."""
+    path = backend_spec_path()
+    if not path.is_file():
+        if os.environ.get("OBLODAI_BACKEND"):
+            raise RuntimeError(f"backend openapi.json not found at {path}")
+        return None
+    signing: Dict[str, Any] = json.loads(path.read_text("utf-8"))["x-oblodai-signing"]
+    return signing
 
 
 def load_fixtures() -> Dict[str, Dict[str, Any]]:
