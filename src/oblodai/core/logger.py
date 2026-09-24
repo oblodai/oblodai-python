@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any, Dict, Mapping, Optional, Protocol, TypeVar
 
-__all__ = ["Logger", "NoopLogger", "StdlibLogger", "console_logger", "redact"]
+__all__ = ["Logger", "NoopLogger", "StdlibLogger", "console_logger", "is_sensitive", "redact"]
 
 LogFields = Mapping[str, Any]
 
@@ -86,6 +86,11 @@ _SENSITIVE = re.compile(
 T = TypeVar("T")
 
 
+def is_sensitive(key: str) -> bool:
+    """Whether a field or header of this name carries a secret (never logged, never ``repr``'d)."""
+    return _SENSITIVE.search(key) is not None
+
+
 def redact(value: T) -> T:
     """Replace values of sensitive-looking keys, recursively, without touching the original."""
     if isinstance(value, list):
@@ -93,6 +98,6 @@ def redact(value: T) -> T:
     if isinstance(value, Mapping):
         out: Dict[str, Any] = {}
         for key, item in value.items():
-            out[key] = "[redacted]" if _SENSITIVE.search(str(key)) else redact(item)
+            out[key] = "[redacted]" if is_sensitive(str(key)) else redact(item)
         return out  # type: ignore[return-value]
     return value
