@@ -73,7 +73,6 @@ class OblodaiError(Exception):
         synthetic: bool = False,
         raw: Any = None,
     ) -> None:
-        super().__init__(message)
         #: Stable machine code (``family.reason``), e.g. ``payout.insufficient_funds``.
         self.code = code
         self.message = message
@@ -91,6 +90,13 @@ class OblodaiError(Exception):
         self.synthetic = synthetic
         # Deliberately not part of __repr__/to_dict: a raw body may hold merchant data.
         self.raw = raw
+        # `str(e)` is what a log line shows: the code and the request id travel with the text.
+        super().__init__(self._render())
+
+    def _render(self) -> str:
+        """``[code] message (request_id=...)``; the suffix only when there is an id."""
+        text = f"[{self.code}] {self.message}"
+        return f"{text} (request_id={self.request_id})" if self.request_id else text
 
     @property
     def family(self) -> str:

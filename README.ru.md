@@ -321,6 +321,9 @@ except OblodaiError as err:
     print(err.code, err.http_status, err.retryable, err.request_id, err.field)
 ```
 
+`str(err)` готов для лога: `[payment.bad_amount] amount must be positive (request_id=rq-9)` (хвост —
+только когда id есть); `err.message` остаётся голым текстом.
+
 | класс | HTTP | когда |
 | ----- | ---- | ----- |
 | `ValidationError` | 400 | некорректный запрос или нарушенное бизнес-правило (`field` укажет поле) |
