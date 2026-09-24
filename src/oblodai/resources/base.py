@@ -15,12 +15,22 @@ from ..core.envelope import as_page, as_plain_list
 from ..core.errors import ConfigError
 from ..core.options import RequestOptions, options_from_kwargs
 from ..core.pagination import Page, PageResult
+from ..core.poller import Job, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
+from ..core.steps import RawResponse
 from ..core.transport import Transport
 
-__all__ = ["FileResult", "PagePlan", "Resource", "call_options", "plan_page", "raw_copy"]
+__all__ = [
+    "FileResult",
+    "PagePlan",
+    "Resource",
+    "call_options",
+    "file_result",
+    "plan_page",
+    "raw_copy",
+]
 
 PathParams = Mapping[str, Union[str, int]]
 
@@ -62,6 +72,15 @@ class FileResult:
             handle.write(self.content)
 
 
+def file_result(raw: RawResponse) -> FileResult:
+    """The bytes of a ``bare`` route's answer, with their type and file name."""
+    return FileResult(
+        content=raw.body,
+        content_type=raw.content_type or "application/octet-stream",
+        filename=filename_from(raw.header("content-disposition")),
+    )
+
+
 class Resource:
     """Base of every namespace on :class:`~oblodai.Oblodai`.
 
@@ -72,6 +91,11 @@ class Resource:
 
     #: Set on the copy :attr:`with_raw_response` hands out, never on the namespace itself.
     _raw_response = False
+    #: Routes by ``operationId`` for follow-up calls (polling a long-running operation);
+    #: ``None`` means the generated route table.
+    _operations: Optional[Mapping[str, RouteSpec]] = None
+    #: Parsers of poll answers by model name; ``None`` means the generated models.
+    _models: Optional[Parsers] = None
 
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
@@ -96,14 +120,48 @@ class Resource:
     ) -> Any:
         """Call an envelope route; return its ``result``, or ``parse(result)`` when given.
 
-        Through :attr:`with_raw_response` it returns a :class:`RawAPIResponse` whose ``parse()``
-        does the same.
+        A long-running operation (:mod:`oblodai.lro`) returns a :class:`~oblodai.core.poller.Job`
+        around that value. Through :attr:`with_raw_response` it returns a
+        :class:`RawAPIResponse` whose ``parse()`` does the same.
         """
         opts = call_options(options, body, path_params, query)
+        parser: Optional[Callable[[Any], Any]] = parse
+        plan = plan_job(route, self._operations, self._models)
+        if plan is not None:
+            parser = self._job_parser(plan, options, parse)
         if self._raw_response:
-            return RawAPIResponse(route, self._transport.call_raw(route, opts), parse)
+            return RawAPIResponse(route, self._transport.call_raw(route, opts), parser)
         result = self._transport.call(route, opts)
-        return parse(result) if parse is not None else result
+        return parser(result) if parser is not None else result
+
+    def _job_parser(
+        self, plan: JobPlan, options: RequestOptions, parse: Optional[Callable[[Any], Any]]
+    ) -> Callable[[Any], Job[Any]]:
+        transport = self._transport
+        follow = poll_options(options)
+
+        def build(result: Any) -> Job[Any]:
+            id = job_id(plan, result)
+
+            def poll() -> Any:
+                body = {plan.id_field: id}
+                answer = transport.call(plan.poll_route, call_options(follow, body))
+                return plan.parse(answer) if plan.parse is not None else answer
+
+            def download(route: RouteSpec) -> Callable[[], FileResult]:
+                query = {plan.id_field: id}
+                return lambda: file_result(
+                    transport.call_raw(route, call_options(follow, query=query))
+                )
+
+            return Job(
+                id,
+                parse(result) if parse is not None else result,
+                poll,
+                download(plan.download_route) if plan.download_route is not None else None,
+            )
+
+        return build
 
     @staticmethod
     def _options(
@@ -163,11 +221,7 @@ class Resource:
         raw = self._transport.call_raw(
             ROUTES[key], self._options(body, path_params, query, options)
         )
-        return FileResult(
-            content=raw.body,
-            content_type=raw.content_type or "application/octet-stream",
-            filename=filename_from(raw.header("content-disposition")),
-        )
+        return file_result(raw)
 
 
 R = TypeVar("R")
