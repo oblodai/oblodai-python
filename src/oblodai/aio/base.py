@@ -6,20 +6,24 @@ from typing import Any, Awaitable, Callable, List, Mapping, Optional, TypeVar
 
 from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
+from ..core.engine import unwrap_result
 from ..core.options import RequestOptions
 from ..core.pagination import AsyncPage, PageResult
 from ..core.poller import AsyncJob, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
+from ..core.steps import RawResponse
 from ..resources.base import (
     FileResult,
+    PagedRequest,
     PathParams,
     Resource,
     _to_page,
     call_options,
     file_result,
     plan_page,
+    plan_paged,
     raw_copy,
 )
 
@@ -62,11 +66,19 @@ class AsyncResource:
         query: Optional[Query] = None,
         parse: Optional[Callable[[Any], T]] = None,
     ) -> Any:
-        """Call an envelope route; return its ``result``, or ``parse(result)`` when given.
-
-        A long-running operation (:mod:`oblodai.lro`) returns an
-        :class:`~oblodai.core.poller.AsyncJob` around that value.
+        """The async twin of :meth:`oblodai.resources.base.Resource._request`: an envelope route
+        returns its ``result`` (or ``parse(result)``; an :class:`~oblodai.core.poller.AsyncJob`
+        for a long-running operation), a paged list a lazy :class:`AsyncPage`, a ``bare`` route a
+        :class:`FileResult`; each as a :class:`RawAPIResponse` through ``with_raw_response``.
         """
+        if route.bare:
+            opts = call_options(options, body, path_params, query)
+            raw = await self._transport.call_raw(route, opts)
+            if self._raw_response:
+                return RawAPIResponse(route, raw, decode=file_result)
+            return file_result(raw)
+        if route.list_kind == "paged":
+            return await self._paged(plan_paged(route, body, query, options, path_params, parse))
         opts = call_options(options, body, path_params, query)
         parser: Optional[Callable[[Any], Any]] = parse
         plan = plan_job(route, self._operations, self._models)
@@ -76,6 +88,23 @@ class AsyncResource:
             return RawAPIResponse(route, await self._transport.call_raw(route, opts), parser)
         result = await self._transport.call(route, opts)
         return parser(result) if parser is not None else result
+
+    async def _paged(self, plan: PagedRequest) -> Any:
+        transport = self._transport
+
+        async def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
+            call = plan.call_options(page_limit, page_offset)
+            return plan.page(await transport.call(plan.route, call))
+
+        if not self._raw_response:
+            return AsyncPage(fetch, plan.limit, plan.offset)
+        raw = await transport.call_raw(plan.route, plan.first_call_options())
+
+        def decode(response: RawResponse) -> AsyncPage[Any]:
+            page = plan.page(unwrap_result(plan.route, response))
+            return AsyncPage(fetch, plan.limit, plan.offset, first=page)
+
+        return RawAPIResponse(plan.route, raw, decode=decode)
 
     def _job_parser(
         self, plan: JobPlan, options: RequestOptions, parse: Optional[Callable[[Any], Any]]

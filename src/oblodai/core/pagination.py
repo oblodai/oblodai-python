@@ -82,12 +82,18 @@ class Page(Generic[T]):
     __slots__ = ("_fetch", "_first", "_limit", "_offset")
 
     def __init__(
-        self, fetch: PageFetcher[T], limit: Optional[int] = None, offset: Optional[int] = None
+        self,
+        fetch: PageFetcher[T],
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        *,
+        first: Optional[PageResult[T]] = None,
     ) -> None:
+        """``first`` is the first page when it is already at hand (a raw response's)."""
         self._fetch = fetch
         self._limit = DEFAULT_PAGE_LIMIT if limit is None else limit
         self._offset = 0 if offset is None else offset
-        self._first: Optional[PageResult[T]] = None
+        self._first: Optional[PageResult[T]] = first
 
     def first(self) -> PageResult[T]:
         """The first page, fetched once and cached."""
@@ -145,12 +151,18 @@ class AsyncPage(Generic[T]):
     __slots__ = ("_fetch", "_first", "_limit", "_offset")
 
     def __init__(
-        self, fetch: AsyncPageFetcher[T], limit: Optional[int] = None, offset: Optional[int] = None
+        self,
+        fetch: AsyncPageFetcher[T],
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        *,
+        first: Optional[PageResult[T]] = None,
     ) -> None:
+        """``first`` is the first page when it is already at hand (a raw response's)."""
         self._fetch = fetch
         self._limit = DEFAULT_PAGE_LIMIT if limit is None else limit
         self._offset = 0 if offset is None else offset
-        self._first: Optional[PageResult[T]] = None
+        self._first: Optional[PageResult[T]] = first
 
     async def first(self) -> PageResult[T]:
         """The first page, fetched once and cached."""
