@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           sdist=$(ls dist/*.tar.gz)
           tar -tzf "$sdist" > /tmp/sdist.txt
-          for path in contract/contract.json AGENTS.md examples/accept_payment.py; do
+          for path in contract/webhook-samples.json AGENTS.md examples/accept_payment.py; do
             grep -q "/$path$" /tmp/sdist.txt || { echo "sdist is missing $path"; exit 1; }
           done
           wheel=$(ls dist/*.whl)
