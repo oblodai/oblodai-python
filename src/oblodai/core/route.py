@@ -1,15 +1,15 @@
-"""What one route of the API is, as the runtime needs to know it.
+"""What one route of the API is, and how to follow a long-running one, as the runtime needs it.
 
-Runtime, not contract: both the generated route table and the older contract mirror describe their
-routes with this one type.
+Runtime, not contract: the generated tables (:mod:`oblodai.generated.routes`,
+:mod:`oblodai.generated.lro`) and the older contract mirror describe their routes with these types.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
-__all__ = ["HttpMethod", "ListKind", "RouteAuth", "RouteSpec"]
+__all__ = ["HttpMethod", "ListKind", "Poll", "RouteAuth", "RouteSpec"]
 
 HttpMethod = Literal["GET", "POST"]
 
@@ -44,3 +44,19 @@ class RouteSpec:
     def key(self) -> str:
         """``"POST /v1/payment"`` - the method and path of this route."""
         return f"{self.method} {self.path}"
+
+
+@dataclass(frozen=True)
+class Poll:
+    """How to follow one kind of job (the contract's ``x-sdk-poll``)."""
+
+    #: The job's id in the create answer; sent under the same name to the poll (and download).
+    id_field: str
+    #: The model the poll answer parses to (in the generated models); empty - left unparsed.
+    model: str
+    #: The field of the poll answer that carries the job's status.
+    status_field: str
+    #: Statuses after which the job no longer changes.
+    terminal: Tuple[str, ...]
+    #: The ``operationId`` that returns the finished job's file, if the job makes one.
+    download: Optional[str] = None

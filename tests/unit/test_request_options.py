@@ -266,3 +266,13 @@ async def test_async_generated_methods_take_the_option_names() -> None:
     with pytest.raises(TypeError):
         await c.account.get_balance(timeout_ms=5)  # type: ignore[call-arg]
     await c.aclose()
+
+
+def test_the_faucet_key_given_twice_is_an_error_before_the_network() -> None:
+    """``sandbox.faucet`` carries its key in the body: the option and a body field both naming it
+    is ambiguous, and every SDK refuses it before a request is sent."""
+    rec = Recorder()
+    c = make_client(rec)
+    with pytest.raises(TypeError, match="idempotency_key"):
+        c.sandbox.faucet({"idempotency_key": "a"}, asset="USDT", amount="1", idempotency_key="b")
+    assert rec.requests == []

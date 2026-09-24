@@ -19,6 +19,7 @@ import pytest
 
 import oblodai
 from oblodai import ROUTES, ErrorCode
+from tests.support.coverage import COVERAGE
 
 ERROR_CODES = [code.value for code in ErrorCode]
 
@@ -88,20 +89,14 @@ def test_every_sdk_name_the_docs_import_exists() -> None:
     assert not missing, f"the docs import names that do not exist: {missing}"
 
 
-def test_the_route_and_error_code_counts_the_docs_quote_are_the_real_ones() -> None:
+def test_the_docs_quote_no_route_or_error_code_count_by_hand() -> None:
+    """Counts go stale with the next route; the only one allowed is the generated method table's."""
     routes, codes = len(ROUTES), len(ERROR_CODES)
-    assert (routes, codes) == (120, 450), "the counts below need updating with the contract"
-    for name in ("README.md", "README.ru.md", "AGENTS.md", "CHANGELOG.md"):
-        text = read(name)
-        for wrong in (f"{routes - 1} routes", f"{routes + 1} routes"):
-            assert wrong not in text, f"{name} quotes {wrong}"
-        for wrong in (f"{codes - 1} error codes", f"{codes - 2} error codes", f"({codes - 1} codes"):
-            assert wrong not in text, f"{name} quotes {wrong}"
-    for name in READMES:
-        assert f"({codes} codes)" in read(name), f"{name} does not quote the code count"
-        assert f"({routes})" in read(name), f"{name} does not quote the route count"
-    assert f"`ErrorCode` ({codes})" in read("AGENTS.md")
-    assert f"`ROUTES` ({routes} routes" in read("AGENTS.md")
+    for name in ("README.md", "README.ru.md", "AGENTS.md"):
+        text = outside_methods_section(read(name))
+        for count in (routes, codes):
+            quoted = re.findall(rf"(?<![\d.]){count}(?![\d.])", text)
+            assert not quoted, f"{name} quotes the count {count} by hand"
 
 
 def test_the_docs_name_every_environment_variable_the_client_reads() -> None:
@@ -174,54 +169,39 @@ def test_the_legacy_key_kind_error_is_documented_exactly_once() -> None:
         )
 
 
-def method_overview(document: str) -> List[str]:
-    """The rows of the method-overview table (the one whose first row is `payments`)."""
-    lines = read(document).split("\n")
-    start = next(i for i, line in enumerate(lines) if line.startswith("| `payments` |"))
-    end = start
-    while end < len(lines) and lines[end].startswith("|"):
-        end += 1
-    return lines[start:end]
+METHODS_BEGIN, METHODS_END = "<!-- sdkgen:methods -->", "<!-- /sdkgen:methods -->"
 
 
-def route_exists(token: str, paths: List[str]) -> bool:
-    """`/v1/pay/{id}*` is a real family of routes; `/v1/pya/{id}` is a typo."""
-    stem = token[:-1] if token.endswith("*") else token
-    pattern = "[^/]+".join(re.escape(part) for part in re.split(r"\{[^}]*\}", stem))
-    regex = re.compile(pattern + (".*" if token.endswith("*") else "") + "$")
-    return any(regex.match(path) for path in paths)
+def methods_section(text: str) -> str:
+    """What the generator wrote between the method-table markers."""
+    assert text.count(METHODS_BEGIN) == text.count(METHODS_END) == 1
+    return text.split(METHODS_BEGIN, 1)[1].split(METHODS_END, 1)[0]
+
+
+def outside_methods_section(text: str) -> str:
+    if METHODS_BEGIN not in text:
+        return text
+    return text.split(METHODS_BEGIN, 1)[0] + text.split(METHODS_END, 1)[1]
 
 
 @pytest.mark.parametrize("document", READMES)
-def test_every_namespace_and_method_the_readme_tabulates_exists(document: str) -> None:
-    """The method overview is a promise; check it against the real client and the real routes."""
-    api = oblodai.Oblodai(base_url="https://api.test", env={})
-    paths = [route.path for route in ROUTES.values()]
-    try:
-        rows = [
-            match.groups()
-            for match in (
-                re.match(r"^\| `([a-z_]+)` +\| (.+?) \| (.+?) \|$", line)
-                for line in method_overview(document)
-            )
-            if match is not None
-        ]
-        assert len(rows) == 16, f"the {document} method overview lists {len(rows)} namespaces"
-        wrong: List[str] = []
-        for namespace, methods, routes in rows:
-            target = getattr(api, namespace, None)
-            if target is None:
-                wrong.append(f"client.{namespace}")
-                continue
-            for method in re.findall(r"`([a-z_]+)`", methods):
-                if not hasattr(target, method):
-                    wrong.append(f"{namespace}.{method}")
-            for token in re.findall(r"`(/v1/[^`]+)`", routes):
-                if not route_exists(token, paths):
-                    wrong.append(f"{namespace} -> {token}")
-        assert not wrong, f"{document} promises methods or routes that do not exist: {wrong}"
-    finally:
-        api.close()
+def test_the_readme_method_table_is_exactly_the_client(document: str) -> None:
+    """The generator writes the table from the contract; it must list the client, no more, no less."""
+    section = methods_section(read(document))
+    rows = re.findall(r"^\| `([a-z_]+)` \| (.+) \|$", section, re.M)
+    tabulated = sorted(
+        f"{namespace}.{method}"
+        for namespace, methods in rows
+        for method in re.findall(r"`([a-z_]+)`", methods)
+    )
+    assert tabulated == sorted(f"{ns}.{name}" for ns, name in COVERAGE.values())
+    resources = len({ns for ns, _ in COVERAGE.values()})
+    counter = (
+        f"{resources} resources, {len(COVERAGE)} methods."
+        if document == "README.md"
+        else f"{resources} ресурс"
+    )
+    assert counter in section, f"{document}: the counter is not the client's"
 
 
 def test_the_english_docs_are_english_only() -> None:
@@ -271,8 +251,9 @@ def test_the_russian_readme_is_a_translation_of_the_english_one() -> None:
     assert headings[0] == headings[1] == 12, f"the READMEs disagree on their sections: {headings}"
 
 
-def test_the_2_0_migration_maps_every_locked_name() -> None:
-    """MIGRATION-2.0.md is built from names.lock; a name added since must be added there too."""
+def test_the_2_0_migration_maps_every_2_0_name() -> None:
+    """MIGRATION-2.0.md maps the names 2.0 shipped with (names.2.0.txt, frozen); a method added
+    later is not a migration, and names.lock (which the generator extends) is not this list."""
     text = read("MIGRATION-2.0.md")
-    missing = [n for n in read("names.lock").split() if f"| `{n}` |" not in text]
+    missing = [n for n in read("names.2.0.txt").split() if f"| `{n}` |" not in text]
     assert not missing, f"MIGRATION-2.0.md does not map {missing}"

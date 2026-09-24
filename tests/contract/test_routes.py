@@ -145,10 +145,9 @@ def test_every_route_has_an_sdk_method_on_both_tiers() -> None:
         assert method_of(key, asynchronous=True) == method_of(key)
 
 
-def test_the_client_exposes_the_sixteen_namespaces_of_the_contract() -> None:
+def test_the_client_exposes_every_namespace_of_the_contract() -> None:
     client = Oblodai(public_id="p", secret="s" * 32, env={})
     assert sorted(namespaces(client)) == sorted({ns for ns, _ in COVERAGE.values()})
-    assert len(namespaces(client)) == 16
 
 
 def test_the_method_names_are_the_locked_public_names() -> None:

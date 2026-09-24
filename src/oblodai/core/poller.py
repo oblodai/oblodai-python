@@ -1,8 +1,8 @@
 """Waiters for long-running operations (batches, document jobs).
 
 :class:`Job` / :class:`AsyncJob` carry the create call's answer (``.result``) and the job's
-``.id``; ``.wait()`` polls until the status is terminal (:data:`oblodai.lro.TERMINAL_STATUSES`)
-and returns the last poll answer - a terminal status is returned, not raised, so a ``failed``
+``.id``; ``.wait()`` polls until the status is one of the poll's terminal statuses (the contract's
+``x-sdk-poll``, see :mod:`oblodai.lro`) and returns the last poll answer - a terminal status is returned, not raised, so a ``failed``
 job is inspected like a finished one. Which operations become jobs is :mod:`oblodai.lro`.
 """
 
@@ -18,9 +18,11 @@ from typing import (
     Any,
     Awaitable,
     Callable,
+    Collection,
     Generic,
     Mapping,
     Optional,
+    Tuple,
     TypeVar,
 )
 
@@ -57,6 +59,9 @@ class JobPlan:
     #: Parser of the poll answer; ``None`` returns the unwrapped result as is.
     parse: Optional[Callable[[Any], Any]]
     download_route: Optional[RouteSpec]
+    #: The poll answer's field that carries the status, and the statuses that end the wait.
+    status_field: str = "status"
+    terminal: Tuple[str, ...] = tuple(sorted(TERMINAL_STATUSES))
 
 
 def _generated(module: str) -> Any:
@@ -109,6 +114,8 @@ def plan_job(
         id_field=poll.id_field,
         parse=_parser(poll.model, parsers),
         download_route=_route(poll.download, operations) if poll.download else None,
+        status_field=poll.status_field,
+        terminal=poll.terminal,
     )
 
 
@@ -130,9 +137,9 @@ def poll_options(options: RequestOptions) -> RequestOptions:
     )
 
 
-def status_of(answer: Any) -> str:
-    """The ``status`` of a poll answer, model or mapping."""
-    status = answer.get("status") if isinstance(answer, Mapping) else getattr(answer, "status", "")
+def status_of(answer: Any, field: str = "status") -> str:
+    """The status (``field``) of a poll answer, model or mapping."""
+    status = answer.get(field) if isinstance(answer, Mapping) else getattr(answer, field, "")
     return str(status.value if isinstance(status, Enum) else status or "")
 
 
@@ -149,12 +156,18 @@ class Job(Generic[T]):
         result: Any,
         poll: Callable[[], T],
         download: Optional[Callable[[], FileResult]] = None,
+        *,
+        terminal: Optional[Collection[str]] = None,
+        status_field: str = "status",
     ) -> None:
         self.id = id
         #: The create call's answer, parsed as the method would return it.
         self.result = result
         self._poll = poll
         self._download = download
+        #: Statuses that end :meth:`wait` (default: every terminal status of the contract).
+        self.terminal = frozenset(TERMINAL_STATUSES if terminal is None else terminal)
+        self._status_field = status_field
 
     def wait(self, timeout: float = 300, interval: float = 2.0) -> T:
         """Poll every ``interval`` seconds until the job's status is terminal; return that answer.
@@ -164,8 +177,8 @@ class Job(Generic[T]):
         deadline = time.monotonic() + timeout
         while True:
             answer = self._poll()
-            status = status_of(answer)
-            if status in TERMINAL_STATUSES:
+            status = status_of(answer, self._status_field)
+            if status in self.terminal:
                 return answer
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -191,12 +204,18 @@ class AsyncJob(Generic[T]):
         result: Any,
         poll: Callable[[], Awaitable[T]],
         download: Optional[Callable[[], Awaitable[FileResult]]] = None,
+        *,
+        terminal: Optional[Collection[str]] = None,
+        status_field: str = "status",
     ) -> None:
         self.id = id
         #: The create call's answer, parsed as the method would return it.
         self.result = result
         self._poll = poll
         self._download = download
+        #: Statuses that end :meth:`wait` (default: every terminal status of the contract).
+        self.terminal = frozenset(TERMINAL_STATUSES if terminal is None else terminal)
+        self._status_field = status_field
 
     async def wait(self, timeout: float = 300, interval: float = 2.0) -> T:
         """Poll every ``interval`` seconds until the job's status is terminal; return that answer.
@@ -206,8 +225,8 @@ class AsyncJob(Generic[T]):
         deadline = time.monotonic() + timeout
         while True:
             answer = await self._poll()
-            status = status_of(answer)
-            if status in TERMINAL_STATUSES:
+            status = status_of(answer, self._status_field)
+            if status in self.terminal:
                 return answer
             remaining = deadline - time.monotonic()
             if remaining <= 0:

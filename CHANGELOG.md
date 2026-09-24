@@ -4,7 +4,7 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] — unreleased (release candidate)
+## [2.0.0] — 2026-09-25
 
 Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every
 method name follows `client.<resource>.<method>` from the contract's tags and operation ids, and
@@ -23,7 +23,14 @@ old-to-new table.
 - `client.with_options(...)`, `resource.with_raw_response.<method>(...)` (`RawAPIResponse`) and
   request/response `Hooks`.
 - `Page.by_page()` — page by page, one request per page.
-- Long-running operations (batches, document exports) return a `Job` with `wait()`.
+- Long-running operations (batches, document exports) return a `Job` with `wait()`; which calls
+  are long-running, what to poll and which statuses end the wait come from the contract's
+  `x-sdk-poll` (`oblodai.lro`, generated), each job waiting for its own terminal statuses.
+- `webhooks.to_model(event)`, `webhooks.WEBHOOK_MODELS` (kind → model) and
+  `webhooks.WEBHOOK_EVENTS` (event name → kind), generated from the contract's webhooks.
+- The README method table is generated from the contract (between `sdkgen:methods` markers), and
+  the generator adds new method names to `names.lock` itself; `names.2.0.txt` freezes the names
+  2.0 shipped with, which `MIGRATION-2.0.md` maps.
 - `str(err)` reads well in a log line: `[code] message (request_id=…)`.
 - The shared conformance suite (`tests/conformance`) every Oblodai SDK runs: signing and webhook
   vectors read from the contract's `x-oblodai-signing`, retries and idempotency keys, `Retry-After`,
@@ -36,6 +43,10 @@ old-to-new table.
 - Whether a POST may be re-sent without a key comes from the contract's `x-retry-safe`, not from a
   table in the SDK.
 - `ROUTES` is keyed by `operationId`.
+- The status classes behind `is_payment_final`, `is_payment_paid`, `is_payout_final`,
+  `is_payout_succeeded` and `FINAL_PAYMENT_STATUSES` / `FINAL_PAYOUT_STATUSES` (now in enum order)
+  come from the contract's `x-status-classes`; `webhooks.KNOWN_EVENT_KINDS` from its webhooks (it
+  now knows `conversion`); the float allowance `NON_MONEY_NUMBERS` from its `number` fields.
 - Timeouts are in seconds: `timeout_ms` became `timeout`, the client's `deadline_ms` became
   `deadline`; per-call `headers` became `extra_headers`.
 - A `float` anywhere in a request body is a `ConfigError` (`sdk.float_amount`) before anything is
@@ -47,6 +58,12 @@ old-to-new table.
   `merchants.create_sandbox` is `sandbox.onboard_store`.
 - `webhooks.test(kind, …)` — one method per kind: `webhooks.send_test_payment` and its siblings.
 - The hand-written resources and the per-call `deadline_ms`.
+
+### Fixed
+
+- A conversion delivery (`conversion.completed` / `conversion.refunded`, identified by `id`, not
+  `uuid`) is no longer refused as `webhook.bad_payload`, and `webhooks.is_known_event` recognises
+  it.
 
 ## [1.3.0] — 2026-08-26
 

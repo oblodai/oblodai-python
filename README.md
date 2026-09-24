@@ -28,7 +28,7 @@ webhooks. Request signing, response parsing, typed errors, idempotency and retri
 of the box.
 
 Python ≥ 3.10 with a single runtime dependency (`httpx`), a synchronous **and** an asynchronous
-client, generated from the gateway's own OpenAPI contract: every route it exposes (120) has a
+client, generated from the gateway's own OpenAPI contract: every route it exposes has a
 method here, and every request and response has a typed model.
 
 > **Base URL.** Defaults to `https://api.oblodai.com`. Override `base_url` and supply your own keys
@@ -209,35 +209,39 @@ sandbox — are signed exactly like live ones and carry
 
 ## Method overview
 
-Sixteen namespaces cover all 120 routes of the gateway.
+The table below is generated from the contract (`make sdk` in the backend rewrites it); each
+method's route is in `oblodai.ROUTES[operation_id]`.
 
-| Namespace | Methods | Routes |
-| --------- | ------- | ------ |
-| `payments` | `cancel` `create` `get_aml_links` `get_checkout_config` `get_info` `get_qr` `list_history` `list_services` `resolve` `send_email` `set_checkout_config` | `/v1/payment/cancel` `/v1/payment` `/v1/payment/aml-links` `/v1/checkout-config/get` `/v1/payment/info` `/v1/payment/qr` `/v1/payment/history` `/v1/payment/services` `/v1/payment/resolve` `/v1/payment/send-email` `/v1/checkout-config/set` |
-| `payment_links` | `create` `get` `list` `toggle` | `/v1/payment/link` `/v1/payment/link/info` `/v1/payment/link/list` `/v1/payment/link/toggle` |
-| `refunds` | `blocked_wallet` `payment` | `/v1/wallet/blocked-address-refund` `/v1/payment/refund` |
-| `payouts` | `approve` `calculate` `cancel` `create` `create_mass` `create_transfer_batch` `get_info` `list_history` `list_services` `transfer_to_personal` `transfer_to_user` `validate` | `/v1/payout/approve` `/v1/payout/calculate` `/v1/payout/cancel` `/v1/payout` `/v1/payout/mass` `/v1/transfer/batch` `/v1/payout/info` `/v1/payout/history` `/v1/payout/services` `/v1/transfer/to-personal` `/v1/transfer/to-user` `/v1/payout/validate` |
-| `payout_links` | `cancel` `claim_payout` `create` `create_batch` `get` `get_payout_claim` `list` | `/v1/payout/link/cancel` `/v1/claim/{token}` `/v1/payout/link` `/v1/payout/link/batch` `/v1/payout/link/info` `/v1/payout/link/list` |
-| `batches` | `create_payment` `create_payout` `create_refund` `get_info` | `/v1/payment/batch` `/v1/payout/batch` `/v1/refund/batch` `/v1/batch/info` |
-| `splits` | `create_rule` `delete_rule` `get_config` `get_recipient_opt_in` `list_rules` `set_config` `set_recipient_opt_in` | `/v1/split/rule` `/v1/split/rule/delete` `/v1/split/config/get` `/v1/split/recipient/optin/get` `/v1/split/rule/list` `/v1/split/config/set` `/v1/split/recipient/optin` |
-| `wallets` | `block` `create` `get_qr` | `/v1/wallet/block` `/v1/wallet` `/v1/wallet/qr` |
-| `account` | `get_balance` `get_summary` `list_exchange_rates` | `/v1/balance` `/v1/summary` `/v1/exchange-rate/list` |
-| `webhooks` | `list_deliveries` `register` `requeue_delivery` `resend_payment` `rotate_secret` `send_legacy_test` `send_test_conversion` `send_test_payment` `send_test_payout` `send_test_wallet` `set_active` | `/v1/webhooks/deliveries` `/v1/webhooks` `/v1/webhooks/deliveries/requeue` `/v1/payment/resend` `/v1/webhooks/rotate-secret` `/v1/payment/testing-webhook` `/v1/test-webhook/conversion` `/v1/test-webhook/payment` `/v1/test-webhook/payout` `/v1/test-webhook/wallet` `/v1/webhooks/active` |
-| `settings` | `configure_vrcs` `delete_auto_withdraw_rule` `get_accuracy` `get_auto_convert` `get_auto_refund` `get_payment_fee_config` `get_payout_fee_config` `get_refund_fee_config` `list_accepted_currencies` `list_api_log` `list_auto_withdraw_rules` `list_discounts` `set_accepted_currencies` `set_accuracy` `set_auto_convert` `set_auto_refund` `set_auto_withdraw_rule` `set_discount` `set_payment_fee_config` `set_payout_fee_config` `set_refund_fee_config` | `/v1/vrcs` `/v1/auto-withdraw/delete` `/v1/payment/accuracy/get` `/v1/payment/autoconvert/get` `/v1/payment/autorefund/get` `/v1/payment/fee-config/get` `/v1/payout/fee-config/get` `/v1/payout/refund-fee-config/get` `/v1/payment/accepted/list` `/v1/payment/api-log` `/v1/auto-withdraw/list` `/v1/payment/discount/list` `/v1/payment/accepted/set` `/v1/payment/accuracy/set` `/v1/payment/autoconvert/set` `/v1/payment/autorefund/set` `/v1/auto-withdraw/set` `/v1/payment/discount/set` `/v1/payment/fee-config/set` `/v1/payout/fee-config/set` `/v1/payout/refund-fee-config/set` |
-| `api_allowlist` | `add_entry` `list` `remove_entry` `set_enabled` | `/v1/api-allowlist/add` `/v1/api-allowlist/list` `/v1/api-allowlist/remove` `/v1/api-allowlist/enable` |
-| `referrals` | `get_info` | `/v1/referral/info` |
-| `documents` | `create_job` `download_job_file` `get_balance` `get_batch` `get_fees` `get_job` `get_ledger` `get_payment_link` `get_payout_link_cheque` `get_referrals` `get_signed` `get_split` `get_statement` `get_wallet_statement` | `/v1/documents/jobs` `/v1/documents/jobs/file` `/v1/documents/balance` `/v1/documents/batch` `/v1/documents/fees` `/v1/documents/jobs/info` `/v1/documents/ledger` `/v1/documents/link` `/v1/payout/link/cheque` `/v1/documents/referrals` `/v1/documents/{kind}/{id}` `/v1/documents/split` `/v1/documents/statement` `/v1/documents/wallet/statement` |
-| `checkout` | `get` `get_onramp` `get_public_payment_link` `get_qr` `get_source_of_funds_form` `list_currencies` `payment_link` `select_method` `start_onramp` `submit_source_of_funds` | `/v1/pay/{id}` `/v1/pay/{id}/onramp` `/v1/link/{id}` `/v1/pay/{id}/qr` `/v1/aml/{token}` `/v1/currencies` `/v1/link/{id}/checkout` `/v1/pay/{id}/select` |
-| `sandbox` | `faucet` `list_webhooks` `onboard_store` `replay_webhook` `reset` `simulate_deposit` | `/v1/sandbox/faucet` `/v1/sandbox/webhooks` `/v1/merchants/{id}/sandbox` `/v1/sandbox/webhooks/replay` `/v1/sandbox/reset` `/v1/sandbox/deposit` |
+<!-- sdkgen:methods -->
+16 resources, 120 methods.
+
+| Resource | Methods |
+| --- | --- |
+| `payments` | `create` · `get_info` · `get_qr` · `list_history` · `list_services` · `cancel` · `send_email` · `set_checkout_config` · `get_checkout_config` · `get_aml_links` · `resolve` |
+| `payment_links` | `create` · `list` · `get` · `toggle` |
+| `refunds` | `payment` · `blocked_wallet` |
+| `payouts` | `create` · `create_mass` · `get_info` · `list_history` · `calculate` · `validate` · `cancel` · `approve` · `list_services` · `transfer_to_personal` · `transfer_to_user` · `create_transfer_batch` |
+| `payout_links` | `create` · `create_batch` · `list` · `get` · `cancel` · `get_payout_claim` · `claim_payout` |
+| `batches` | `create_payment` · `create_refund` · `create_payout` · `get_info` |
+| `splits` | `create_rule` · `list_rules` · `delete_rule` · `set_config` · `get_config` · `set_recipient_opt_in` · `get_recipient_opt_in` |
+| `wallets` | `create` · `block` · `get_qr` |
+| `account` | `get_balance` · `get_summary` · `list_exchange_rates` |
+| `webhooks` | `resend_payment` · `register` · `list_deliveries` · `requeue_delivery` · `send_legacy_test` · `send_test_payment` · `send_test_wallet` · `send_test_payout` · `send_test_conversion` · `rotate_secret` · `set_active` |
+| `settings` | `set_accuracy` · `get_accuracy` · `set_auto_refund` · `get_auto_refund` · `set_discount` · `list_discounts` · `list_api_log` · `get_auto_convert` · `set_auto_convert` · `set_accepted_currencies` · `list_accepted_currencies` · `set_payout_fee_config` · `get_payout_fee_config` · `set_refund_fee_config` · `get_refund_fee_config` · `set_payment_fee_config` · `get_payment_fee_config` · `set_auto_withdraw_rule` · `list_auto_withdraw_rules` · `delete_auto_withdraw_rule` · `configure_vrcs` |
+| `api_allowlist` | `list` · `add_entry` · `remove_entry` · `set_enabled` |
+| `referrals` | `get_info` |
+| `documents` | `get_signed` · `get_balance` · `get_fees` · `get_ledger` · `get_split` · `get_payout_link_cheque` · `get_statement` · `get_batch` · `get_payment_link` · `get_wallet_statement` · `get_referrals` · `create_job` · `get_job` · `download_job_file` |
+| `checkout` | `get_source_of_funds_form` · `submit_source_of_funds` · `get_public_payment_link` · `payment_link` · `list_currencies` · `get` · `select_method` · `start_onramp` · `get_onramp` · `get_qr` |
+| `sandbox` | `onboard_store` · `faucet` · `simulate_deposit` · `reset` · `list_webhooks` · `replay_webhook` |
+<!-- /sdkgen:methods -->
 
 Every method takes the same trailing keyword arguments (the fields of `oblodai.RequestOptions`):
 `idempotency_key`, `timeout` (seconds, per attempt), `max_retries`, `extra_headers` (extra headers
 for this call alone) and `request_id` (sent as `X-Request-ID`; a uuid4 when omitted). List methods also take `limit=` / `offset=`. Anything else raises `TypeError` before a
 request is sent.
 
-The payer-facing routes — `payments.public_view/select/public_qr`,
-`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` — need no credentials at
-all. Document methods return a `FileResult(content, content_type, filename)`.
+The payer-facing methods — the `checkout` namespace and `payout_links.get_payout_claim` /
+`claim_payout` — need no credentials at all. Document methods return a `FileResult(content, content_type, filename)`.
 
 ### Lists
 
@@ -261,6 +265,9 @@ object is awaited (`await client.payments.list_history()`) or walked with `async
 - Payment: `select → created → confirm_check → paid | paid_over | wrong_amount | expired | cancelled`.
   `is_payment_paid` covers paid/paid_over; `wrong_amount` needs `payments.resolve(...)`.
 - Payout: `pending → approved → awaiting_cosign → broadcasting → sent → confirmed | failed | cancelled`.
+
+Which statuses are final and which of them a success is the contract's (`x-status-classes`,
+generated into `oblodai.generated.statuses`); the helpers below read it.
 
 ```python
 from oblodai import is_payment_paid, is_payout_final
@@ -291,7 +298,7 @@ def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional
         return 401  # not from the gateway
     except WebhookPayloadError:
         return 400  # authentic, but this receiver cannot read it
-    event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
+    event = delivery.event  # {"type": "payment"|"payout"|"wallet"|"conversion", ...}
     if webhooks.is_stale(event, last_sequence):
         return 200  # a retry that arrived after a newer state
     if webhooks.is_known_event(event) and event["type"] == "payment":
@@ -301,7 +308,9 @@ def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional
 
 An event kind newer than this SDK is returned, not refused — `is_known_event` is `False` and
 `event["type"]` holds the raw string. Acknowledge it either way; refusing it would make the gateway
-retry a delivery that is perfectly valid.
+retry a delivery that is perfectly valid. `webhooks.to_model(event)` parses a known kind into its
+model (`PaymentWebhook`, `PayoutWebhook`, `WalletWebhook`, `ConversionWebhook`; the map is
+`webhooks.WEBHOOK_MODELS`, generated from the contract) and gives `None` for an unknown one.
 
 `SignatureError` and `WebhookPayloadError` mean different things: the first is a delivery that is
 not from the gateway (answer **401** — and 401 only ever for a signature failure), the second an
@@ -360,8 +369,8 @@ support asks for, `err.synthetic` marks an answer that came from a proxy rather 
 Branch on `err.code`, which is always `family.reason`. Codes worth handling by name:
 `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
-`merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ErrorCode`
-(450 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
+`merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ErrorCode`,
+the gateway's own list, so a code can be matched exactly instead of by substring.
 
 ## Retries, idempotency and timeouts
 
@@ -476,7 +485,7 @@ and carries `X-Admin-Token` when `admin_token` is set.
 
 `src/oblodai/generated/` — the resources, models, enums and the route table — is generated by the
 backend's `tools/sdkgen` from the gateway's `services/core/api/openapi.json`, which the core exports
-from its own route registry. The 120 routes and 450 error codes this SDK exposes are exactly the
+from its own route registry. The routes and error codes this SDK exposes are exactly the
 ones in it, and `names.lock` pins every public method name: a generator run that would drop or
 rename one fails as a breaking change.
 
