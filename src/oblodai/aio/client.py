@@ -15,21 +15,21 @@ from ..core.engine import EngineSettings
 from ..core.hooks import Hooks
 from ..core.logger import Logger, NoopLogger
 from ..core.retry import RetryOptions
-from .resources import (
+from ..generated.aio_resources import (
     AsyncAccount,
+    AsyncApiAllowlist,
     AsyncBatches,
-    AsyncCatalog,
+    AsyncCheckout,
     AsyncDocuments,
-    AsyncMerchants,
     AsyncPaymentLinks,
     AsyncPayments,
     AsyncPayoutLinks,
     AsyncPayouts,
+    AsyncReferrals,
     AsyncRefunds,
     AsyncSandbox,
     AsyncSettings,
     AsyncSplits,
-    AsyncTransfers,
     AsyncWallets,
     AsyncWebhooks,
 )
@@ -96,21 +96,21 @@ class AsyncOblodai:
         self.transport = transport
 
         self.payments = AsyncPayments(self.transport)
+        self.payment_links = AsyncPaymentLinks(self.transport)
         self.refunds = AsyncRefunds(self.transport)
         self.payouts = AsyncPayouts(self.transport)
         self.payout_links = AsyncPayoutLinks(self.transport)
-        self.payment_links = AsyncPaymentLinks(self.transport)
         self.batches = AsyncBatches(self.transport)
-        self.transfers = AsyncTransfers(self.transport)
-        self.wallets = AsyncWallets(self.transport)
-        self.webhooks = AsyncWebhooks(self.transport)
-        self.documents = AsyncDocuments(self.transport)
         self.splits = AsyncSplits(self.transport)
-        self.settings = AsyncSettings(self.transport)
+        self.wallets = AsyncWallets(self.transport)
         self.account = AsyncAccount(self.transport)
-        self.catalog = AsyncCatalog(self.transport)
+        self.webhooks = AsyncWebhooks(self.transport)
+        self.settings = AsyncSettings(self.transport)
+        self.api_allowlist = AsyncApiAllowlist(self.transport)
+        self.referrals = AsyncReferrals(self.transport)
+        self.documents = AsyncDocuments(self.transport)
+        self.checkout = AsyncCheckout(self.transport)
         self.sandbox = AsyncSandbox(self.transport)
-        self.merchants = AsyncMerchants(self.transport)
 
     def with_options(
         self,

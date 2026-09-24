@@ -9,10 +9,11 @@ samples and real signed webhook deliveries).
 - Amounts are decimal **strings**: `"amount": "25"`, never `25`. Do not `float()` them; use
   `add_amounts` / `compare_amounts` from `oblodai`. A `Decimal` is accepted and sent as its exact
   string; a `float` in a request body raises `ConfigError` `sdk.float_amount` before any request.
-- Request bodies are **dicts with the wire's own snake_case names** — no renaming, no wrapper
-  objects. Every body has a `TypedDict` in `oblodai.contract.requests` (`PaymentBody`, `PayoutBody`,
-  …) and every response one in `oblodai.contract.models` (`Payment`, `Payout`, …). Responses are
-  dicts too: `invoice["url"]`, not `invoice.url`.
+- Request fields are **keyword arguments with the wire's own snake_case names**
+  (`payments.create(amount="25", currency="USDT")`); a request model (`PaymentRequest`, …) or a
+  plain dict as the first argument works too. Responses are frozen dataclasses generated from the
+  gateway's OpenAPI contract (`oblodai.generated`): `invoice.url`, not `invoice["url"]`; fields the
+  SDK does not know yet land in `.extra`.
 - Every method's trailing keyword arguments are the same five (`oblodai.RequestOptions`):
   `idempotency_key`, `timeout` (seconds, per attempt), `max_retries`, `extra_headers` (this call
   only), `request_id` (sent as `X-Request-ID`; a uuid4 when omitted). Anything else raises
@@ -96,9 +97,10 @@ money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events w
 
 ## Machine-readable surface
 
-`ROUTES` (107 routes: `method`, `path`, `auth`, `idempotent`, `safe`, `bare`, `list_kind`),
-`oblodai.contract.requests` (a `TypedDict` per route body), `ERROR_CODES` (469), `NETWORKS`,
-`PAYMENT_STATUSES`, `PAYOUT_STATUSES`, `EVENT_TYPES`, and — in the repository and the sdist, not
-in the installed wheel — `contract/` itself (schemas, golden response bodies per route, error
-samples, signed webhook samples). Every field of every `RouteSpec` is asserted against
-`contract/contract.json` by `tests/contract/test_routes.py`.
+`ROUTES` (120 routes keyed by `operationId`: `method`, `path`, `auth`, `idempotent`, `safe`,
+`bare`, `list_kind`), a model per request and response body, and the enums (`ErrorCode` (450),
+`PaymentStatus`, `PayoutStatus`, `WebhookEventName`, …) — all generated into `oblodai.generated`
+from the gateway's `openapi.json` (`names.lock` pins the public method names). In the repository
+and the sdist, not in the installed wheel, `contract/` keeps golden response bodies per route,
+error samples and signed webhook samples; `tests/contract/` checks the generated models against
+them.

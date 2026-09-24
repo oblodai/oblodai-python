@@ -1,7 +1,7 @@
 PY := .venv/bin/python
 BIN := .venv/bin
 
-.PHONY: ci codegen lint typecheck test live drift
+.PHONY: ci lint typecheck test live drift
 
 ci:            ## every gate CI runs
 	./scripts/ci.sh
@@ -9,12 +9,8 @@ ci:            ## every gate CI runs
 live:          ## the live tier too (needs OBLODAI_LIVE_URL)
 	./scripts/ci.sh --live
 
-codegen:       ## regenerate contract/ mirrors and the async resources
-	$(PY) scripts/codegen.py
-	$(PY) scripts/gen_async.py
-
-drift:         ## fail when the generated files are stale
-	$(PY) scripts/check_drift.py
+drift:         ## fail when src/oblodai/generated is stale (backend: OBLODAI_BACKEND or ../oblodai-backend)
+	PATH="$(CURDIR)/$(BIN):$$PATH" $(PY) scripts/check_generated.py --require
 
 lint:
 	$(BIN)/ruff format --check .

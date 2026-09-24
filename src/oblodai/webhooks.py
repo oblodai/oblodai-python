@@ -31,12 +31,11 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
 if TYPE_CHECKING:  # `TypeGuard` is 3.10+; the runtime never needs it.
     from typing_extensions import TypeGuard
 
-from .contract.models.webhooks import AnyWebhookEvent, WebhookEvent
 from .core.errors import ConfigError, SignatureError, WebhookPayloadError
 from .core.signing import sign_webhook
 from .core.util import HeaderSource, constant_time_equal, header_value
@@ -76,6 +75,14 @@ HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 KNOWN_EVENT_KINDS = ("payment", "payout", "wallet")
 
 RawBody = Union[str, bytes, bytearray]
+
+#: A verified delivery body: a JSON object that always carries the string ``type`` and ``uuid``.
+#: For attribute access parse it with the generated model of its kind -
+#: ``PaymentWebhook.from_dict(event)`` (``payment``), ``PayoutWebhook`` (``payout``),
+#: ``WalletWebhook`` (``wallet``).
+AnyWebhookEvent = Dict[str, Any]
+#: A delivery body whose ``type`` is one of :data:`KNOWN_EVENT_KINDS`.
+WebhookEvent = Dict[str, Any]
 
 # ASCII digits only: `int("١٢٣")` succeeds on Arabic-Indic digits, and a header the core never
 # wrote must never be read as a number.
@@ -209,11 +216,10 @@ def verify_delivery(
 
 
 def parse(raw_body: RawBody) -> AnyWebhookEvent:
-    """Parse a (previously verified) delivery body into a typed event, discriminated by ``type``.
+    """Parse a (previously verified) delivery body into its event body; ``type`` tells the kind.
 
     An event kind this snapshot does not know is NOT an error: it is returned with its raw
-    ``type`` string as an :class:`~oblodai.UnknownWebhookEvent`, so a receiver written against an
-    older SDK still sees the delivery (and :func:`is_test_event` / :func:`is_stale` still work on
+    ``type`` string, so a receiver written against an older SDK still sees the delivery (and :func:`is_test_event` / :func:`is_stale` still work on
     it). Narrow the result with :func:`is_known_event`.
     """
     text = _as_bytes(raw_body).decode("utf-8", errors="replace")
@@ -228,7 +234,7 @@ def parse(raw_body: RawBody) -> AnyWebhookEvent:
         raise WebhookPayloadError(
             "delivery body lacks the string type/uuid fields every event carries"
         )
-    return cast(AnyWebhookEvent, body)
+    return dict(body)
 
 
 def is_known_event(event: Mapping[str, Any]) -> TypeGuard[WebhookEvent]:

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple, cast
 
 import pytest
 
-from oblodai import Oblodai, compare_amounts
+from oblodai import Oblodai, PaymentView, SandboxOnboardResult, compare_amounts
 from oblodai.core.clock import MAX_PLAUSIBLE_OFFSET_SECONDS, SkewCorrectingClock
 from oblodai.core.engine import EngineSettings
 from oblodai.core.errors import (
@@ -27,6 +27,7 @@ from oblodai.core.request import RESERVED_HEADERS, Credentials
 from oblodai.core.retry import RetryOptions
 from oblodai.helpers.money import MAX_AMOUNT_LENGTH
 from tests.support.mock_http import MockHTTP, Scripted, ok
+from tests.support.samples import sample
 
 CREDS: Dict[str, Any] = {
     "public_id": "pk_test_1",
@@ -35,6 +36,8 @@ CREDS: Dict[str, Any] = {
     "retry": RetryOptions(max_retries=0),
     "env": {},
 }
+
+PAYMENT = sample(PaymentView, uuid="u")
 
 
 def client(mock: MockHTTP, **overrides: Any) -> Oblodai:
@@ -63,7 +66,7 @@ def test_an_unusable_idempotency_key_is_refused_before_signing(key: str) -> None
 
 
 def test_a_key_of_exactly_the_maximum_length_is_accepted() -> None:
-    mock = MockHTTP([ok({"uuid": "u"})])
+    mock = MockHTTP([ok(PAYMENT)])
     create(client(mock), idempotency_key="k" * MAX_IDEMPOTENCY_KEY_LENGTH)
     assert len(mock.calls[0].headers["idempotency-key"]) == MAX_IDEMPOTENCY_KEY_LENGTH
 
@@ -71,7 +74,7 @@ def test_a_key_of_exactly_the_maximum_length_is_accepted() -> None:
 def test_a_key_on_a_route_the_core_does_not_deduplicate_is_refused() -> None:
     mock = MockHTTP([])
     with pytest.raises(ConfigError) as excinfo:
-        client(mock).account.balance(idempotency_key="k")
+        client(mock).account.get_balance(idempotency_key="k")
     assert excinfo.value.code == "sdk.idempotency_unsupported"
     assert mock.calls == []
 
@@ -82,13 +85,13 @@ def test_a_key_on_a_route_the_core_does_not_deduplicate_is_refused() -> None:
 @pytest.mark.parametrize("name", sorted(RESERVED_HEADERS))
 def test_a_caller_cannot_take_over_a_header_the_sdk_owns(name: str) -> None:
     """Case-insensitively: `x-signature` and `X-Signature` are the same header on the wire."""
-    mock = MockHTTP([ok({"uuid": "u"})])
+    mock = MockHTTP([ok(PAYMENT)])
     create(client(mock, headers={name.upper(): "hijacked", name: "hijacked"}))
     assert mock.calls[0].headers.get(name) != "hijacked"
 
 
 def test_a_caller_header_survives_when_it_collides_with_nothing() -> None:
-    mock = MockHTTP([ok({"uuid": "u"})])
+    mock = MockHTTP([ok(PAYMENT)])
     create(client(mock, headers={"X-Trace": "t1"}))
     assert mock.calls[0].headers["x-trace"] == "t1"
 
@@ -104,9 +107,9 @@ def test_a_header_value_that_could_split_the_request_is_refused(value: str) -> N
 
 def test_the_admin_token_goes_only_to_the_onboarding_routes() -> None:
     """It gates the whole gateway; every merchant route that saw it would be a place it leaks."""
-    mock = MockHTTP([ok({"merchant_id": "m"}), ok({"uuid": "u"})])
+    mock = MockHTTP([ok(sample(SandboxOnboardResult)), ok(PAYMENT)])
     api = client(mock, admin_token="adm")
-    api.merchants.create({"email": "a@b.c"})
+    api.sandbox.onboard_store("m1")
     create(api)
     assert mock.calls[0].headers["x-admin-token"] == "adm"
     assert "x-admin-token" not in mock.calls[1].headers
@@ -127,7 +130,7 @@ def test_a_non_finite_float_in_a_body_is_named_instead_of_becoming_the_token_nan
 
 
 def test_a_decimal_in_a_body_is_rendered_as_the_wire_string_not_a_type_error() -> None:
-    mock = MockHTTP([ok({"uuid": "u"})])
+    mock = MockHTTP([ok(PAYMENT)])
     client(mock).payments.create(cast(Any, {"amount": Decimal("25.5"), "currency": "USDT"}))
     assert mock.calls[0].json["amount"] == "25.5"
 
@@ -214,14 +217,14 @@ def test_an_envelope_without_a_usable_code_is_treated_as_no_envelope() -> None:
 def test_a_deeply_nested_error_body_does_not_escape_as_a_recursion_error() -> None:
     mock = MockHTTP([Scripted(status=500, text="[" * 100_000 + "]" * 100_000)])
     with pytest.raises(OblodaiError) as excinfo:
-        client(mock).account.balance()
+        client(mock).account.get_balance()
     assert excinfo.value.synthetic is True
 
 
 def test_a_deeply_nested_success_body_is_a_contract_error_not_a_crash() -> None:
     mock = MockHTTP([Scripted(status=200, text="[" * 100_000 + "]" * 100_000)])
     with pytest.raises(ContractError):
-        client(mock).account.balance()
+        client(mock).account.get_balance()
 
 
 # --- secrets never render -----------------------------------------------------------------------
@@ -260,7 +263,7 @@ def test_fields_are_redacted_before_a_caller_injected_logger_sees_them() -> None
 
     mock = MockHTTP([ok({"endpoint_id": "e", "url": "u", "secret": "whsec_live"})])
     api = client(mock, logger=Collecting())
-    api.webhooks.register("https://x")
+    api.webhooks.register(url="https://x")
     for _, fields in seen:
         assert "whsec_live" not in repr(fields)
         for key, value in fields.items():
@@ -294,7 +297,7 @@ def test_a_payout_links_claim_url_is_redacted_like_the_token_it_embeds() -> None
 
 
 def test_a_per_call_header_wins_over_the_clients_own() -> None:
-    mock = MockHTTP([ok({"uuid": "u"}), ok({"uuid": "u"})])
+    mock = MockHTTP([ok(PAYMENT), ok(PAYMENT)])
     api = client(mock, headers={"X-Trace": "client"})
     create(api, extra_headers={"X-Trace": "call", "X-Extra": "e"})
     create(api)
@@ -309,6 +312,6 @@ def test_a_per_call_header_obeys_the_same_rules_as_a_client_one() -> None:
     with pytest.raises(ConfigError) as excinfo:
         create(client(mock), extra_headers={"X-Trace": "one\r\nX-Injected: yes"})
     assert excinfo.value.code == "sdk.bad_header"
-    signed = MockHTTP([ok({"uuid": "u"})])
+    signed = MockHTTP([ok(PAYMENT)])
     create(client(signed), extra_headers={"X-Signature": "hijacked"})
     assert signed.calls[0].headers["x-signature"] != "hijacked"

@@ -17,21 +17,21 @@ from .core.hooks import Hooks
 from .core.logger import Logger, NoopLogger
 from .core.retry import RetryOptions
 from .core.transport import Transport
-from .resources import (
+from .generated.resources import (
     Account,
+    ApiAllowlist,
     Batches,
-    Catalog,
+    Checkout,
     Documents,
-    Merchants,
     PaymentLinks,
     Payments,
     PayoutLinks,
     Payouts,
+    Referrals,
     Refunds,
     Sandbox,
     Settings,
     Splits,
-    Transfers,
     Wallets,
     Webhooks,
 )
@@ -109,21 +109,21 @@ class Oblodai:
         self.transport = transport
 
         self.payments = Payments(self.transport)
+        self.payment_links = PaymentLinks(self.transport)
         self.refunds = Refunds(self.transport)
         self.payouts = Payouts(self.transport)
         self.payout_links = PayoutLinks(self.transport)
-        self.payment_links = PaymentLinks(self.transport)
         self.batches = Batches(self.transport)
-        self.transfers = Transfers(self.transport)
-        self.wallets = Wallets(self.transport)
-        self.webhooks = Webhooks(self.transport)
-        self.documents = Documents(self.transport)
         self.splits = Splits(self.transport)
-        self.settings = Settings(self.transport)
+        self.wallets = Wallets(self.transport)
         self.account = Account(self.transport)
-        self.catalog = Catalog(self.transport)
+        self.webhooks = Webhooks(self.transport)
+        self.settings = Settings(self.transport)
+        self.api_allowlist = ApiAllowlist(self.transport)
+        self.referrals = Referrals(self.transport)
+        self.documents = Documents(self.transport)
+        self.checkout = Checkout(self.transport)
         self.sandbox = Sandbox(self.transport)
-        self.merchants = Merchants(self.transport)
 
     def with_options(
         self,

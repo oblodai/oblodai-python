@@ -225,13 +225,13 @@ def test_request_rejects_anything_but_request_options() -> None:
         things._request(BALANCE, {}, {"timeout": 1})  # type: ignore[arg-type]
 
 
-# --- the hand-written resources keep working through the **options adapter until Task 16 -----
+# --- the generated methods take the same options as keyword arguments ----------------------
 
 
-def test_hand_written_resources_take_the_new_option_names() -> None:
-    rec = Recorder()
+def test_generated_methods_take_the_option_names() -> None:
+    rec = Recorder(ok({"balance": {"merchant": []}}))
     c = make_client(rec, timeout=5)
-    c.account.balance(request_id="rq-legacy", timeout=2.5, extra_headers={"X-Trace": "t"})
+    c.account.get_balance(request_id="rq-legacy", timeout=2.5, extra_headers={"X-Trace": "t"})
     assert rec.header("x-request-id") == "rq-legacy"
     assert rec.header("x-trace") == "t"
     assert rec.timeout()["read"] == pytest.approx(2.5)
@@ -242,7 +242,7 @@ def test_unknown_option_is_a_type_error_at_call_time(old: str) -> None:
     rec = Recorder()
     c = make_client(rec)
     with pytest.raises(TypeError):
-        c.account.balance(**{old: 5})
+        c.account.get_balance(**{old: 5})  # type: ignore[arg-type]
     assert rec.requests == []
 
 
@@ -258,11 +258,11 @@ async def test_async_request_mirrors_the_sync_one() -> None:
     await c.aclose()
 
 
-async def test_async_hand_written_resources_take_the_new_option_names() -> None:
-    rec = Recorder()
+async def test_async_generated_methods_take_the_option_names() -> None:
+    rec = Recorder(ok({"balance": {"merchant": []}}))
     c = make_async_client(rec)
-    await c.account.balance(request_id="rq-a", timeout=3)
+    await c.account.get_balance(request_id="rq-a", timeout=3)
     assert rec.header("x-request-id") == "rq-a"
     with pytest.raises(TypeError):
-        await c.account.balance(timeout_ms=5)
+        await c.account.get_balance(timeout_ms=5)  # type: ignore[call-arg]
     await c.aclose()

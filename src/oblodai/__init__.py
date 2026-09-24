@@ -6,11 +6,11 @@
     invoice = oblodai.payments.create(
         {"amount": "25", "currency": "USDT", "network": "tron", "order_id": "order-1"}
     )
-    print(invoice["url"])
+    print(invoice.url)
 
-Everything the gateway declares is shipped as data in ``contract/`` and mirrored here: routes,
-enums, request bodies and response models. Amounts are decimal strings; field names are exactly
-the wire's snake_case.
+Routes, enums, models and resource methods are generated from the gateway's OpenAPI document
+(:mod:`oblodai.generated`) and exported here. Amounts are decimal strings or ``Decimal``; field
+names are exactly the wire's snake_case.
 """
 
 from __future__ import annotations
@@ -19,29 +19,6 @@ from ._version import SDK_VERSION
 from .aio import AsyncOblodai
 from .client import Oblodai
 from .config import DEFAULT_BASE_URL, resolve_config
-from .contract.enums import (
-    DELIVERY_STATUSES,
-    ERROR_CODES,
-    EVENT_TYPES,
-    NETWORKS,
-    PAYMENT_STATUSES,
-    PAYOUT_LINK_STATUSES,
-    PAYOUT_STATUSES,
-    DeliveryStatus,
-    ErrorCode,
-    EventType,
-    FeeBearer,
-    FeeBearerResult,
-    Network,
-    PaymentStatus,
-    PayoutLinkStatus,
-    PayoutStatus,
-    WebhookKind,
-)
-from .contract.models import *  # noqa: F403  - every response model
-from .contract.models import __all__ as _models_all
-from .contract.routes import ROUTE_KEYS, ROUTES
-from .contract.types import RouteAuth, RouteSpec
 from .contract.version import CONTRACT_CORE_COMMIT, CONTRACT_EXPORTED_AT, CONTRACT_HASH
 from .core.errors import (
     AmountError,
@@ -70,7 +47,13 @@ from .core.pagination import AsyncPage, Page, PageResult
 from .core.poller import AsyncJob, Job
 from .core.raw import RawAPIResponse
 from .core.retry import RetryOptions
+from .core.route import RouteAuth, RouteSpec
 from .core.signing import canonical_string, sign_request, sign_webhook
+from .generated import enums as _generated_enums
+from .generated import models as _generated_models
+from .generated.enums import *  # noqa: F403  - every enumeration of the API
+from .generated.models import *  # noqa: F403  - every model of the API
+from .generated.routes import ROUTES
 from .helpers import (
     FINAL_PAYMENT_STATUSES,
     FINAL_PAYOUT_STATUSES,
@@ -94,7 +77,12 @@ from .webhooks import parse as parse_webhook
 from .webhooks import verify as verify_webhook
 from .webhooks import verify_delivery as verify_webhook_delivery
 
-_model_names = _models_all
+_generated_names = sorted(
+    name
+    for module in (_generated_enums, _generated_models)
+    for name, value in vars(module).items()
+    if getattr(value, "__module__", None) == module.__name__ and not name.startswith("_")
+)
 
 #: PEP 396 spelling of :data:`SDK_VERSION`, for tools that look for it.
 __version__ = SDK_VERSION
@@ -104,17 +92,9 @@ __all__ = [
     "CONTRACT_EXPORTED_AT",
     "CONTRACT_HASH",
     "DEFAULT_BASE_URL",
-    "DELIVERY_STATUSES",
-    "ERROR_CODES",
-    "EVENT_TYPES",
     "FINAL_PAYMENT_STATUSES",
     "FINAL_PAYOUT_STATUSES",
-    "NETWORKS",
-    "PAYMENT_STATUSES",
-    "PAYOUT_LINK_STATUSES",
-    "PAYOUT_STATUSES",
     "ROUTES",
-    "ROUTE_KEYS",
     "SDK_VERSION",
     "__version__",
     "AmountError",
@@ -125,15 +105,9 @@ __all__ = [
     "ConfigError",
     "ConflictError",
     "ContractError",
-    "DeliveryStatus",
-    "ErrorCode",
-    "EventType",
-    "FeeBearer",
-    "FeeBearerResult",
     "FileResult",
     "IdempotencyConflictError",
     "InternalError",
-    "Network",
     "NotFoundError",
     "Oblodai",
     "OblodaiError",
@@ -141,9 +115,6 @@ __all__ = [
     "PageResult",
     "Job",
     "AsyncJob",
-    "PaymentStatus",
-    "PayoutLinkStatus",
-    "PayoutStatus",
     "PermissionDeniedError",
     "RateLimitError",
     "RequestOptions",
@@ -161,7 +132,6 @@ __all__ = [
     "ValidationError",
     "WebhookDeliveryInfo",
     "WebhookPayloadError",
-    "WebhookKind",
     "add_amounts",
     "amount_equals",
     "canonical_string",
@@ -183,5 +153,5 @@ __all__ = [
     "verify_is_stale",
     "verify_webhook",
     "verify_webhook_delivery",
-    *_model_names,
+    *_generated_names,
 ]

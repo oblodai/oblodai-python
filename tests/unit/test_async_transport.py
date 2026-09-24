@@ -16,10 +16,12 @@ from typing import Any, Dict
 import httpx
 import pytest
 
+from oblodai import PaymentView
 from oblodai.aio import AsyncOblodai
 from oblodai.core.errors import ConfigError, RateLimitError, TransportError
 from oblodai.core.retry import RetryOptions
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
+from tests.support.samples import sample
 
 CREDS: Dict[str, Any] = {
     "public_id": "pk_test_1",
@@ -30,6 +32,8 @@ CREDS: Dict[str, Any] = {
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
+PAYMENT = sample(PaymentView, uuid="u")
+
 
 def client(mock: MockHTTP, **overrides: Any) -> AsyncOblodai:
     return AsyncOblodai(http_client=mock.async_client, **{**CREDS, **overrides})
@@ -39,7 +43,7 @@ async def test_signs_every_attempt_and_reuses_one_idempotency_key_across_retries
     mock = MockHTTP(
         [
             api_error(503, {"code": "db.unavailable", "message": "down", "retryable": True}),
-            ok({"uuid": "u"}),
+            ok(PAYMENT),
         ]
     )
     await client(mock).payments.create({"amount": "1", "currency": "USDT"})
@@ -63,7 +67,7 @@ async def test_surfaces_the_core_error_after_the_retry_budget() -> None:
     limited = api_error(429, {"code": "request.rate_limited", "retryable": True, "retry_after": 0})
     mock = MockHTTP([limited, limited, limited])
     with pytest.raises(RateLimitError):
-        await client(mock).account.balance()
+        await client(mock).account.get_balance()
     assert len(mock.calls) == 3
 
 
@@ -79,7 +83,7 @@ async def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> 
             ok({"balance": {"merchant": []}}),
         ]
     )
-    await client(mock, retry=RetryOptions(max_retries=0)).account.balance()
+    await client(mock, retry=RetryOptions(max_retries=0)).account.get_balance()
     assert len(mock.calls) == 2
     assert abs(int(mock.calls[1].headers["x-timestamp"]) - server_now) < 5
 
@@ -88,7 +92,7 @@ async def test_walks_every_page_with_async_for_and_sends_no_key() -> None:
     def page(offset: int, has_pages: bool) -> Scripted:
         return ok(
             {
-                "items": [{"uuid": f"u{offset}"}],
+                "items": [sample(PaymentView, uuid=f"u{offset}")],
                 "paginate": {
                     "total": 2,
                     "per_page": 1,
@@ -99,7 +103,8 @@ async def test_walks_every_page_with_async_for_and_sends_no_key() -> None:
         )
 
     mock = MockHTTP([page(0, True), page(1, False)])
-    seen = [item["uuid"] async for item in client(mock).payments.history({"limit": 1})]
+    listing = await client(mock).payments.list_history({"limit": 1})
+    seen = [item.uuid async for item in listing]
     assert seen == ["u0", "u1"]
     assert all("idempotency-key" not in call.headers for call in mock.calls)
 
@@ -107,7 +112,7 @@ async def test_walks_every_page_with_async_for_and_sends_no_key() -> None:
 async def test_a_list_method_refuses_a_caller_idempotency_key_here_too() -> None:
     mock = MockHTTP([])
     with pytest.raises(ConfigError) as excinfo:
-        client(mock).payments.history({}, idempotency_key="k")
+        await client(mock).payments.list_history({}, idempotency_key="k")
     assert excinfo.value.code == "sdk.idempotency_unsupported"
     assert mock.calls == []
 
@@ -117,13 +122,14 @@ async def test_awaiting_a_page_object_fetches_only_the_first_page() -> None:
         [
             ok(
                 {
-                    "items": [{"uuid": "u0"}],
+                    "items": [sample(PaymentView, uuid="u0")],
                     "paginate": {"total": 9, "per_page": 1, "offset": 0, "has_pages": True},
                 }
             )
         ]
     )
-    page = await client(mock).payments.history({"limit": 1})
+    listing = await client(mock).payments.list_history({"limit": 1})
+    page = await listing
     assert page.total == 9
     assert len(mock.calls) == 1
 
@@ -141,7 +147,7 @@ async def test_a_bare_route_comes_back_as_bytes_with_its_filename() -> None:
             )
         ]
     )
-    document = await client(mock).documents.statement({"from": "2026-01-01"})
+    document = await client(mock).documents.get_statement()
     assert document.content.startswith(b"%PDF")
     assert document.filename == "statement.pdf"
     assert document.content_type == "application/pdf"
@@ -156,7 +162,7 @@ async def test_cancellation_is_the_callers_decision_and_is_not_swallowed() -> No
 
     injected = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     api = AsyncOblodai(http_client=injected, **CREDS)
-    task = asyncio.ensure_future(api.account.balance(timeout=5))
+    task = asyncio.ensure_future(api.account.get_balance(timeout=5))
     await asyncio.sleep(0.01)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -168,7 +174,7 @@ async def test_the_async_client_closes_only_the_pool_it_owns() -> None:
     mock = MockHTTP([ok({"balance": {"merchant": []}})])
     injected = mock.async_client
     async with AsyncOblodai(http_client=injected, **CREDS) as api:
-        await api.account.balance()
+        await api.account.get_balance()
     assert injected.is_closed is False
     await injected.aclose()
 
@@ -176,5 +182,5 @@ async def test_the_async_client_closes_only_the_pool_it_owns() -> None:
 async def test_a_programming_error_is_not_dressed_up_as_a_network_failure_here_either() -> None:
     mock = MockHTTP([Scripted(raises=TypeError("a bug, not a socket")), ok({})])
     with pytest.raises(TypeError):
-        await client(mock).account.balance()
+        await client(mock).account.get_balance()
     assert len(mock.calls) == 1

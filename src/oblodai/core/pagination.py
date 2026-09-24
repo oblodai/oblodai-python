@@ -17,15 +17,17 @@ from typing import (
     Generic,
     Iterator,
     List,
+    Mapping,
     Optional,
     TypeVar,
 )
 
-from ..contract.models.common import Paginate
-
 __all__ = ["DEFAULT_PAGE_LIMIT", "AsyncPage", "Page", "PageResult"]
 
 T = TypeVar("T")
+
+#: The server's pagination block: ``total``, ``per_page``, ``offset``, ``has_pages``.
+Paginate = Mapping[str, Any]
 
 DEFAULT_PAGE_LIMIT = 50
 

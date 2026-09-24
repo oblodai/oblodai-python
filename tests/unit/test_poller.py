@@ -14,13 +14,14 @@ from typing import Any, Dict, List, Mapping
 import httpx
 import pytest
 
-from oblodai import RequestOptions, RouteSpec
+from oblodai import DocumentJobAccepted, DocumentJobView, RequestOptions, RouteSpec
 from oblodai.aio.base import AsyncResource
 from oblodai.core.errors import ConfigError
 from oblodai.core.poller import AsyncJob, Job
 from oblodai.lro import LRO
 from oblodai.resources.base import FileResult, Resource
 from tests.support.clients import make_async_client, make_client
+from tests.support.samples import sample
 
 CREATE_BATCH = RouteSpec(
     method="POST",
@@ -119,6 +120,7 @@ class AsyncBatches(AsyncResource):
 
 class AsyncDocuments(AsyncResource):
     _operations = OPERATIONS
+    _models: Mapping[str, Any] = {}
 
     async def create_job(self, body: Dict[str, Any], options: RequestOptions = NO_OPTIONS) -> Any:
         return await self._request(CREATE_DOC, body, options)
@@ -272,3 +274,20 @@ async def test_async_document_download() -> None:
     job = await AsyncDocuments(make_async_client(server).transport).create_job({})
     assert (await job.wait(interval=0))["status"] == "done"
     assert (await job.download()).content == b"%PDF-1"
+
+
+def test_a_generated_method_returns_a_job_that_parses_with_the_generated_models() -> None:
+    """End to end on the real client: the route table, the LRO table and the models meet."""
+    job_view = sample(DocumentJobView, job_id="id-1")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/info"):
+            return ok({**job_view, "status": "done"})
+        return ok(sample(DocumentJobAccepted, job_id="id-1", status="queued"))
+
+    job = make_client(handle).documents.create_job(kind="ledger")
+    assert isinstance(job, Job)
+    assert isinstance(job.result, DocumentJobAccepted)
+    done = job.wait(interval=0)
+    assert isinstance(done, DocumentJobView)
+    assert done.status == "done"
