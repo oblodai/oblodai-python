@@ -23,13 +23,13 @@
 ---
 
 Официальный Python SDK для платёжного шлюза **Oblodai**: приём платежей, выплаты, массовые операции
-(батчи), платёжные ссылки, выплатные ссылки (крипточеки), сплиты, статические кошельки, переводы,
+(батчи), платёжные ссылки, выплатные ссылки (крипточеки), сплиты, статические кошельки,
 вебхуки. Подпись запросов, разбор ответов, типизированные ошибки, идемпотентность и ретраи — из
 коробки.
 
-Python ≥ 3.9, одна зависимость времени выполнения (`httpx`), синхронный **и** асинхронный клиенты,
-сквозная типизация из собственного снимка контракта шлюза: у каждого маршрута, который шлюз
-предоставляет (120), здесь есть метод, а у каждого запроса и ответа — `TypedDict`.
+Python ≥ 3.10, одна зависимость времени выполнения (`httpx`), синхронный **и** асинхронный клиенты,
+код сгенерирован из собственного OpenAPI-контракта шлюза: у каждого маршрута, который шлюз
+предоставляет (120), здесь есть метод, а у каждого запроса и ответа — типизированная модель.
 
 > **Базовый URL.** По умолчанию `https://api.oblodai.com`. При необходимости переопределите
 > `base_url` и передайте свои ключи при инициализации. Схема должна быть `https://`; обычный
@@ -42,13 +42,13 @@ Python ≥ 3.9, одна зависимость времени выполнен�
 pip install oblodai
 ```
 
-Нужен Python 3.9 или новее (в CI проверяются 3.9 – 3.13). Единственная зависимость времени
+Нужен Python 3.10 или новее. Единственная зависимость времени
 выполнения — `httpx` (`>=0.24,<1.0`); верхняя граница поставлена намеренно: в httpx 1.0 может
 измениться API стриминга и таймаутов, которым SDK управляет напрямую.
 
 Пишете код вместе с ИИ-агентом? Дайте ему [AGENTS.md](AGENTS.md) — этот файл едет и внутри
 установленного пакета, по пути `importlib.resources.files("oblodai") / "AGENTS.md"`. Переходите с
-1.2? [MIGRATION-1.3.md](MIGRATION-1.3.md): это переписывание, а не обновление.
+1.x? [MIGRATION-2.0.md](MIGRATION-2.0.md) сопоставляет каждое старое имя метода с новым.
 
 ## Где взять ключи
 
@@ -58,20 +58,19 @@ pip install oblodai
 
 | учётные данные | как задаётся | для чего |
 | -------------- | ------------ | -------- |
-| **API-ключ** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | все подписанные маршруты: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.*`, `batches.info`, `documents.*`, `settings.*`, `account.*`, `webhooks.*`, `sandbox.*` |
-| **токен администратора** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | только заведение магазинов на self-hosted-шлюзе: `merchants.create`, `merchants.create_sandbox` |
+| **API-ключ** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | все подписанные маршруты: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `batches.*`, `splits.*`, `wallets.*`, `account.*`, `webhooks.*`, `settings.*`, `api_allowlist.*`, `referrals.*`, `documents.*`, `sandbox.*` |
+| **токен администратора** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | только заведение магазинов на self-hosted-шлюзе: `sandbox.onboard_store` |
 
-Маршрутам для плательщика учётные данные не нужны вовсе: `catalog.currencies`,
-`catalog.exchange_rates`, `payments.public_view/select/public_qr`,
-`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` и
-`documents.download` (ссылка уже подписана).
+Маршрутам для плательщика учётные данные не нужны вовсе: все методы `checkout.*`,
+`account.list_exchange_rates`, `payout_links.get_payout_claim/claim_payout` и
+`documents.get_signed` (ссылка уже подписана).
 
 **Песочница и боевой контур.** Ключ песочницы выдаётся к копии шлюза без блокчейна и узнаётся по
 префиксу `test_` (`test_oblodai_…` / `oblodai_test_…`); у боевого ключа такого префикса нет.
 Вызывать `sandbox.*` может только ключ `test_`.
 
-**Подключение мерчанта.** `merchants.create` и `merchants.create_sandbox` заводят магазин и
-возвращают единственный `api_key`, которым он подписывает вызовы. Они не подписываются и передают
+**Подключение мерчанта.** `sandbox.onboard_store` заводит мерчанту магазин песочницы и
+возвращает единственный `api_key`, которым он подписывает вызовы. Метод не подписывается и передаёт
 `X-Admin-Token` из `admin_token` (или `OBLODAI_ADMIN_TOKEN`) — это токен администратора на
 self-hosted-шлюзе, а не ключ мерчанта.
 
@@ -88,31 +87,27 @@ from oblodai import Oblodai
 oblodai = Oblodai()  # or Oblodai(public_id="...", secret="...")
 
 invoice = oblodai.payments.create(
-    {
-        "amount": "25",  # amounts are decimal strings, never floats
-        "currency": "USDT",  # what you price in — a fiat (USD, EUR, …) or a crypto asset
-        "network": "tron",  # omit to let the payer choose the network on the pay page
-        "order_id": "order-1001",  # your reference; idempotent per order_id
-        "url_callback": "https://shop.example/oblodai/webhook",
-    }
+    amount="25",  # amounts are decimal strings (or Decimal), never floats
+    currency="USDT",  # what you price in — a fiat (USD, EUR, …) or a crypto asset
+    network="tron",  # omit to let the payer choose the network on the pay page
+    order_id="order-1001",  # your reference; idempotent per order_id
+    url_callback="https://shop.example/oblodai/webhook",
 )
-print(invoice["url"], invoice["address"], invoice["status"])  # "created"
+print(invoice.url, invoice.address, invoice.status)  # PaymentStatus.CREATED
 ```
 
 Вывод денег устроен зеркально и подписывается тем же ключом:
 
 ```python
 payout = oblodai.payouts.create(
-    {
-        "amount": "10",
-        "currency": "USDT",
-        "network": "tron",
-        "address": "TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
-        "order_id": "payout-1001",
-    },
+    amount="10",
+    currency="USDT",
+    network="tron",
+    address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
+    order_id="payout-1001",
     idempotency_key="payout-1001",  # yours, so a process restart cannot pay twice
 )
-print(payout["uuid"], payout["status"])  # "pending"
+print(payout.uuid, payout.status)
 ```
 
 Цена в фиате: `{"amount": "25", "currency": "USD", "to_currency": "USDT"}` — `currency` это то, в чём
@@ -122,37 +117,42 @@ print(payout["uuid"], payout["status"])  # "pending"
 Закрывайте клиент, когда он больше не нужен, или используйте его как контекстный менеджер:
 
 ```python
-with Oblodai() as oblodai:
-    invoice = oblodai.payments.create({"amount": "25", "currency": "USDT"})
+with Oblodai() as client:  # closed on exit
+    invoice = client.payments.create(amount="25", currency="USDT")
 ```
 
-### Запросы и ответы — обычные словари
+### Запросы и ответы типизированы
 
-Тела запросов передаются словарями с теми же именами полей в `snake_case`, что и на проводе, и
-результаты возвращаются так же — ничего не переименовывается, никаких объектов-обёрток заучивать не
-нужно. Имена не приходится угадывать: у каждого тела есть `TypedDict` в `oblodai.contract.requests`,
-у каждого ответа — `TypedDict` в `oblodai.contract.models`, и оба сгенерированы из контракта шлюза,
-поэтому редактор подсказывает поля, а `mypy` ловит опечатку до того, как она уедет в API.
+Тело передаётся именованными аргументами, словарём с именами полей провода в `snake_case` или
+моделью запроса; результат возвращается замороженным dataclass с доступом через атрибуты. Все модели
+сгенерированы из OpenAPI-контракта шлюза, поэтому редактор подсказывает поля, а `mypy` ловит
+опечатку до того, как она уедет в API. Деньги — `Decimal`; значение enum новее этого SDK остаётся
+обычной строкой, а поле новее него попадает в `.extra` — ни то ни другое не ошибка.
 
 ```python
 from decimal import Decimal
 
 from oblodai import PaymentRequest
 
-invoice = oblodai.payments.create(amount="25", currency="USDT")
-invoice = oblodai.payments.create(PaymentRequest(amount=Decimal("25"), currency="USDT"))
+invoice = oblodai.payments.create(amount="25", currency="USDT")  # keyword arguments
+invoice = oblodai.payments.create({"amount": "25", "currency": "USDT"})  # a wire-shaped mapping
+invoice = oblodai.payments.create(PaymentRequest(amount=Decimal("25"), currency="USDT"))  # a model
+invoice.amount  # Decimal("25") - money fields are Decimal
+invoice.extra  # fields newer than this SDK, kept rather than dropped
+invoice.to_dict()  # back to the wire shape
 ```
 
 ### Асинхронный клиент
 
 ```python
 import asyncio
+
 from oblodai.aio import AsyncOblodai
 
 
 async def main() -> None:
     async with AsyncOblodai() as oblodai:
-        invoice = await oblodai.payments.create({"amount": "25", "currency": "USDT"})
+        invoice = await oblodai.payments.create(amount="25", currency="USDT")
         async for payment in await oblodai.payments.list_history(limit=50):
             print(payment.uuid)
 
@@ -192,18 +192,18 @@ add_amounts(Decimal("1.10"), "2.20")  # "3.30"
 не касается блокчейна.
 
 ```python
-oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # test funds, out of thin air
-oblodai.sandbox.deposit(
-    {"invoice_id": invoice["uuid"], "amount": "25", "confirmations": 20, "txid": "demo-tx-1"}
+oblodai.sandbox.faucet(asset="USDT", amount="100")  # test funds, out of thin air
+oblodai.sandbox.simulate_deposit(
+    invoice_id=invoice.uuid, amount="25", confirmations=20, txid="demo-tx-1"
 )
-for delivery in oblodai.sandbox.webhooks(limit=5):  # the delivery log, payloads included
-    print(delivery["event_type"], delivery["status"])
-oblodai.sandbox.replay(delivery_id)  # re-send a terminal (delivered/dead) delivery
+for delivery in oblodai.sandbox.list_webhooks():  # the delivery log, payloads included
+    print(delivery.event_type, delivery.status)
+    oblodai.sandbox.replay_webhook(delivery_id=delivery.id)  # re-send a delivered/dead one
 oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 ```
 
-Повторите `sandbox.deposit` с тем же `txid`, чтобы добавить подтверждений. Тестовые доставки — из
-`webhooks.test(kind, …)` и из песочницы — подписаны ровно так же, как боевые, и несут `test: true` в
+Повторите `sandbox.simulate_deposit` с тем же `txid`, чтобы добавить подтверждений. Тестовые
+доставки — из `webhooks.send_test_payment` (и соседних `payout`/`wallet`/`conversion`) и из песочницы — подписаны ровно так же, как боевые, и несут `test: true` в
 теле (а также заголовок `X-Webhook-Test: true`): проверяйте `delivery.is_test` (или
 `webhooks.is_test_event(event)`) и никогда не считайте такую доставку движением денег.
 [`examples/sandbox.py`](examples/sandbox.py) проходит весь денежный путь примерно за секунду.
@@ -246,22 +246,22 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 Списочные методы возвращают ленивый `Page`. Пока результат не потребляют, он не делает запросов:
 
 ```python
-page = oblodai.payments.history({"limit": 50}).first()  # one page
+page = oblodai.payments.list_history(limit=50).first()  # one page
 page.items, page.total, page.has_pages
 
-for payment in oblodai.payments.history({"limit": 50}):  # every page, fetched on demand
-    print(payment["uuid"])
+for payment in oblodai.payments.list_history(limit=50):  # every page, fetched on demand
+    print(payment.uuid)
 
-recent = oblodai.payouts.history({"limit": 50}).all(max_items=200)
+recent = oblodai.payouts.list_history(limit=50).all(max_items=200)
 ```
 
 `page.items` и `page.paginate` — сокращения для первой страницы. В асинхронном клиенте тот же объект
-либо ожидают (`await client.payments.history()`), либо обходят через `async for`.
+либо ожидают (`await client.payments.list_history()`), либо обходят через `async for`.
 
 ### Статусы
 
 - Платёж: `select → created → confirm_check → paid | paid_over | wrong_amount | expired | cancelled`.
-  `is_payment_paid` покрывает paid/paid_over; для `wrong_amount` нужен `refunds.resolve({...})`.
+  `is_payment_paid` покрывает paid/paid_over; для `wrong_amount` нужен `payments.resolve(...)`.
 - Выплата: `pending → approved → awaiting_cosign → broadcasting → sent → confirmed | failed | cancelled`.
 
 ```python
@@ -273,21 +273,32 @@ from oblodai import is_payment_paid, is_payout_final
 Эндпоинт регистрируется один раз — секрет возвращается тоже один раз, при регистрации:
 
 ```python
-endpoint = oblodai.webhooks.register("https://shop.example/oblodai/webhook")
-endpoint_secret = endpoint["secret"]  # store it; it is not shown again
+endpoint = oblodai.webhooks.register(url="https://shop.example/oblodai/webhook")
+endpoint_secret = endpoint.secret  # store it; it is not shown again
 ```
 
 Проверяйте каждую доставку по **сырым байтам запроса**, а не по повторно сериализованному разбору:
 
 ```python
-from oblodai import webhooks
+from typing import Mapping, Optional
 
-delivery = webhooks.verify_delivery(raw_body, request.headers, secret=endpoint_secret)
-event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
-if webhooks.is_stale(event, last_sequence_you_processed):
-    return  # a retry that arrived after a newer state
-if webhooks.is_known_event(event) and event["type"] == "payment":
-    ...  # narrowed to the payment shape
+from oblodai import SignatureError, WebhookPayloadError, webhooks
+
+
+def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int]) -> int:
+    """The HTTP status to answer one delivery with."""
+    try:
+        delivery = webhooks.verify_delivery(raw_body, headers, secret=endpoint_secret)
+    except SignatureError:
+        return 401  # not from the gateway
+    except WebhookPayloadError:
+        return 400  # authentic, but this receiver cannot read it
+    event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
+    if webhooks.is_stale(event, last_sequence):
+        return 200  # a retry that arrived after a newer state
+    if webhooks.is_known_event(event) and event["type"] == "payment":
+        ...  # narrowed to the payment shape
+    return 200
 ```
 
 Событие, тип которого новее этого SDK, возвращается, а не отвергается: `is_known_event` даёт `False`,
@@ -316,7 +327,9 @@ if webhooks.is_known_event(event) and event["type"] == "payment":
 from oblodai import OblodaiError, RateLimitError
 
 try:
-    oblodai.payouts.create({...})
+    oblodai.payouts.create(
+        amount="10", currency="USDT", network="tron", address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx"
+    )
 except RateLimitError as err:
     ...  # err.retry_after
 except OblodaiError as err:
@@ -350,14 +363,14 @@ except OblodaiError as err:
 Ветвитесь по `err.code`, который всегда имеет вид `family.reason`. Коды, которые стоит обрабатывать
 по имени: `payout.insufficient_funds` (повторяемый), `payout.funds_maturing` (повторяемый),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
-`merchant.bad_signature`, `request.rate_limited`. Полный каталог — `oblodai.ERROR_CODES`
+`merchant.bad_signature`, `request.rate_limited`. Полный каталог — `oblodai.ErrorCode`
 (450 codes) — это собственный список шлюза, поэтому код можно сверять точным сравнением, а не
 поиском подстроки.
 
 ## Ретраи, идемпотентность и таймауты
 
-Можно ли повторить вызов, не угадывается по виду пути: это `ROUTES[key].safe`, собственная
-классификация шлюза «только чтение», приезжающая в снимке контракта. Запись, которую шлюз не
+Можно ли повторить вызов, не угадывается по виду пути: это `ROUTES[operation_id].safe`,
+собственная классификация шлюза «только чтение» (`x-retry-safe` в его OpenAPI-контракте). Запись, которую шлюз не
 дедуплицирует, никогда не отправляется повторно, если она уже могла дойти до шлюза: транспортная
 ошибка после того, как запрос ушёл в сокет, может означать, что выплата уже состоялась.
 
@@ -366,7 +379,14 @@ except OblodaiError as err:
 ключ (не длиннее 255 символов), чтобы пережить перезапуск процесса:
 
 ```python
-oblodai.payouts.create({...}, idempotency_key=f"payout-{order_id}")
+order_id = "1001"
+oblodai.payouts.create(
+    amount="10",
+    currency="USDT",
+    network="tron",
+    address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
+    idempotency_key=f"payout-{order_id}",
+)
 ```
 
 Передача ключа маршруту, который шлюз не дедуплицирует, вызывает `sdk.idempotency_unsupported`, а не
@@ -398,6 +418,8 @@ from oblodai import Hooks, Oblodai
 
 oblodai = Oblodai(hooks=Hooks(on_request=print, on_response=print))  # once per attempt
 strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant": "t1"})
+raw = oblodai.account.with_raw_response.get_balance()  # RawAPIResponse
+raw.status, raw.request_id, raw.parse()
 ```
 
 `with_options(timeout=, max_retries=, extra_headers=)` возвращает новый клиент на том же HTTP-пуле;
@@ -417,7 +439,7 @@ strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant
 | `public_id`, `secret` | окружение | API-ключ мерчанта |
 | `base_url` | `https://api.oblodai.com` | origin API; префикс пути (`https://gw.corp/oblodai`) сохраняется |
 | `allow_insecure_base_url` | `False` | разрешает `http://` на не-локальный хост |
-| `admin_token` | окружение | `X-Admin-Token` для `merchants.*` на self-hosted-шлюзе |
+| `admin_token` | окружение | `X-Admin-Token` для `sandbox.onboard_store` на self-hosted-шлюзе |
 | `timeout` | `30.0` | секунды на одну попытку; принимается и `httpx.Timeout` (его наибольшая граница) |
 | `deadline` | `90.0` | секунды на весь вызов, вместе с ретраями |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
@@ -431,7 +453,7 @@ strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant
 | переменная | что задаёт |
 | ---------- | ---------- |
 | `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | API-ключ мерчанта |
-| `OBLODAI_ADMIN_TOKEN` | открывает `merchants.*` на self-hosted-шлюзе |
+| `OBLODAI_ADMIN_TOKEN` | открывает `sandbox.onboard_store` на self-hosted-шлюзе |
 | `OBLODAI_BASE_URL` | origin API (по умолчанию `https://api.oblodai.com`; префикс пути сохраняется) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — структурные логи в stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` разрешает `http://` на не-локальный хост |
@@ -454,51 +476,51 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 
 Обычный `http://` принимается для локальной петли и без флага; во всех остальных случаях флаг
 обязателен, чтобы подпись случайно не ушла с хоста в открытом виде. Заведение мерчанта
-(`merchants.*`) не подписывается и передаёт `X-Admin-Token`, когда задан `admin_token`.
+(`sandbox.onboard_store`) не подписывается и передаёт `X-Admin-Token`, когда задан `admin_token`.
 
-## Снимок контракта
+## Контракт
 
-`contract/` — он есть в репозитории и в sdist, но не в установленном wheel — содержит собственный
-экспорт шлюза: реестр маршрутов, схемы запросов, все перечисления и коды ошибок, векторы для
-подписи, эталонные тела ответов по каждому маршруту и настоящие подписанные доставки вебхуков. Он
-закреплён за одним коммитом ядра (`CONTRACT_CORE_COMMIT`), и 120 маршрутов и 450 кодов ошибок, которые
-предоставляет SDK, — ровно те, что лежат в нём.
+`src/oblodai/generated/` — ресурсы, модели, перечисления и таблица маршрутов — генерирует
+`tools/sdkgen` бэкенда из `services/core/api/openapi.json` шлюза, который ядро выгружает из
+собственного реестра маршрутов. 120 маршрутов и 450 кодов ошибок, которые предоставляет SDK, — ровно
+те, что в нём, а `names.lock` закрепляет каждое публичное имя метода: запуск генератора, который
+убрал бы или переименовал имя, падает как ломающее изменение.
 
 ```python
-from oblodai import CONTRACT_CORE_COMMIT, ROUTES
+from oblodai import ROUTES
 
-ROUTES["POST /v1/payout"].auth  # "key" - signed with the merchant's API key
-ROUTES["POST /v1/payout"].idempotent  # True
-ROUTES["POST /v1/payout"].safe  # False - never re-sent after a transport failure without a key
+ROUTES["createPayout"].auth  # "key" - signed with the merchant's API key
+ROUTES["createPayout"].idempotent  # True - a key is generated and reused across retries
+ROUTES["getBalance"].safe  # True - x-retry-safe: re-sent after a transport failure without a key
 ```
 
-`scripts/codegen.py` превращает снимок в `oblodai/contract/{routes,enums,requests,version}.py`, а
-`scripts/gen_async.py` зеркалит слой ресурсов в `oblodai/aio/resources/`. Оба результата проверяет
-`scripts/check_drift.py`: он перегенерирует всё во временный каталог и сравнивает, поэтому
-закоммиченный код не может разойтись с контрактом — ни в CI, ни локально (`make drift`).
-
-Как обновить: положите свежий экспорт в `contract/`, выполните `make codegen`, затем `make ci`.
-Контрактные тесты громко упадут на всём, что изменил снимок, — на новом маршруте, переименованном
-поле, переехавшем коде ошибки. В этом и смысл.
+Как обновить: `make sdk` в бэкенде перегенерирует этот пакет и запускает здесь `make ci`;
+`make drift` (`OBLODAI_BACKEND` — путь к чекауту бэкенда) падает, если закоммиченный код не совпадает
+с тем, что генератор делает из контракта. `contract/` — в репозитории и в sdist — хранит прежний
+экспорт ядра (векторы подписи, эталонные тела, подписанные доставки вебхуков), с которым сверяются
+контрактные тесты; он закреплён за `CONTRACT_CORE_COMMIT`.
 
 ## Разработка
 
 ```bash
 git clone https://github.com/oblodai/oblodai-python && cd oblodai-python
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-make ci            # drift + ruff + mypy + unit and contract tests + packaging
+make ci            # drift + ruff + mypy + unit, contract and conformance tests + packaging
 make live          # the same, plus the live tier (needs OBLODAI_LIVE_URL)
-make codegen       # regenerate the contract mirror and the async resources
+make drift         # fail when src/oblodai/generated is stale against the backend's openapi.json
 ```
 
-Три яруса тестов: `tests/unit` (векторы подписи и вебхуков, правила ретраев, идемпотентности,
-поправки часов и разбора URL поверх подставного HTTP-слоя), `tests/contract` (каждый маршрут
+Четыре яруса тестов: `tests/unit` (векторы подписи и вебхуков, правила ретраев, идемпотентности,
+поправки часов и разбора URL поверх подставного HTTP-слоя, а также каждый блок кода этого README на
+подставном шлюзе), `tests/conformance` (набор сценариев, который прогоняет каждый SDK Oblodai; он
+читается из `tools/sdkgen/conformance` бэкенда, `SDKGEN_CONFORMANCE` указывает другое место),
+`tests/contract` (каждый маршрут
 подключён к правильному методу, пути, виду ключа и заголовку идемпотентности; каждое эталонное тело
 совпадает со своей моделью поле в поле; документация проверяется как код) и `tests/live` (настоящий
 шлюз: подключение мерчанта, счёт, депозит, выплата, возврат, ссылки, документы).
 
 Смотрите также [AGENTS.md](AGENTS.md) — сводку для ИИ-агентов, [CHANGELOG.md](CHANGELOG.md) — что
-менялось, [MIGRATION-1.3.md](MIGRATION-1.3.md) — переход с 1.2 и [RELEASING.md](RELEASING.md) — как
+менялось, [MIGRATION-2.0.md](MIGRATION-2.0.md) — переход с 1.x и [RELEASING.md](RELEASING.md) — как
 версия попадает на PyPI.
 
 ## Лицензия

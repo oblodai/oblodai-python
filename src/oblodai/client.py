@@ -40,7 +40,7 @@ __all__ = ["Oblodai", "user_agent"]
 
 
 def user_agent(flavour: str = "python") -> str:
-    """``oblodai-python/1.3.0 (contract abc123456789; python 3.12.3)``."""
+    """``oblodai-python/2.0.0 (contract abc123456789; python 3.12.3)``."""
     return (
         f"oblodai-{flavour}/{SDK_VERSION} "
         f"(contract {CONTRACT_HASH[:12]}; python {platform.python_version()})"

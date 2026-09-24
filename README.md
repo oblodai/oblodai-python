@@ -24,12 +24,12 @@ Payments, payouts, payment links, splits, static wallets, webhooks — one API k
 
 The official Python SDK for the **Oblodai** payment gateway: accepting payments, payouts, bulk
 operations (batches), payment links, payout links (crypto cheques), splits, static wallets,
-transfers, webhooks. Request signing, response parsing, typed errors, idempotency and retries — out
+webhooks. Request signing, response parsing, typed errors, idempotency and retries — out
 of the box.
 
-Python ≥ 3.9 with a single runtime dependency (`httpx`), a synchronous **and** an asynchronous
-client, typed end to end from the gateway's own contract snapshot: every route it exposes (120) has
-a method here, and every request and response has a `TypedDict`.
+Python ≥ 3.10 with a single runtime dependency (`httpx`), a synchronous **and** an asynchronous
+client, generated from the gateway's own OpenAPI contract: every route it exposes (120) has a
+method here, and every request and response has a typed model.
 
 > **Base URL.** Defaults to `https://api.oblodai.com`. Override `base_url` and supply your own keys
 > at initialisation if needed. The scheme must be `https://`; plain `http://` is accepted only for
@@ -42,13 +42,13 @@ a method here, and every request and response has a `TypedDict`.
 pip install oblodai
 ```
 
-Python 3.9 or newer (3.9 – 3.13 are tested in CI). The only runtime dependency is `httpx`
+Python 3.10 or newer. The only runtime dependency is `httpx`
 (`>=0.24,<1.0`); the upper bound is deliberate, because httpx 1.0 may move the streaming and
 timeout API this SDK drives directly.
 
 Writing code with an AI agent? Point it at [AGENTS.md](AGENTS.md) — it ships inside the installed
-package as well, at `importlib.resources.files("oblodai") / "AGENTS.md"`. Coming from 1.2?
-[MIGRATION-1.3.md](MIGRATION-1.3.md): it is a rewrite, not an upgrade.
+package as well, at `importlib.resources.files("oblodai") / "AGENTS.md"`. Coming from 1.x?
+[MIGRATION-2.0.md](MIGRATION-2.0.md) maps every old method name to its new one.
 
 ## Where to get keys
 
@@ -58,20 +58,19 @@ money-out alike:
 
 | credential | configured as | used for |
 | ---------- | ------------- | -------- |
-| **API key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | every signed route: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `transfers.*`, `splits.*`, `wallets.*`, `batches.info`, `documents.*`, `settings.*`, `account.*`, `webhooks.*`, `sandbox.*` |
-| **admin token** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | provisioning only, on a self-hosted gateway: `merchants.create`, `merchants.create_sandbox` |
+| **API key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | every signed route: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `batches.*`, `splits.*`, `wallets.*`, `account.*`, `webhooks.*`, `settings.*`, `api_allowlist.*`, `referrals.*`, `documents.*`, `sandbox.*` |
+| **admin token** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | provisioning only, on a self-hosted gateway: `sandbox.onboard_store` |
 
-The payer-facing routes need no credentials at all: `catalog.currencies`,
-`catalog.exchange_rates`, `payments.public_view/select/public_qr`,
-`payment_links.public_view/checkout`, `payout_links.claim_preview/claim` and
-`documents.download` (a pre-signed link).
+The payer-facing routes need no credentials at all: every `checkout.*` method,
+`account.list_exchange_rates`, `payout_links.get_payout_claim/claim_payout` and
+`documents.get_signed` (a pre-signed link).
 
 **Sandbox versus live.** A sandbox key is issued against a chainless copy of the gateway and is
 recognisable by its `test_` prefix (`test_oblodai_…` / `oblodai_test_…`); a live key carries no such
 prefix. Only a `test_` key may call `sandbox.*`.
 
-**Onboarding.** `merchants.create` and `merchants.create_sandbox` provision a store and return the
-single `api_key` it signs with. They are unsigned and carry `X-Admin-Token`, taken from
+**Onboarding.** `sandbox.onboard_store` provisions a merchant's sandbox store and returns the
+single `api_key` it signs with. It is unsigned and carries `X-Admin-Token`, taken from
 `admin_token` (or `OBLODAI_ADMIN_TOKEN`) — an administrator's token on a self-hosted gateway, not a
 merchant key.
 
@@ -88,31 +87,27 @@ from oblodai import Oblodai
 oblodai = Oblodai()  # or Oblodai(public_id="...", secret="...")
 
 invoice = oblodai.payments.create(
-    {
-        "amount": "25",  # amounts are decimal strings, never floats
-        "currency": "USDT",  # what you price in — a fiat (USD, EUR, …) or a crypto asset
-        "network": "tron",  # omit to let the payer choose the network on the pay page
-        "order_id": "order-1001",  # your reference; idempotent per order_id
-        "url_callback": "https://shop.example/oblodai/webhook",
-    }
+    amount="25",  # amounts are decimal strings (or Decimal), never floats
+    currency="USDT",  # what you price in — a fiat (USD, EUR, …) or a crypto asset
+    network="tron",  # omit to let the payer choose the network on the pay page
+    order_id="order-1001",  # your reference; idempotent per order_id
+    url_callback="https://shop.example/oblodai/webhook",
 )
-print(invoice["url"], invoice["address"], invoice["status"])  # "created"
+print(invoice.url, invoice.address, invoice.status)  # PaymentStatus.CREATED
 ```
 
 Money out is the mirror image, signed with the same key:
 
 ```python
 payout = oblodai.payouts.create(
-    {
-        "amount": "10",
-        "currency": "USDT",
-        "network": "tron",
-        "address": "TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
-        "order_id": "payout-1001",
-    },
+    amount="10",
+    currency="USDT",
+    network="tron",
+    address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
+    order_id="payout-1001",
     idempotency_key="payout-1001",  # yours, so a process restart cannot pay twice
 )
-print(payout["uuid"], payout["status"])  # "pending"
+print(payout.uuid, payout.status)
 ```
 
 Prices in fiat: `{"amount": "25", "currency": "USD", "to_currency": "USDT"}` — `currency` is what
@@ -122,37 +117,42 @@ you charge, `to_currency` the asset the payer sends. Runnable scripts live in
 Close the client when you are done with it, or use it as a context manager:
 
 ```python
-with Oblodai() as oblodai:
-    invoice = oblodai.payments.create({"amount": "25", "currency": "USDT"})
+with Oblodai() as client:  # closed on exit
+    invoice = client.payments.create(amount="25", currency="USDT")
 ```
 
-### Requests and responses are plain dicts
+### Requests and responses are typed
 
-Bodies go in as dictionaries with the wire's own `snake_case` field names, and results come back the
-same way — no renaming, no wrapper objects to unlearn. The names are not guesswork: every body has a
-`TypedDict` in `oblodai.contract.requests` and every response a `TypedDict` in
-`oblodai.contract.models`, generated from the gateway, so editors autocomplete the fields and
-`mypy` catches a typo before it reaches the API.
+A body goes in as keyword arguments, as a mapping with the wire's own `snake_case` names, or as its
+request model; a result comes back as a frozen dataclass with attribute access. Every model is
+generated from the gateway's OpenAPI contract, so editors autocomplete the fields and `mypy`
+catches a typo before it reaches the API. Money is `Decimal`; an enum value newer than this SDK
+stays a plain string, and a field newer than it lands in `.extra` - neither is an error.
 
 ```python
 from decimal import Decimal
 
 from oblodai import PaymentRequest
 
-invoice = oblodai.payments.create(amount="25", currency="USDT")
-invoice = oblodai.payments.create(PaymentRequest(amount=Decimal("25"), currency="USDT"))
+invoice = oblodai.payments.create(amount="25", currency="USDT")  # keyword arguments
+invoice = oblodai.payments.create({"amount": "25", "currency": "USDT"})  # a wire-shaped mapping
+invoice = oblodai.payments.create(PaymentRequest(amount=Decimal("25"), currency="USDT"))  # a model
+invoice.amount  # Decimal("25") - money fields are Decimal
+invoice.extra  # fields newer than this SDK, kept rather than dropped
+invoice.to_dict()  # back to the wire shape
 ```
 
 ### Async
 
 ```python
 import asyncio
+
 from oblodai.aio import AsyncOblodai
 
 
 async def main() -> None:
     async with AsyncOblodai() as oblodai:
-        invoice = await oblodai.payments.create({"amount": "25", "currency": "USDT"})
+        invoice = await oblodai.payments.create(amount="25", currency="USDT")
         async for payment in await oblodai.payments.list_history(limit=50):
             print(payment.uuid)
 
@@ -190,18 +190,19 @@ instead of blocks, and real signed webhooks. Integrate against it first — noth
 chain.
 
 ```python
-oblodai.sandbox.faucet({"asset": "USDT", "amount": "100"})  # test funds, out of thin air
-oblodai.sandbox.deposit(
-    {"invoice_id": invoice["uuid"], "amount": "25", "confirmations": 20, "txid": "demo-tx-1"}
+oblodai.sandbox.faucet(asset="USDT", amount="100")  # test funds, out of thin air
+oblodai.sandbox.simulate_deposit(
+    invoice_id=invoice.uuid, amount="25", confirmations=20, txid="demo-tx-1"
 )
-for delivery in oblodai.sandbox.webhooks(limit=5):  # the delivery log, payloads included
-    print(delivery["event_type"], delivery["status"])
-oblodai.sandbox.replay(delivery_id)  # re-send a terminal (delivered/dead) delivery
+for delivery in oblodai.sandbox.list_webhooks():  # the delivery log, payloads included
+    print(delivery.event_type, delivery.status)
+    oblodai.sandbox.replay_webhook(delivery_id=delivery.id)  # re-send a delivered/dead one
 oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 ```
 
-Repeat `sandbox.deposit` with the same `txid` to add confirmations. Rehearsal deliveries — from
-`webhooks.test(kind, …)` and from the sandbox — are signed exactly like live ones and carry
+Repeat `sandbox.simulate_deposit` with the same `txid` to add confirmations. Rehearsal deliveries
+— from `webhooks.send_test_payment` (and its `payout`/`wallet`/`conversion` siblings) and from the
+sandbox — are signed exactly like live ones and carry
 `test: true` in the body (and `X-Webhook-Test: true`): check `delivery.is_test` (or
 `webhooks.is_test_event(event)`) and never act on one as if money moved.
 [`examples/sandbox.py`](examples/sandbox.py) walks the whole money path in about a second.
@@ -243,22 +244,22 @@ all. Document methods return a `FileResult(content, content_type, filename)`.
 List methods return a lazy `Page`. It requests nothing until you consume it:
 
 ```python
-page = oblodai.payments.history({"limit": 50}).first()  # one page
+page = oblodai.payments.list_history(limit=50).first()  # one page
 page.items, page.total, page.has_pages
 
-for payment in oblodai.payments.history({"limit": 50}):  # every page, fetched on demand
-    print(payment["uuid"])
+for payment in oblodai.payments.list_history(limit=50):  # every page, fetched on demand
+    print(payment.uuid)
 
-recent = oblodai.payouts.history({"limit": 50}).all(max_items=200)
+recent = oblodai.payouts.list_history(limit=50).all(max_items=200)
 ```
 
 `page.items` and `page.paginate` are shortcuts for the first page. On the async client the same
-object is awaited (`await client.payments.history()`) or walked with `async for`.
+object is awaited (`await client.payments.list_history()`) or walked with `async for`.
 
 ### Statuses
 
 - Payment: `select → created → confirm_check → paid | paid_over | wrong_amount | expired | cancelled`.
-  `is_payment_paid` covers paid/paid_over; `wrong_amount` needs `refunds.resolve({...})`.
+  `is_payment_paid` covers paid/paid_over; `wrong_amount` needs `payments.resolve(...)`.
 - Payout: `pending → approved → awaiting_cosign → broadcasting → sent → confirmed | failed | cancelled`.
 
 ```python
@@ -270,21 +271,32 @@ from oblodai import is_payment_paid, is_payout_final
 Register the endpoint once — the secret is returned once, at registration:
 
 ```python
-endpoint = oblodai.webhooks.register("https://shop.example/oblodai/webhook")
-endpoint_secret = endpoint["secret"]  # store it; it is not shown again
+endpoint = oblodai.webhooks.register(url="https://shop.example/oblodai/webhook")
+endpoint_secret = endpoint.secret  # store it; it is not shown again
 ```
 
 Verify every delivery over the **raw request bytes**, never a re-serialised parse:
 
 ```python
-from oblodai import webhooks
+from typing import Mapping, Optional
 
-delivery = webhooks.verify_delivery(raw_body, request.headers, secret=endpoint_secret)
-event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
-if webhooks.is_stale(event, last_sequence_you_processed):
-    return  # a retry that arrived after a newer state
-if webhooks.is_known_event(event) and event["type"] == "payment":
-    ...  # narrowed to the payment shape
+from oblodai import SignatureError, WebhookPayloadError, webhooks
+
+
+def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int]) -> int:
+    """The HTTP status to answer one delivery with."""
+    try:
+        delivery = webhooks.verify_delivery(raw_body, headers, secret=endpoint_secret)
+    except SignatureError:
+        return 401  # not from the gateway
+    except WebhookPayloadError:
+        return 400  # authentic, but this receiver cannot read it
+    event = delivery.event  # {"type": "payment"|"payout"|"wallet", ...}
+    if webhooks.is_stale(event, last_sequence):
+        return 200  # a retry that arrived after a newer state
+    if webhooks.is_known_event(event) and event["type"] == "payment":
+        ...  # narrowed to the payment shape
+    return 200
 ```
 
 An event kind newer than this SDK is returned, not refused — `is_known_event` is `False` and
@@ -312,7 +324,9 @@ Everything raises a subclass of `OblodaiError`:
 from oblodai import OblodaiError, RateLimitError
 
 try:
-    oblodai.payouts.create({...})
+    oblodai.payouts.create(
+        amount="10", currency="USDT", network="tron", address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx"
+    )
 except RateLimitError as err:
     ...  # err.retry_after
 except OblodaiError as err:
@@ -346,13 +360,14 @@ support asks for, `err.synthetic` marks an answer that came from a proxy rather 
 Branch on `err.code`, which is always `family.reason`. Codes worth handling by name:
 `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
-`merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ERROR_CODES`
+`merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ErrorCode`
 (450 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
 
 ## Retries, idempotency and timeouts
 
 Whether a call may be repeated is not guessed from the shape of its path: it is
-`ROUTES[key].safe`, the gateway's own read-only classification, carried in the contract snapshot.
+`ROUTES[operation_id].safe`, the gateway's own read-only classification (`x-retry-safe` in its
+OpenAPI contract).
 A write the gateway does not deduplicate is never re-sent once it may have reached the gateway —
 a transport error after the request left the socket could mean the payout already happened.
 
@@ -361,7 +376,14 @@ response can never become a double payout. Pass your own (≤ 255 characters) to
 restart:
 
 ```python
-oblodai.payouts.create({...}, idempotency_key=f"payout-{order_id}")
+order_id = "1001"
+oblodai.payouts.create(
+    amount="10",
+    currency="USDT",
+    network="tron",
+    address="TQrY8bkbpXKPt2LZbU8jqfnpFbUSF15sbx",
+    idempotency_key=f"payout-{order_id}",
+)
 ```
 
 Passing one to a route the gateway does not deduplicate raises `sdk.idempotency_unsupported` rather
@@ -391,6 +413,8 @@ from oblodai import Hooks, Oblodai
 
 oblodai = Oblodai(hooks=Hooks(on_request=print, on_response=print))  # once per attempt
 strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant": "t1"})
+raw = oblodai.account.with_raw_response.get_balance()  # RawAPIResponse
+raw.status, raw.request_id, raw.parse()
 ```
 
 `with_options(timeout=, max_retries=, extra_headers=)` returns a new client over the same HTTP pool;
@@ -410,7 +434,7 @@ always wins over the environment.
 | `public_id`, `secret` | environment | the merchant's API key |
 | `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
 | `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
-| `admin_token` | environment | `X-Admin-Token` for `merchants.*` on a self-hosted gateway |
+| `admin_token` | environment | `X-Admin-Token` for `sandbox.onboard_store` on a self-hosted gateway |
 | `timeout` | `30.0` | seconds per attempt; an `httpx.Timeout` is accepted (its largest bound) |
 | `deadline` | `90.0` | seconds for the whole call, retries included |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
@@ -424,7 +448,7 @@ With no arguments at all the client configures itself from the environment:
 | variable | what it sets |
 | -------- | ------------ |
 | `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the merchant's API key |
-| `OBLODAI_ADMIN_TOKEN` | gates `merchants.*` on a self-hosted gateway |
+| `OBLODAI_ADMIN_TOKEN` | gates `sandbox.onboard_store` on a self-hosted gateway |
 | `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
@@ -445,52 +469,51 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 ```
 
 Plain `http://` is accepted for loopback without the flag; anything else needs it, so a signature
-never leaves the host in the clear by accident. Merchant provisioning (`merchants.*`) is unsigned
+never leaves the host in the clear by accident. Merchant provisioning (`sandbox.onboard_store`) is unsigned
 and carries `X-Admin-Token` when `admin_token` is set.
 
-## The contract snapshot
+## The contract
 
-`contract/` — in the repository and in the sdist, not in the installed wheel — holds the gateway's
-own export: the route registry, request schemas, all enums and error codes, signing vectors, golden
-response bodies for every route and real signed webhook deliveries. It pins one core commit
-(`CONTRACT_CORE_COMMIT`), and the 120 routes and 450 error codes this SDK exposes are exactly the
-ones in it.
+`src/oblodai/generated/` — the resources, models, enums and the route table — is generated by the
+backend's `tools/sdkgen` from the gateway's `services/core/api/openapi.json`, which the core exports
+from its own route registry. The 120 routes and 450 error codes this SDK exposes are exactly the
+ones in it, and `names.lock` pins every public method name: a generator run that would drop or
+rename one fails as a breaking change.
 
 ```python
-from oblodai import CONTRACT_CORE_COMMIT, ROUTES
+from oblodai import ROUTES
 
-ROUTES["POST /v1/payout"].auth  # "key" - signed with the merchant's API key
-ROUTES["POST /v1/payout"].idempotent  # True
-ROUTES["POST /v1/payout"].safe  # False - never re-sent after a transport failure without a key
+ROUTES["createPayout"].auth  # "key" - signed with the merchant's API key
+ROUTES["createPayout"].idempotent  # True - a key is generated and reused across retries
+ROUTES["getBalance"].safe  # True - x-retry-safe: re-sent after a transport failure without a key
 ```
 
-`scripts/codegen.py` turns the snapshot into `oblodai/contract/{routes,enums,requests,version}.py`,
-and `scripts/gen_async.py` mirrors the resource layer into `oblodai/aio/resources/`. Both outputs
-are checked by `scripts/check_drift.py` — it regenerates into a temporary directory and compares, so
-the committed code cannot drift from the contract, in CI or locally (`make drift`).
-
-To refresh: drop the newer export into `contract/`, run `make codegen`, then `make ci`. The contract
-tests fail loudly on anything the snapshot changed — a new route, a renamed field, a moved error
-code — which is the point.
+To refresh: `make sdk` in the backend regenerates this package and runs `make ci` here;
+`make drift` (`OBLODAI_BACKEND` names the backend checkout) fails when the committed code is not
+what the generator makes of the contract. `contract/` — in the repository and in the sdist — keeps
+the core's older export (signing vectors, golden bodies, signed webhook deliveries) that the contract
+tests compare against; it pins `CONTRACT_CORE_COMMIT`.
 
 ## Development
 
 ```bash
 git clone https://github.com/oblodai/oblodai-python && cd oblodai-python
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-make ci            # drift + ruff + mypy + unit and contract tests + packaging
+make ci            # drift + ruff + mypy + unit, contract and conformance tests + packaging
 make live          # the same, plus the live tier (needs OBLODAI_LIVE_URL)
-make codegen       # regenerate the contract mirror and the async resources
+make drift         # fail when src/oblodai/generated is stale against the backend's openapi.json
 ```
 
-Three test tiers: `tests/unit` (signing and webhook vectors, retry/idempotency/skew/URL rules over a
-scripted HTTP layer), `tests/contract` (every route is wired to the right method, path, auth and
+Four test tiers: `tests/unit` (signing and webhook vectors, retry/idempotency/skew/URL rules over a
+scripted HTTP layer, and every code block of this README run against a mock gateway),
+`tests/conformance` (the scenario suite every Oblodai SDK runs, read from the backend's
+`tools/sdkgen/conformance`; `SDKGEN_CONFORMANCE` points elsewhere), `tests/contract` (every route is wired to the right method, path, auth and
 idempotency header; every golden body matches its model key-for-key; the documentation is checked
 like code) and `tests/live` (a real gateway: onboard, invoice, deposit, payout, refund, links,
 documents).
 
 See also [AGENTS.md](AGENTS.md) for the agent-facing summary, [CHANGELOG.md](CHANGELOG.md) for
-what changed, [MIGRATION-1.3.md](MIGRATION-1.3.md) for the move from 1.2 and
+what changed, [MIGRATION-2.0.md](MIGRATION-2.0.md) for the move from 1.x and
 [RELEASING.md](RELEASING.md) for how a version reaches PyPI.
 
 ## License
