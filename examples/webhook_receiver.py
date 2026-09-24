@@ -36,16 +36,16 @@ seen_events: Set[str] = set()
 last_sequence: Dict[str, int] = {}
 
 
-def object_id(event: Mapping[str, object]) -> str:
-    """The object the event is about: ``uuid`` (payments, payouts, wallets) or ``id`` (conversions)."""
-    return f"{event['type']}:{event.get('uuid') or event.get('id')}"
+def object_key(event: Mapping[str, object]) -> str:
+    """The object the event is about: its kind and the id the contract names for that kind."""
+    return f"{event['type']}:{webhooks.object_id(event)}"
 
 
 def handle(event: Dict[str, object], event_id: Optional[str]) -> None:
     """Your business logic. Runs once per state, in order, for each object."""
     kind = event["type"]
     status = event["status"]
-    print(f"[{event_id}] {object_id(event)} -> {status}")
+    print(f"[{event_id}] {object_key(event)} -> {status}")
     if kind == "payment" and status in ("paid", "paid_over"):
         ...  # release the goods
     elif kind == "payout" and status == "confirmed":
@@ -73,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         event = delivery.event
-        obj = object_id(event)
+        obj = object_key(event)
         # A core that does not send the event id yet leaves the delivery id as the next best key.
         key = delivery.event_id or delivery.id
         if delivery.is_test:

@@ -23,6 +23,15 @@ WEBHOOK_MODELS: Dict[str, Type[WebhookModel]] = {
     "wallet": WalletWebhook,
 }
 
+#: ``kind -> body field holding the id of the object the event is about``, as the contract
+#: declares it per kind. A kind whose body has no such field is not listed.
+WEBHOOK_ID_FIELDS: Dict[str, str] = {
+    "conversion": "id",
+    "payment": "uuid",
+    "payout": "uuid",
+    "wallet": "uuid",
+}
+
 #: ``event name (X-Webhook-Event) -> kind``.
 WEBHOOK_EVENTS: Dict[str, str] = {
     "conversion.completed": "conversion",
