@@ -382,6 +382,22 @@ valid for the URI it was signed for, and an injected HTTP client that follows on
 turned into an error. Response bodies are read under a cap: 8 MiB for JSON, 64 MiB for documents,
 beyond which the call raises `ResponseTooLargeError`.
 
+### Raw responses, `with_options` and hooks
+
+```python
+from oblodai import Hooks, Oblodai
+
+oblodai = Oblodai(hooks=Hooks(on_request=print, on_response=print))  # once per attempt
+strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant": "t1"})
+```
+
+`with_options(timeout=, max_retries=, extra_headers=)` returns a new client over the same HTTP pool;
+the original is untouched. `resource.with_raw_response.<method>(...)` returns a `RawAPIResponse`
+(`.status`, `.headers`, `.request_id`, `.parse()` for the usual result); an error status still
+raises. Hooks get a `RequestInfo` before each attempt (signature redacted) and a `ResponseInfo`
+after it (`status` 0 plus `error` when no response came); they run synchronously, and an exception
+in a hook propagates.
+
 ## Configuration
 
 Every option is a keyword argument to `Oblodai(...)` / `AsyncOblodai(...)`; an explicit argument

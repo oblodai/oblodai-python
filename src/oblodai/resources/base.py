@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
@@ -14,11 +15,12 @@ from ..core.envelope import as_page, as_plain_list
 from ..core.errors import ConfigError
 from ..core.options import RequestOptions, options_from_kwargs
 from ..core.pagination import Page, PageResult
+from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
 from ..core.transport import Transport
 
-__all__ = ["FileResult", "PagePlan", "Resource", "call_options", "plan_page"]
+__all__ = ["FileResult", "PagePlan", "Resource", "call_options", "plan_page", "raw_copy"]
 
 PathParams = Mapping[str, Union[str, int]]
 
@@ -68,8 +70,17 @@ class Resource:
     ``extra_headers`` and ``request_id`` (sent as ``X-Request-ID``). Anything else is a TypeError.
     """
 
+    #: Set on the copy :attr:`with_raw_response` hands out, never on the namespace itself.
+    _raw_response = False
+
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
+
+    @property
+    def with_raw_response(self) -> Any:
+        """The same methods, returning :class:`~oblodai.RawAPIResponse` (status, headers,
+        ``request_id``, ``parse()``) instead of the parsed result."""
+        return raw_copy(self)
 
     # -- internals ---------------------------------------------------------------------------
 
@@ -83,8 +94,15 @@ class Resource:
         query: Optional[Query] = None,
         parse: Optional[Callable[[Any], T]] = None,
     ) -> Any:
-        """Call an envelope route; return its ``result``, or ``parse(result)`` when given."""
-        result = self._transport.call(route, call_options(options, body, path_params, query))
+        """Call an envelope route; return its ``result``, or ``parse(result)`` when given.
+
+        Through :attr:`with_raw_response` it returns a :class:`RawAPIResponse` whose ``parse()``
+        does the same.
+        """
+        opts = call_options(options, body, path_params, query)
+        if self._raw_response:
+            return RawAPIResponse(route, self._transport.call_raw(route, opts), parse)
+        result = self._transport.call(route, opts)
         return parse(result) if parse is not None else result
 
     @staticmethod
@@ -150,6 +168,16 @@ class Resource:
             content_type=raw.content_type or "application/octet-stream",
             filename=filename_from(raw.header("content-disposition")),
         )
+
+
+R = TypeVar("R")
+
+
+def raw_copy(resource: R) -> R:
+    """A shallow copy of a namespace whose ``_request`` answers with raw responses."""
+    clone = copy.copy(resource)
+    clone._raw_response = True  # type: ignore[attr-defined]
+    return clone
 
 
 @dataclass(frozen=True)

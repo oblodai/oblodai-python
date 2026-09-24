@@ -389,6 +389,22 @@ base_delay_ms=…)` (по умолчанию: 2 ретрая, база 250 мс,
 ограничением: 8 МиБ для JSON и 64 МиБ для документов; сверх того вызов поднимает
 `ResponseTooLargeError`.
 
+### Сырой ответ, `with_options` и хуки
+
+```python
+from oblodai import Hooks, Oblodai
+
+oblodai = Oblodai(hooks=Hooks(on_request=print, on_response=print))  # once per attempt
+strict = oblodai.with_options(timeout=5, max_retries=0, extra_headers={"X-Tenant": "t1"})
+```
+
+`with_options(timeout=, max_retries=, extra_headers=)` возвращает новый клиент на том же HTTP-пуле;
+исходный не меняется. `ресурс.with_raw_response.<метод>(...)` возвращает `RawAPIResponse`
+(`.status`, `.headers`, `.request_id`, `.parse()` — обычный результат); статус ошибки по-прежнему
+бросает исключение. Хуки получают `RequestInfo` перед каждой попыткой (подпись скрыта) и
+`ResponseInfo` после неё (`status` 0 и `error`, если ответа не было); вызываются синхронно,
+исключение из хука пробрасывается.
+
 ## Конфигурация
 
 Каждая опция — именованный аргумент `Oblodai(...)` / `AsyncOblodai(...)`; явный аргумент всегда

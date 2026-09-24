@@ -8,6 +8,7 @@ from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
 from ..core.options import RequestOptions
 from ..core.pagination import AsyncPage, PageResult
+from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
 from ..resources.base import (
@@ -18,6 +19,7 @@ from ..resources.base import (
     call_options,
     filename_from,
     plan_page,
+    raw_copy,
 )
 
 __all__ = ["AsyncResource", "FileResult"]
@@ -32,8 +34,17 @@ class AsyncResource:
     (:class:`oblodai.resources.base.Resource`): the fields of :class:`~oblodai.RequestOptions`.
     """
 
+    #: Set on the copy :attr:`with_raw_response` hands out, never on the namespace itself.
+    _raw_response = False
+
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
+
+    @property
+    def with_raw_response(self) -> Any:
+        """The same methods, returning :class:`~oblodai.RawAPIResponse` (status, headers,
+        ``request_id``, ``parse()``) instead of the parsed result."""
+        return raw_copy(self)
 
     async def _request(
         self,
@@ -47,6 +58,8 @@ class AsyncResource:
     ) -> Any:
         """Call an envelope route; return its ``result``, or ``parse(result)`` when given."""
         opts = call_options(options, body, path_params, query)
+        if self._raw_response:
+            return RawAPIResponse(route, await self._transport.call_raw(route, opts), parse)
         result = await self._transport.call(route, opts)
         return parse(result) if parse is not None else result
 
