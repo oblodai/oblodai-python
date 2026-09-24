@@ -45,7 +45,8 @@ tests.
 | ----------------- | ---- |
 Method = `client.<resource>.<method>`: the resource from the operation's tag, the method its
 `operationId` without the resource name (`getPaymentInfo` → `payments.get_info`).
-[MIGRATION-2.0.md](MIGRATION-2.0.md) lists all 120 with their 1.x names.
+[MIGRATION-2.0.md](MIGRATION-2.0.md) lists the 2.0 methods with their 1.x names; the README's
+method table is generated from the contract.
 
 | intent            | call |
 | ----------------- | ---- |
@@ -81,8 +82,9 @@ Codes worth handling: `payout.insufficient_funds` (retryable), `payout.funds_mat
 - Payment: `select → created → confirm_check → paid | paid_over | wrong_amount | expired | cancelled`.
   `is_payment_paid` = paid/paid_over. `wrong_amount` needs `payments.resolve(uuid=…, action=…)`.
 - Payout: `pending → approved → awaiting_cosign → broadcasting → sent → confirmed | failed | cancelled`.
-- Webhook event types: `invoice.<status>`, `payout.<status>`, `wallet.paid`; the body's `type` is
-  `"payment" | "payout" | "wallet"`.
+- Webhook event types: `invoice.<status>`, `payout.<status>`, `wallet.paid`, `conversion.*`; the
+  body's `type` is `"payment" | "payout" | "wallet" | "conversion"` (`webhooks.WEBHOOK_EVENTS`,
+  `webhooks.KNOWN_EVENT_KINDS` — generated from the contract).
 
 ## Webhooks
 
@@ -96,7 +98,8 @@ delivery = webhooks.verify_delivery(raw_body, request.headers, secret=secret)
 unusable (answer 400; retrying cannot fix it). An empty `secret` or a negative `tolerance_sec` is a
 `ConfigError` before any crypto runs. An unknown event `type` is returned, not refused:
 `webhooks.parse` yields `AnyWebhookEvent`, and `webhooks.is_known_event(event)` narrows it to the
-three kinds this snapshot declares.
+kinds this snapshot declares (`webhooks.KNOWN_EVENT_KINDS`); `webhooks.to_model(event)` parses a
+known kind into its model (`None` for an unknown one).
 
 Verify over the **raw** bytes. `delivery.is_test` (also `webhooks.is_test_event(event)`) is true for
 rehearsal deliveries (`test: true` in the signed body, `X-Webhook-Test: true`) — never treat them as
@@ -106,8 +109,8 @@ money. Deduplicate on `delivery.id` (`X-Webhook-Id`); drop out-of-order events w
 
 ## Machine-readable surface
 
-`ROUTES` (120 routes keyed by `operationId`: `method`, `path`, `auth`, `idempotent`, `safe`,
-`bare`, `list_kind`), a model per request and response body, and the enums (`ErrorCode` (450),
+`ROUTES` (every route, keyed by `operationId`: `method`, `path`, `auth`, `idempotent`, `safe`,
+`bare`, `list_kind`), a model per request and response body, and the enums (`ErrorCode`,
 `PaymentStatus`, `PayoutStatus`, `WebhookEventName`, …) — all generated into `oblodai.generated`
 from the gateway's `openapi.json` (`names.lock` pins the public method names). In the repository
 and the sdist, not in the installed wheel, `contract/` keeps golden response bodies per route,

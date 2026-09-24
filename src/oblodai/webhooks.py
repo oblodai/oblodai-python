@@ -8,7 +8,8 @@ Deliveries are signed as::
     X-Webhook-Timestamp: <unix seconds>
     X-Webhook-Signature: hex(HMAC-SHA256(secret, "<ts>." + raw_body))
     X-Webhook-Signature-Prev: same, with the previous secret - only during a rotation overlap
-    X-Webhook-Event: invoice.<status> | payout.<status> | wallet.paid
+    X-Webhook-Event: an event name of the contract (invoice.paid, conversion.completed, ...;
+        all of them in WEBHOOK_EVENTS)
     X-Webhook-Id: stable per delivery (identical across retries of THAT delivery)
     X-Webhook-Event-Id: stable per STATE - the same for a resend of a state you already handled,
         and different as soon as the state differs. This is the idempotency key to keep.
@@ -39,6 +40,7 @@ if TYPE_CHECKING:  # `TypeGuard` is 3.10+; the runtime never needs it.
 from .core.errors import ConfigError, SignatureError, WebhookPayloadError
 from .core.signing import sign_webhook
 from .core.util import HeaderSource, constant_time_equal, header_value
+from .generated.events import KNOWN_EVENT_KINDS, WEBHOOK_EVENTS, WEBHOOK_MODELS, WebhookModel
 
 __all__ = [
     "HEADER_WEBHOOK_EVENT",
@@ -50,13 +52,17 @@ __all__ = [
     "HEADER_WEBHOOK_TEST",
     "HEADER_WEBHOOK_TIMESTAMP",
     "KNOWN_EVENT_KINDS",
+    "WEBHOOK_EVENTS",
+    "WEBHOOK_MODELS",
     "SignatureError",
     "WebhookDeliveryInfo",
+    "WebhookModel",
     "WebhookPayloadError",
     "is_known_event",
     "is_stale",
     "is_test_event",
     "parse",
+    "to_model",
     "verify",
     "verify_delivery",
 ]
@@ -70,16 +76,17 @@ HEADER_WEBHOOK_EVENT_ID = "X-Webhook-Event-Id"
 HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
 HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
-#: The ``type`` discriminators this snapshot of the core knows. A delivery naming anything else is
-#: still returned - a newer core may add a kind, and dropping it would lose a real event.
-KNOWN_EVENT_KINDS = ("payment", "payout", "wallet")
+# KNOWN_EVENT_KINDS (the ``type`` discriminators of this snapshot of the contract),
+# WEBHOOK_MODELS (kind -> model of the body) and WEBHOOK_EVENTS (event name -> kind) are generated
+# from the contract's ``webhooks``. A delivery naming a kind outside them is still returned - a
+# newer core may add a kind, and dropping it would lose a real event.
 
 RawBody = Union[str, bytes, bytearray]
 
-#: A verified delivery body: a JSON object that always carries the string ``type`` and ``uuid``.
-#: For attribute access parse it with the generated model of its kind -
-#: ``PaymentWebhook.from_dict(event)`` (``payment``), ``PayoutWebhook`` (``payout``),
-#: ``WalletWebhook`` (``wallet``).
+#: A verified delivery body: a JSON object that always carries the string ``type`` (the kind); the
+#: object's id is ``uuid`` for payments, payouts and wallets and ``id`` for conversions.
+#: For attribute access parse it with the model of its kind - :func:`to_model`, or
+#: ``WEBHOOK_MODELS[event["type"]].from_dict(event)`` (``payment`` -> ``PaymentWebhook``, ...).
 AnyWebhookEvent = Dict[str, Any]
 #: A delivery body whose ``type`` is one of :data:`KNOWN_EVENT_KINDS`.
 WebhookEvent = Dict[str, Any]
@@ -108,7 +115,8 @@ class WebhookDeliveryInfo:
     #: new event and must be processed). Keep the ids you have handled and skip repeats of them.
     #: ``None`` from a core older than 2026-09-20; fall back to (uuid, status) idempotency then.
     event_id: Optional[str] = None
-    #: ``X-Webhook-Event`` - ``invoice.<status>`` | ``payout.<status>`` | ``wallet.paid``.
+    #: ``X-Webhook-Event`` - the event name (``invoice.paid``, ``conversion.completed``, ...;
+    #: :data:`WEBHOOK_EVENTS` maps each to its kind).
     event_type: Optional[str] = None
     #: ``X-Webhook-Event-Time`` - unix seconds when the state change committed.
     event_time: Optional[int] = None
@@ -230,9 +238,13 @@ def parse(raw_body: RawBody) -> AnyWebhookEvent:
         raise WebhookPayloadError("delivery body is not JSON") from None
     if not isinstance(body, Mapping):
         raise WebhookPayloadError("delivery body is not a JSON object")
-    if not isinstance(body.get("type"), str) or not isinstance(body.get("uuid"), str):
+    # Every event names its kind in `type` and its object in `uuid` (payments, payouts, wallets)
+    # or `id` (conversions).
+    if not isinstance(body.get("type"), str) or not (
+        isinstance(body.get("uuid"), str) or isinstance(body.get("id"), str)
+    ):
         raise WebhookPayloadError(
-            "delivery body lacks the string type/uuid fields every event carries"
+            "delivery body lacks the string type and uuid (or id) fields every event carries"
         )
     return dict(body)
 
@@ -248,6 +260,29 @@ def is_known_event(event: Mapping[str, Any]) -> TypeGuard[WebhookEvent]:
     ``False`` is not a reason to drop the delivery: acknowledge it, and act on what you do know.
     """
     return isinstance(event, Mapping) and event.get("type") in KNOWN_EVENT_KINDS
+
+
+def to_model(event: Mapping[str, Any]) -> Optional[WebhookModel]:
+    """The event parsed into the generated model of its kind; ``None`` for a kind this snapshot
+    does not know (acknowledge it all the same)::
+
+        model = webhooks.to_model(event)
+        if isinstance(model, PaymentWebhook) and is_payment_paid(model.status):
+            ...
+
+    A known kind whose body does not fit its model raises
+    :class:`~oblodai.WebhookPayloadError`: the delivery is authentic but unusable.
+    """
+    kind = event.get("type") if isinstance(event, Mapping) else None
+    model = WEBHOOK_MODELS.get(kind) if isinstance(kind, str) else None
+    if model is None:
+        return None
+    try:
+        return model.from_dict(event)
+    except (KeyError, TypeError, ValueError) as err:
+        raise WebhookPayloadError(
+            f"{event.get('type')} delivery does not fit {model.__name__}: {err}"
+        ) from None
 
 
 def is_test_event(event: Mapping[str, Any]) -> bool:

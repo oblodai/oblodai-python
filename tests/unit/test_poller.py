@@ -8,17 +8,21 @@ Per Ruling 3 the wrapping itself is the runtime's: ``_request`` looks the route 
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from typing import Any, Dict, List, Mapping
+import re
+from typing import Any, Dict, List, Mapping, Set
 
 import httpx
 import pytest
 
-from oblodai import DocumentJobAccepted, DocumentJobView, RequestOptions, RouteSpec
+from oblodai import ROUTES, DocumentJobAccepted, DocumentJobView, RequestOptions, RouteSpec
 from oblodai.aio.base import AsyncResource
 from oblodai.core.errors import ConfigError
 from oblodai.core.poller import AsyncJob, Job
-from oblodai.lro import LRO
+from oblodai.generated import enums, models
+from oblodai.generated import lro as generated_lro
+from oblodai.lro import LRO, POLLS, TERMINAL_STATUSES
 from oblodai.resources.base import FileResult, Resource
 from tests.support.clients import make_async_client, make_client
 from tests.support.samples import sample
@@ -160,14 +164,32 @@ class Server:
         return ok({self.id_field: "id-1", "status": "pending", "count": 2})
 
 
-def test_the_lro_table_is_the_sdks_decision() -> None:
-    assert LRO == {
-        "createPaymentBatch": "getBatchInfo",
-        "createPayoutBatch": "getBatchInfo",
-        "createRefundBatch": "getBatchInfo",
-        "createTransferBatch": "getBatchInfo",
-        "createDocumentJob": "getDocumentJob",
-    }
+def test_the_lro_table_is_the_contracts_and_every_entry_resolves() -> None:
+    """The table is generated from ``x-sdk-poll``; every name in it must meet the rest of the SDK."""
+    assert LRO is generated_lro.LRO and POLLS is generated_lro.POLLS
+    assert LRO, "the contract declares long-running operations"
+    terminal: Set[str] = set()
+    for create, poll_id in LRO.items():
+        assert create in ROUTES and poll_id in POLLS, create
+        poll = POLLS[poll_id]
+        assert ROUTES[poll_id].safe, f"{poll_id}: a poll must be retry-safe"
+        status = {f.name: f for f in dataclasses.fields(getattr(models, poll.model))}
+        annotation = str(status[poll.status_field].type)  # "Union[BatchStatus, str]"
+        enum = getattr(enums, re.match(r"Union\[(\w+), str\]", annotation).group(1))  # type: ignore[union-attr]
+        assert set(poll.terminal) <= {member.value for member in enum}, poll_id
+        if poll.download:
+            assert ROUTES[poll.download].bare, poll.download
+        terminal |= set(poll.terminal)
+    assert frozenset(terminal) == TERMINAL_STATUSES
+
+
+def test_wait_ends_on_the_polls_own_terminal_statuses() -> None:
+    """``done`` ends a document job; for a batch it is just another status."""
+    server = Server("batch_id", "done", "completed")
+    job = Batches(make_client(server).transport).create({})
+    assert job.terminal == frozenset({"completed", "stopped"})
+    assert job.wait(interval=0).status == "completed"
+    assert len(server.polls) == 2
 
 
 def test_batch_wait_polls_until_completed() -> None:

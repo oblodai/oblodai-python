@@ -38,7 +38,11 @@ def test_verifies_every_recorded_delivery(index: int) -> None:
     assert delivery.is_test is (sample["body"].get("test") is True)
     assert delivery.is_test is (sample["headers"].get("X-Webhook-Test") == "true")
     assert webhooks.is_test_event(delivery.event) is delivery.is_test
-    assert sample["headers"]["X-Webhook-Event"].split(".")[0] in ("invoice", "payout", "wallet")
+    # The generated tables know every event the core really sends, and its model parses the body.
+    kind = webhooks.WEBHOOK_EVENTS[sample["headers"]["X-Webhook-Event"]]
+    assert kind == delivery.event["type"]
+    assert webhooks.is_known_event(delivery.event)
+    assert isinstance(webhooks.to_model(delivery.event), webhooks.WEBHOOK_MODELS[kind])
 
     with pytest.raises(SignatureError, match="does not match"):
         webhooks.verify(
@@ -313,3 +317,37 @@ def test_event_id_is_absent_on_an_older_core() -> None:
         now=ts,
     )
     assert delivery.event_id is None
+
+
+def test_conversion_events_are_known_and_parse_to_their_model() -> None:
+    """``conversion.completed`` / ``conversion.refunded`` come from the contract like every kind."""
+    from oblodai import ConversionWebhook
+    from tests.support.samples import sample
+
+    assert "conversion" in webhooks.KNOWN_EVENT_KINDS
+    assert webhooks.WEBHOOK_EVENTS["conversion.completed"] == "conversion"
+    assert webhooks.WEBHOOK_EVENTS["conversion.refunded"] == "conversion"
+    assert webhooks.WEBHOOK_MODELS["conversion"] is ConversionWebhook
+    body = sample(ConversionWebhook, type="conversion", id="c1", status="completed")
+    assert "uuid" not in body, "a conversion is identified by id, not uuid"
+    # Signed and verified like any delivery - no uuid is not a bad payload.
+    signed = {
+        "x-webhook-timestamp": str(TS),
+        "x-webhook-signature": sign_webhook("whsec", TS, json.dumps(body)),
+    }
+    event = webhooks.verify(json.dumps(body), signed, secret="whsec", now=TS)
+    assert webhooks.is_known_event(event) is True
+    model = webhooks.to_model(event)
+    assert isinstance(model, ConversionWebhook) and model.id == "c1"
+
+
+def test_to_model_leaves_an_unknown_kind_alone_and_rejects_a_broken_known_one() -> None:
+    assert webhooks.to_model({"type": "alien", "uuid": "x"}) is None
+    assert webhooks.to_model({}) is None
+    with pytest.raises(WebhookPayloadError, match="PaymentWebhook"):
+        webhooks.to_model({"type": "payment"})
+
+
+def test_every_known_kind_has_a_model_and_an_event() -> None:
+    assert set(webhooks.WEBHOOK_MODELS) == set(webhooks.KNOWN_EVENT_KINDS)
+    assert set(webhooks.WEBHOOK_EVENTS.values()) == set(webhooks.KNOWN_EVENT_KINDS)

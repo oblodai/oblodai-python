@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any, Dict, Mapping, Optional, Union
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from ..generated.money import NON_MONEY_NUMBERS
 from .errors import ConfigError
 from .route import RouteSpec
 from .signing import (
@@ -246,14 +247,12 @@ def _json_default(value: Any) -> str:
     )
 
 
-#: Request fields the contract types as a JSON ``number`` that are not money (a tolerance in
-#: percent). A float anywhere else in a body is an amount losing precision; a unit test keeps this
-#: set equal to the ``number`` properties of the contract's request schemas.
-NON_MONEY_NUMBERS = frozenset({"accuracy_payment_percent"})
-
-
 def reject_float_amounts(value: Any, path: str = "") -> None:
-    """Walk a body; a ``float`` outside :data:`NON_MONEY_NUMBERS` is ``sdk.float_amount``."""
+    """Walk a body; a ``float`` outside :data:`NON_MONEY_NUMBERS` is ``sdk.float_amount``.
+
+    :data:`NON_MONEY_NUMBERS` is generated: the ``number`` fields of the contract's request schemas.
+    Money in a request is a decimal string, so a float anywhere else is an amount losing precision.
+    """
     if isinstance(value, float):
         raise ConfigError(
             "sdk.float_amount",

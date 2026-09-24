@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 import httpx
 import pytest
@@ -116,29 +116,14 @@ def test_a_percent_the_contract_types_as_a_number_may_be_a_float() -> None:
     )
 
 
-def test_the_float_allowance_is_exactly_the_contracts_number_fields() -> None:
-    """One source of truth: the contract's request schemas, not a hand-kept list."""
-    from pathlib import Path
+def test_the_float_allowance_is_the_generated_list_of_the_contracts_number_fields() -> None:
+    """One source of truth: the generator's list of ``number`` fields of request schemas."""
+    from oblodai.generated import money
 
-    contract = json.loads(
-        (Path(__file__).resolve().parents[2] / "contract" / "contract.json").read_text("utf-8")
-    )
-    numbers: Set[str] = set()
-
-    def walk(schema: Any) -> None:
-        if isinstance(schema, dict):
-            for name, prop in (schema.get("properties") or {}).items():
-                if isinstance(prop, dict) and prop.get("type") == "number":
-                    numbers.add(name)
-            for value in schema.values():
-                walk(value)
-        elif isinstance(schema, list):
-            for value in schema:
-                walk(value)
-
-    for route in contract["routes"]:
-        walk(route.get("request_schema"))
-    assert frozenset(numbers) == NON_MONEY_NUMBERS
+    assert NON_MONEY_NUMBERS is money.NON_MONEY_NUMBERS
+    assert "accuracy_payment_percent" in NON_MONEY_NUMBERS
+    for name in NON_MONEY_NUMBERS:
+        assert json.loads(serialize_body({name: 0.5}, "POST")) == {name: 0.5}
 
 
 def test_money_helpers_take_decimal() -> None:

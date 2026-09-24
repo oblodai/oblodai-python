@@ -129,6 +129,8 @@ class AsyncResource:
                 parse(result) if parse is not None else result,
                 poll,
                 download(plan.download_route) if plan.download_route is not None else None,
+                terminal=plan.terminal,
+                status_field=plan.status_field,
             )
 
         return build
