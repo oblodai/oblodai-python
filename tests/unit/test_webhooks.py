@@ -138,11 +138,33 @@ def test_parses_the_union_and_detects_stale_sequences() -> None:
     assert webhooks.is_test_event(alien) is False
     # A body that verified but cannot be used is a CONTRACT failure, never a signature one:
     # a receiver answering 401 to SignatureError must not answer 401 to an authentic delivery.
-    for body in ("<html/>", '{"uuid":"x"}', "[1,2]"):
+    # Only `type` is required of every body; a known kind also needs its object's id field
+    # (WEBHOOK_ID_FIELDS: a conversion's is `id`, not `uuid`).
+    for body in ("<html/>", '{"uuid":"x"}', "[1,2]", '{"type":"payment","id":"x"}'):
         with pytest.raises(WebhookPayloadError) as excinfo:
             webhooks.parse(body)
         assert excinfo.value.code == "webhook.bad_payload"
         assert not isinstance(excinfo.value, SignatureError)
+
+
+def test_an_unknown_kind_needs_no_uuid_or_id() -> None:
+    """Which field identifies an object is known only for the contract's kinds: a newer kind keyed
+    otherwise is still delivered, and object_id() does not guess its id."""
+    event = webhooks.parse(b'{"type":"refund","refund_id":"r1","sequence":3}')
+    assert event["type"] == "refund"
+    assert webhooks.is_known_event(event) is False
+    assert webhooks.object_id(event) is None
+    assert webhooks.is_stale(event, 3) is True
+
+
+def test_object_id_reads_the_field_the_contract_names_for_the_kind() -> None:
+    assert set(webhooks.WEBHOOK_ID_FIELDS) == set(webhooks.KNOWN_EVENT_KINDS)
+    for kind, field in webhooks.WEBHOOK_ID_FIELDS.items():
+        event = webhooks.parse(json.dumps({"type": kind, field: "obj-1"}))
+        assert webhooks.object_id(event) == "obj-1", kind
+    conversion = webhooks.parse('{"type":"conversion","id":"c1","uuid":"not-this-one"}')
+    assert webhooks.object_id(conversion) == "c1"
+    assert webhooks.object_id({"type": "payment"}) is None
 
 
 def test_accepts_the_header_objects_python_web_stacks_hand_over() -> None:

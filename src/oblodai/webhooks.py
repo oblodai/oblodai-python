@@ -40,7 +40,13 @@ if TYPE_CHECKING:  # `TypeGuard` is 3.10+; the runtime never needs it.
 from .core.errors import ConfigError, SignatureError, WebhookPayloadError
 from .core.signing import sign_webhook
 from .core.util import HeaderSource, constant_time_equal, header_value
-from .generated.events import KNOWN_EVENT_KINDS, WEBHOOK_EVENTS, WEBHOOK_MODELS, WebhookModel
+from .generated.events import (
+    KNOWN_EVENT_KINDS,
+    WEBHOOK_EVENTS,
+    WEBHOOK_ID_FIELDS,
+    WEBHOOK_MODELS,
+    WebhookModel,
+)
 
 __all__ = [
     "HEADER_WEBHOOK_EVENT",
@@ -53,6 +59,7 @@ __all__ = [
     "HEADER_WEBHOOK_TIMESTAMP",
     "KNOWN_EVENT_KINDS",
     "WEBHOOK_EVENTS",
+    "WEBHOOK_ID_FIELDS",
     "WEBHOOK_MODELS",
     "SignatureError",
     "WebhookDeliveryInfo",
@@ -61,6 +68,7 @@ __all__ = [
     "is_known_event",
     "is_stale",
     "is_test_event",
+    "object_id",
     "parse",
     "to_model",
     "verify",
@@ -77,15 +85,15 @@ HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
 HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
 # KNOWN_EVENT_KINDS (the ``type`` discriminators of this snapshot of the contract),
-# WEBHOOK_MODELS (kind -> model of the body) and WEBHOOK_EVENTS (event name -> kind) are generated
-# from the contract's ``webhooks``. A delivery naming a kind outside them is still returned - a
+# WEBHOOK_MODELS (kind -> model of the body), WEBHOOK_ID_FIELDS (kind -> the body field holding the
+# object's id) and WEBHOOK_EVENTS (event name -> kind) are generated from the contract's ``webhooks``. A delivery naming a kind outside them is still returned - a
 # newer core may add a kind, and dropping it would lose a real event.
 
 RawBody = Union[str, bytes, bytearray]
 
 #: A verified delivery body: a JSON object that always carries the string ``type`` (the kind); the
-#: object's id is ``uuid`` for payments, payouts and wallets and ``id`` for conversions.
-#: For attribute access parse it with the model of its kind - :func:`to_model`, or
+#: field holding the object's id is the kind's entry of :data:`WEBHOOK_ID_FIELDS` (read it with
+#: :func:`object_id`). For attribute access parse it with the model of its kind - :func:`to_model`, or
 #: ``WEBHOOK_MODELS[event["type"]].from_dict(event)`` (``payment`` -> ``PaymentWebhook``, ...).
 AnyWebhookEvent = Dict[str, Any]
 #: A delivery body whose ``type`` is one of :data:`KNOWN_EVENT_KINDS`.
@@ -227,8 +235,10 @@ def parse(raw_body: RawBody) -> AnyWebhookEvent:
     """Parse a (previously verified) delivery body into its event body; ``type`` tells the kind.
 
     An event kind this snapshot does not know is NOT an error: it is returned with its raw
-    ``type`` string, so a receiver written against an older SDK still sees the delivery (and :func:`is_test_event` / :func:`is_stale` still work on
-    it). Narrow the result with :func:`is_known_event`.
+    ``type`` string, so a receiver written against an older SDK still sees the delivery (and
+    :func:`is_test_event` / :func:`is_stale` still work on it). Narrow the result with
+    :func:`is_known_event`. A known kind must carry its object's id (:data:`WEBHOOK_ID_FIELDS`);
+    of an unknown kind only ``type`` is required.
     """
     text = _as_bytes(raw_body).decode("utf-8", errors="replace")
     try:
@@ -238,15 +248,29 @@ def parse(raw_body: RawBody) -> AnyWebhookEvent:
         raise WebhookPayloadError("delivery body is not JSON") from None
     if not isinstance(body, Mapping):
         raise WebhookPayloadError("delivery body is not a JSON object")
-    # Every event names its kind in `type` and its object in `uuid` (payments, payouts, wallets)
-    # or `id` (conversions).
-    if not isinstance(body.get("type"), str) or not (
-        isinstance(body.get("uuid"), str) or isinstance(body.get("id"), str)
-    ):
-        raise WebhookPayloadError(
-            "delivery body lacks the string type and uuid (or id) fields every event carries"
-        )
+    kind = body.get("type")
+    if not isinstance(kind, str):
+        raise WebhookPayloadError("delivery body lacks the string type field every event carries")
+    id_field = WEBHOOK_ID_FIELDS.get(kind)
+    if id_field is not None and not isinstance(body.get(id_field), str):
+        raise WebhookPayloadError(f"{kind} delivery body lacks the string {id_field} field")
     return dict(body)
+
+
+def object_id(event: Mapping[str, Any]) -> Optional[str]:
+    """The id of the object the event is about - the field :data:`WEBHOOK_ID_FIELDS` names for its
+    kind (a payment's ``uuid``, a conversion's ``id``, ...). Key per-object state on it, e.g. the
+    last ``sequence`` for :func:`is_stale`.
+
+    ``None`` for a kind this snapshot does not know (or one without such a field): acknowledge
+    that delivery, but do not guess which field identifies its object.
+    """
+    if not isinstance(event, Mapping):
+        return None
+    kind = event.get("type")
+    field = WEBHOOK_ID_FIELDS.get(kind) if isinstance(kind, str) else None
+    value = event.get(field) if field is not None else None
+    return value if isinstance(value, str) else None
 
 
 def is_known_event(event: Mapping[str, Any]) -> TypeGuard[WebhookEvent]:
@@ -299,9 +323,10 @@ def is_test_event(event: Mapping[str, Any]) -> bool:
 def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -> bool:
     """Deliveries can arrive out of order (a retried ``paid`` after a ``refund``).
 
-    Keep the last ``sequence`` you processed per object and skip anything not newer. An event with
-    no usable ``sequence`` is never stale - dropping a delivery because a field was missing would
-    lose money, so the safe answer is to process it - and this never raises.
+    Keep the last ``sequence`` you processed per object (:func:`object_id`) and skip anything not
+    newer. An event with no usable ``sequence`` is never stale - dropping a delivery because a
+    field was missing would lose money, so the safe answer is to process it - and this never
+    raises.
 
     This is ORDERING, not deduplication, and the two used to be confused here. A resend carries a
     deliberately HIGHER sequence (a lower one could be discarded as a straggler, and a resend has

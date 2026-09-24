@@ -263,6 +263,18 @@ def _check(
         assert _plain(getattr(result, name)) == want
 
 
+def _webhook_bodies() -> List[Any]:
+    return [pytest.param(w, id=w["name"]) for w in _suite("forward_compat")["webhooks"]]
+
+
+@pytest.mark.parametrize("case", _webhook_bodies())
+def test_webhook_parse(case: Dict[str, Any]) -> None:
+    """forward_compat webhooks: the body parses, keeps its raw ``type``, and is (un)known as said."""
+    event = webhooks.parse(json.dumps(case["body"]))
+    assert event["type"] == case["expect"]["type"]
+    assert webhooks.is_known_event(event) is case["expect"]["known"]
+
+
 def _scenarios() -> List[Any]:
     return [
         pytest.param(s, id=f"{name}/{s['name']}")
