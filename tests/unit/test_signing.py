@@ -1,4 +1,4 @@
-"""Signing vectors exported from the core's own test suite."""
+"""Signing: the vectors of the backend spec's ``x-oblodai-signing`` and the edge cases around them."""
 
 from __future__ import annotations
 
@@ -7,11 +7,18 @@ from typing import Any, Dict, List
 import pytest
 
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
-from tests.support.fixtures import load_contract
+from tests.support.fixtures import load_signing
 
-CONTRACT = load_contract()
-SIGNING_VECTORS: List[Dict[str, Any]] = CONTRACT["signing_vectors"]
-WEBHOOK_VECTORS: List[Dict[str, Any]] = CONTRACT["webhook_vectors"]
+SIGNING = load_signing()
+SIGNING_VECTORS: List[Dict[str, Any]] = SIGNING["request_vectors"] if SIGNING else []
+WEBHOOK_VECTORS: List[Dict[str, Any]] = SIGNING["webhook"]["vectors"] if SIGNING else []
+
+
+def test_the_spec_has_signing_vectors() -> None:
+    if SIGNING is None:
+        pytest.skip("backend openapi.json not found (set OBLODAI_BACKEND)")
+    assert SIGNING_VECTORS
+    assert WEBHOOK_VECTORS
 
 
 @pytest.mark.parametrize("vector", SIGNING_VECTORS, ids=[v["name"] for v in SIGNING_VECTORS])

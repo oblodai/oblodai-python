@@ -35,6 +35,9 @@ from it. The wire does not change - only the Python surface does.
   `resource.with_raw_response.<method>(...)`.
 - **`ROUTES`** is keyed by `operationId` (`ROUTES["createPayout"]`), not by `"POST /v1/payout"`.
 - **Lists** return a lazy `Page` of models: `for p in client.payments.list_history(limit=50)`.
+- **Contract identity:** `CONTRACT_HASH` is now the sha256 of the `openapi.json` the package was
+  generated from (and the User-Agent names it); `CONTRACT_VERSION` is its `info.version`.
+  `CONTRACT_CORE_COMMIT` and `CONTRACT_EXPORTED_AT` described the 1.3 snapshot, which is gone: removed.
 - **Removed:** `merchants.create` (`POST /v1/merchants` is not part of the merchant API contract).
   `webhooks.test(kind, ...)` is one method per kind now (see the table).
 

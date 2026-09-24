@@ -499,9 +499,11 @@ ROUTES["getBalance"].safe  # True - x-retry-safe: re-sent after a transport fail
 
 To refresh: `make sdk` in the backend regenerates this package and runs `make ci` here;
 `make drift` (`OBLODAI_BACKEND` names the backend checkout) fails when the committed code is not
-what the generator makes of the contract. `contract/` — in the repository and in the sdist — keeps
-the core's older export (signing vectors, golden bodies, signed webhook deliveries) that the contract
-tests compare against; it pins `CONTRACT_CORE_COMMIT`.
+what the generator makes of the contract. Which contract the package was generated from is generated
+too: `oblodai.CONTRACT_VERSION` (`info.version`) and `oblodai.CONTRACT_HASH` (sha256 of
+`openapi.json`, named in the User-Agent). `contract/` — in the repository and in the sdist — keeps
+recordings from a live core (golden bodies, error samples, signed webhook deliveries) that the
+contract tests compare against; the signing vectors are read from the spec's `x-oblodai-signing`.
 
 ## Development
 
