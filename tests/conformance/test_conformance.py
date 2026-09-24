@@ -26,7 +26,7 @@ import httpx
 import pytest
 
 import oblodai.generated.resources as generated
-from oblodai import AsyncOblodai, Oblodai
+from oblodai import AsyncOblodai, Oblodai, webhooks
 from oblodai.core import atransport, transport
 from oblodai.core.errors import OblodaiError, SignatureError, WebhookPayloadError
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
@@ -114,6 +114,47 @@ def test_webhook(check: Dict[str, Any], vector: Dict[str, Any], signing: Dict[st
     with pytest.raises(SignatureError) as caught:
         verify(payload, headers, secret=secret, tolerance_sec=skew, now=ts + int(offset))
     assert caught.value.code == "webhook." + check["expect"]
+
+
+def _delivery_cases() -> List[Any]:
+    suite = _suite("webhook_delivery")
+    _, deliveries = _source(suite)
+    return [
+        pytest.param(
+            check,
+            delivery,
+            suite["headers"],
+            id=f"{check['name']} - {delivery['event']} ({check['key']})",
+        )
+        for check in suite["checks"]
+        for delivery in deliveries
+    ]
+
+
+def test_webhook_deliveries_cover_every_event() -> None:
+    _, deliveries = _source(_suite("webhook_delivery"))
+    assert sorted(d["event"] for d in deliveries) == sorted(webhooks.WEBHOOK_EVENTS)
+
+
+@pytest.mark.parametrize(("check", "delivery", "fields"), _delivery_cases())
+def test_webhook_delivery(
+    check: Dict[str, Any], delivery: Dict[str, Any], fields: Dict[str, str]
+) -> None:
+    assert check["kind"] == "webhook_delivery"
+    secret = delivery[{"current": "secret", "previous": "previous_secret"}[check["key"]]]
+    info = webhooks.verify_delivery(
+        delivery["payload"], delivery["headers"], secret=secret, now=delivery["ts"]
+    )
+    assert webhooks.is_known_event(info.event)
+    assert info.event["type"] == delivery["kind"]
+    model = webhooks.to_model(info.event)
+    assert isinstance(model, webhooks.WEBHOOK_MODELS[delivery["kind"]])
+    for header, field in fields.items():
+        if not field:
+            continue
+        value = getattr(info, field)
+        want = delivery["headers"][header]
+        assert value == (int(want) if isinstance(value, int) else want), f"{field} != {header}"
 
 
 # -- calls -------------------------------------------------------------------------------------
