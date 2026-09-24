@@ -273,7 +273,7 @@ def test_resend_is_deduplicated_by_the_event_id_not_the_delivery_id() -> None:
     raw_first = json.dumps(body)
     raw_resend = json.dumps({**body, "sequence": 42})
 
-    def headers(raw: str, delivery_id: str, event_id: str) -> dict:
+    def headers(raw: str, delivery_id: str, event_id: str) -> Dict[str, Any]:
         return {
             "X-Webhook-Timestamp": str(ts),
             "X-Webhook-Signature": sign_webhook(SECRET, ts, raw.encode()),
@@ -283,8 +283,12 @@ def test_resend_is_deduplicated_by_the_event_id_not_the_delivery_id() -> None:
         }
 
     state = "5d9f1c0e-0000-5000-8000-000000000001"
-    first = webhooks.verify_delivery(raw_first, headers(raw_first, "d-1", state), secret=SECRET, now=ts)
-    resend = webhooks.verify_delivery(raw_resend, headers(raw_resend, "d-2", state), secret=SECRET, now=ts)
+    first = webhooks.verify_delivery(
+        raw_first, headers(raw_first, "d-1", state), secret=SECRET, now=ts
+    )
+    resend = webhooks.verify_delivery(
+        raw_resend, headers(raw_resend, "d-2", state), secret=SECRET, now=ts
+    )
 
     assert first.id != resend.id, "a resend is a different delivery"
     assert not webhooks.is_stale(resend.event, last_processed_sequence=7), "a resend is never stale"
