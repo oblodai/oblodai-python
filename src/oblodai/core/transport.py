@@ -68,6 +68,10 @@ class Transport:
                 assert isinstance(step, Fail)
                 raise step.error
 
+    def derive(self, settings: EngineSettings) -> Transport:
+        """A transport with other settings over this one's HTTP pool (which it never closes)."""
+        return Transport(settings, self._client)
+
     def close(self) -> None:
         if self._owns_client:
             self._client.close()

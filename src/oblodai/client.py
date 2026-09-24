@@ -9,10 +9,11 @@ from typing import Any, Mapping, Optional, Type
 import httpx
 
 from ._version import SDK_VERSION
-from .config import TimeoutLike, resolve_config
+from .config import TimeoutLike, derive_settings, resolve_config
 from .contract.version import CONTRACT_HASH
 from .core.clock import SkewCorrectingClock
 from .core.engine import EngineSettings
+from .core.hooks import Hooks
 from .core.logger import Logger, NoopLogger
 from .core.retry import RetryOptions
 from .core.transport import Transport
@@ -73,6 +74,7 @@ class Oblodai:
         allow_insecure_base_url: Optional[bool] = None,
         http_client: Optional[httpx.Client] = None,
         env: Optional[Mapping[str, str]] = None,
+        hooks: Optional[Hooks] = None,
     ) -> None:
         config = resolve_config(
             public_id=public_id,
@@ -98,9 +100,13 @@ class Oblodai:
             deadline=config.deadline,
             clock=SkewCorrectingClock(),
             logger=config.logger or NoopLogger(),
+            hooks=hooks,
         )
+        self._attach(Transport(settings, http_client))
+
+    def _attach(self, transport: Transport) -> None:
         #: The transport, exposed for advanced use (custom routes, tests).
-        self.transport = Transport(settings, http_client)
+        self.transport = transport
 
         self.payments = Payments(self.transport)
         self.refunds = Refunds(self.transport)
@@ -118,6 +124,29 @@ class Oblodai:
         self.catalog = Catalog(self.transport)
         self.sandbox = Sandbox(self.transport)
         self.merchants = Merchants(self.transport)
+
+    def with_options(
+        self,
+        *,
+        timeout: Optional[TimeoutLike] = None,
+        max_retries: Optional[int] = None,
+        extra_headers: Optional[Mapping[str, str]] = None,
+    ) -> Oblodai:
+        """A new client with these overridden; the original is untouched, the HTTP pool shared.
+
+        ``timeout`` is seconds per attempt, ``max_retries`` replaces ``RetryOptions.max_retries``,
+        ``extra_headers`` are merged over the client's ``headers``. Closing the copy leaves the
+        shared pool open; close the original when done.
+        """
+        settings = derive_settings(
+            self.transport.settings,
+            timeout=timeout,
+            max_retries=max_retries,
+            extra_headers=extra_headers,
+        )
+        clone = object.__new__(type(self))
+        clone._attach(self.transport.derive(settings))
+        return clone
 
     @property
     def base_url(self) -> str:

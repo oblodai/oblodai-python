@@ -45,6 +45,10 @@ class AsyncTransport:
         raw = await self.execute(route, options or CallOptions())
         return unwrap_result(route, raw)
 
+    def derive(self, settings: EngineSettings) -> AsyncTransport:
+        """A transport with other settings over this one's HTTP pool (which it never closes)."""
+        return AsyncTransport(settings, self._client)
+
     async def call_raw(
         self, route: RouteSpec, options: Optional[CallOptions] = None
     ) -> RawResponse:

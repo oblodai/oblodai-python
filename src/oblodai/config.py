@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from dataclasses import dataclass
-from typing import Mapping, Optional, Union
+from typing import Dict, Mapping, Optional, Union
 from urllib.parse import urlsplit
 
 import httpx
 
+from .core.engine import EngineSettings
 from .core.errors import ConfigError
 from .core.logger import Logger, console_logger
 from .core.request import Credentials
@@ -20,6 +22,7 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "ResolvedConfig",
     "TimeoutLike",
+    "derive_settings",
     "resolve_config",
     "timeout_seconds",
 ]
@@ -102,6 +105,28 @@ def resolve_config(
         headers=headers,
         admin_token=admin_token or environ.get("OBLODAI_ADMIN_TOKEN"),
     )
+
+
+def derive_settings(
+    settings: EngineSettings,
+    *,
+    timeout: Optional[TimeoutLike] = None,
+    max_retries: Optional[int] = None,
+    extra_headers: Optional[Mapping[str, str]] = None,
+) -> EngineSettings:
+    """``with_options``: a copy of the client's settings with these overridden (None keeps)."""
+    changes: Dict[str, object] = {}
+    if timeout is not None:
+        changes["timeout"] = timeout_seconds(timeout)
+    if max_retries is not None:
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+            raise ConfigError(
+                "sdk.bad_config", "max_retries must be a non-negative integer", "max_retries"
+            )
+        changes["retry"] = dataclasses.replace(settings.retry, max_retries=max_retries)
+    if extra_headers:
+        changes["headers"] = {**(settings.headers or {}), **extra_headers}
+    return dataclasses.replace(settings, **changes)  # type: ignore[arg-type]
 
 
 def timeout_seconds(timeout: TimeoutLike) -> float:

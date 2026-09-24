@@ -63,9 +63,11 @@ from .core.errors import (
     ValidationError,
     WebhookPayloadError,
 )
+from .core.hooks import Hooks, RequestInfo, ResponseInfo
 from .core.idempotency import new_idempotency_key
 from .core.options import RequestOptions
 from .core.pagination import AsyncPage, Page, PageResult
+from .core.raw import RawAPIResponse
 from .core.retry import RetryOptions
 from .core.signing import canonical_string, sign_request, sign_webhook
 from .helpers import (
@@ -142,6 +144,10 @@ __all__ = [
     "PermissionDeniedError",
     "RateLimitError",
     "RequestOptions",
+    "Hooks",
+    "RequestInfo",
+    "ResponseInfo",
+    "RawAPIResponse",
     "ResponseTooLargeError",
     "RetryOptions",
     "RouteAuth",

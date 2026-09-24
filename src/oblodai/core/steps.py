@@ -37,6 +37,8 @@ class RawResponse:
     status: int
     headers: Mapping[str, str]
     body: bytes
+    #: The ``X-Request-ID`` the SDK sent with the call; set by the engine on success.
+    request_id: str = ""
 
     def header(self, name: str) -> Optional[str]:
         want = name.lower()

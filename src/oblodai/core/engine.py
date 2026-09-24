@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Union
 from .clock import SkewCorrectingClock
 from .envelope import decode_envelope
 from .errors import ConfigError, ContractError, OblodaiError, TransportError
+from .hooks import Hooks, RequestInfo, ResponseInfo, redact_headers
 from .idempotency import assert_idempotency_key, new_idempotency_key
 from .logger import Logger, NoopLogger, redact
 from .request import HEADER_REQUEST_ID, Credentials, Query, build_request, serialize_body
@@ -98,6 +99,8 @@ class EngineSettings:
     deadline: float = 90.0
     clock: SkewCorrectingClock = field(default_factory=SkewCorrectingClock)
     logger: Logger = field(default_factory=NoopLogger)
+    #: Called once per attempt: before it is sent and when it ends.
+    hooks: Optional[Hooks] = None
 
     def __repr__(self) -> str:
         return (
@@ -144,6 +147,8 @@ class CallEngine:
         self._headers: Optional[Mapping[str, str]] = None
         self._request_id = ""
         self._retry = settings.retry
+        self._attempt_info: Optional[RequestInfo] = None
+        self._sent_at = 0.0
 
     # -- lifecycle ---------------------------------------------------------------------------
 
@@ -192,9 +197,11 @@ class CallEngine:
 
     def on_response(self, raw: RawResponse) -> Step:
         if 200 <= raw.status < 300:
-            return Finish(raw)
+            self._emit_response(raw.status, raw.headers, None)
+            return Finish(dataclasses.replace(raw, request_id=self._request_id))
 
         failure = self._classify(raw)
+        self._emit_response(raw.status, raw.headers, failure)
         self._settings.logger.debug(
             "response",
             redact(
@@ -237,6 +244,7 @@ class CallEngine:
         return self._after_failure(failure)
 
     def on_transport_error(self, error: BaseException) -> Step:
+        self._emit_response(0, {}, error)
         return self._after_failure(error)
 
     def on_pause_done(self) -> Step:
@@ -277,12 +285,41 @@ class CallEngine:
                 }
             ),
         )
+        hooks = settings.hooks
+        if hooks is not None:
+            self._attempt_info = RequestInfo(
+                method=request.method,
+                url=request.url,
+                headers=redact_headers(request.headers),
+                attempt=self._attempt + 1,
+                request_id=self._request_id,
+                operation_id=route.operation_id,
+            )
+            if hooks.on_request is not None:
+                hooks.on_request(self._attempt_info)
+        self._sent_at = self._now_ms()
         remaining = max(1.0, self._deadline_at - self._now_ms())
         per_attempt = (
             self._options.timeout if self._options.timeout is not None else settings.timeout
         )
         timeout = min(per_attempt * 1000.0, remaining)
         return Send(request, timeout, MAX_FILE_BYTES if route.bare else MAX_JSON_BYTES)
+
+    def _emit_response(
+        self, status: int, headers: Mapping[str, str], error: Optional[BaseException]
+    ) -> None:
+        hooks = self._settings.hooks
+        if hooks is None or hooks.on_response is None or self._attempt_info is None:
+            return
+        hooks.on_response(
+            ResponseInfo(
+                request=self._attempt_info,
+                status=status,
+                headers=headers,
+                elapsed=max(0.0, (self._now_ms() - self._sent_at) / 1000.0),
+                error=error,
+            )
+        )
 
     def _classify(self, raw: RawResponse) -> BaseException:
         try:
