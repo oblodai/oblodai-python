@@ -64,7 +64,7 @@ def test_a_drip_feeding_server_hits_the_attempt_timeout_instead_of_holding_the_c
     client = Oblodai(http_client=httpx.Client(transport=transport, timeout=10.0), **CREDS)
     started = time.monotonic()
     with pytest.raises(TransportError) as excinfo:
-        client.account.balance(timeout=0.12)
+        client.account.get_balance(timeout=0.12)
     assert excinfo.value.code == "transport.timeout"
     assert time.monotonic() - started < 2.0  # not the 8 x 0.05 s the server wanted to take
 
@@ -74,7 +74,7 @@ async def test_the_async_client_bounds_the_whole_attempt_too() -> None:
     client = AsyncOblodai(http_client=httpx.AsyncClient(transport=transport, timeout=10.0), **CREDS)
     started = time.monotonic()
     with pytest.raises(TransportError) as excinfo:
-        await client.account.balance(timeout=0.12)
+        await client.account.get_balance(timeout=0.12)
     assert excinfo.value.code == "transport.timeout"
     assert time.monotonic() - started < 2.0
 
@@ -83,7 +83,7 @@ def test_the_attempt_timeout_reaches_httpx_as_well() -> None:
     """The value is not just held in the engine: the socket gets it, so a stalled connect dies."""
     transport = RecordingTransport()
     client = Oblodai(http_client=httpx.Client(transport=transport), **CREDS)
-    client.account.balance(timeout=1.234)
+    client.account.get_balance(timeout=1.234)
     timeout = transport.timeouts[0] or {}
     assert timeout.get("connect") == pytest.approx(1.234)
     assert timeout.get("read") == pytest.approx(1.234)
@@ -94,7 +94,7 @@ def test_the_call_deadline_caps_the_attempt_timeout() -> None:
     client = Oblodai(
         http_client=httpx.Client(transport=transport), timeout=30, deadline=0.5, **CREDS
     )
-    client.account.balance()
+    client.account.get_balance()
     timeout = transport.timeouts[0] or {}
     assert 0 < (timeout.get("read") or 0) <= 0.5
 
@@ -124,7 +124,7 @@ def test_an_envelope_route_stops_reading_past_eight_mebibytes() -> None:
     transport = DripTransport(chunks_of(MAX_JSON_BYTES + 2 * 1024 * 1024))
     client = Oblodai(http_client=httpx.Client(transport=transport), **CREDS)
     with pytest.raises(ResponseTooLargeError) as excinfo:
-        client.account.balance()
+        client.account.get_balance()
     assert excinfo.value.code == "sdk.response_too_large"
 
 
@@ -132,7 +132,7 @@ def test_a_document_route_is_allowed_more_than_an_envelope_route() -> None:
     assert MAX_FILE_BYTES > MAX_JSON_BYTES
     transport = DripTransport(chunks_of(MAX_JSON_BYTES + 1024 * 1024))
     client = Oblodai(http_client=httpx.Client(transport=transport), **CREDS)
-    document = client.documents.fee_schedule()
+    document = client.documents.get_fees()
     assert len(document.content) == MAX_JSON_BYTES + 1024 * 1024
 
 
@@ -155,7 +155,7 @@ def test_a_client_that_follows_a_redirect_behind_our_back_is_caught() -> None:
     injected = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
     client = Oblodai(http_client=injected, **CREDS)
     with pytest.raises(OblodaiError) as excinfo:
-        client.account.balance()
+        client.account.get_balance()
     assert "redirect" in str(excinfo.value)
     assert "elsewhere.test" in str(excinfo.value)
 
@@ -166,7 +166,7 @@ def test_a_3xx_the_sdk_sees_itself_names_the_target() -> None:
     )
     client = Oblodai(http_client=mock.client, **CREDS)
     with pytest.raises(OblodaiError) as excinfo:
-        client.account.balance()
+        client.account.get_balance()
     assert "https://elsewhere.test/x" in str(excinfo.value)
 
 
@@ -200,7 +200,7 @@ def test_concurrent_calls_all_survive_an_hour_of_skew_with_one_correction() -> N
 
     def call() -> None:
         try:
-            client.account.balance()
+            client.account.get_balance()
         except BaseException as err:  # the assertion below reports it
             failures.append(err)
 
@@ -253,7 +253,7 @@ def test_a_retry_after_of_any_shape_never_breaks_the_retry_loop(value: Any) -> N
             ),
         },
     )
-    assert client.account.balance() == {"balance": {"merchant": []}}
+    assert client.account.get_balance().balance.merchant == []
     assert len(mock.calls) == 2
 
 
@@ -290,7 +290,7 @@ def test_a_programming_error_is_not_dressed_up_as_a_retryable_transport_failure(
     with pytest.raises(TypeError):
         Oblodai(
             http_client=mock.client, **{**CREDS, "retry": RetryOptions(max_retries=2)}
-        ).account.balance()
+        ).account.get_balance()
     assert len(mock.calls) == 1
 
 
@@ -301,5 +301,5 @@ def test_a_real_socket_failure_still_becomes_a_transport_error() -> None:
             http_client=mock.client,
             **{**CREDS, "retry": RetryOptions(max_retries=1, base_delay_ms=1, max_delay_ms=2)},
         )
-        assert client.account.balance() == {"balance": {"merchant": []}}
+        assert client.account.get_balance().balance.merchant == []
         assert len(mock.calls) == 2

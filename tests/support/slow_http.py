@@ -90,7 +90,7 @@ class AsyncDripTransport(httpx.AsyncBaseTransport):
 class RecordingTransport(httpx.BaseTransport):
     """Answers a fixed envelope and remembers the per-request timeout ``httpx`` was handed."""
 
-    def __init__(self, body: bytes = b'{"state":0,"result":{}}') -> None:
+    def __init__(self, body: bytes = b'{"state":0,"result":{"balance":{"merchant":[]}}}') -> None:
         self._body = body
         self.timeouts: List[Optional[Dict[str, Optional[float]]]] = []
 

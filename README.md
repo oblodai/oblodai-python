@@ -28,7 +28,7 @@ transfers, webhooks. Request signing, response parsing, typed errors, idempotenc
 of the box.
 
 Python ≥ 3.9 with a single runtime dependency (`httpx`), a synchronous **and** an asynchronous
-client, typed end to end from the gateway's own contract snapshot: every route it exposes (107) has
+client, typed end to end from the gateway's own contract snapshot: every route it exposes (120) has
 a method here, and every request and response has a `TypedDict`.
 
 > **Base URL.** Defaults to `https://api.oblodai.com`. Override `base_url` and supply your own keys
@@ -135,10 +135,12 @@ same way — no renaming, no wrapper objects to unlearn. The names are not guess
 `mypy` catches a typo before it reaches the API.
 
 ```python
-from oblodai.contract.requests import PaymentBody
+from decimal import Decimal
 
-body: PaymentBody = {"amount": "25", "currency": "USDT"}
-invoice = oblodai.payments.create(body)
+from oblodai import PaymentRequest
+
+invoice = oblodai.payments.create(amount="25", currency="USDT")
+invoice = oblodai.payments.create(PaymentRequest(amount=Decimal("25"), currency="USDT"))
 ```
 
 ### Async
@@ -151,8 +153,8 @@ from oblodai.aio import AsyncOblodai
 async def main() -> None:
     async with AsyncOblodai() as oblodai:
         invoice = await oblodai.payments.create({"amount": "25", "currency": "USDT"})
-        async for payment in oblodai.payments.history(limit=50):
-            print(payment["uuid"])
+        async for payment in await oblodai.payments.list_history(limit=50):
+            print(payment.uuid)
 
 
 asyncio.run(main())
@@ -206,26 +208,26 @@ Repeat `sandbox.deposit` with the same `txid` to add confirmations. Rehearsal de
 
 ## Method overview
 
-Sixteen namespaces cover all 107 routes of the gateway.
+Sixteen namespaces cover all 120 routes of the gateway.
 
 | Namespace | Methods | Routes |
 | --------- | ------- | ------ |
-| `payments` | `create` `info`/`get` `cancel` `history`/`list` `batch` `qr` `services` `send_email` `resend` `public_view` `select` `public_qr` | `/v1/payment*` `/v1/pay/{id}*` |
-| `refunds` | `create` `resolve` `batch` | `/v1/payment/refund` `/v1/payment/resolve` `/v1/refund/batch` |
-| `payouts` | `create` `validate` `calculate` `info`/`get` `cancel` `approve` `history`/`list` `mass` `batch` `services` `get_fee_config` `set_fee_config` `get_refund_fee_config` `set_refund_fee_config` | `/v1/payout*` |
-| `payout_links` | `create` `info`/`get` `list` `cancel` `batch` `cheque` `claim_preview` `claim` | `/v1/payout/link*` `/v1/claim/{token}` |
-| `payment_links` | `create` `info`/`get` `list` `toggle` `public_view` `checkout` | `/v1/payment/link*` `/v1/link/{id}*` |
-| `batches` | `info` | `/v1/batch/info` |
-| `transfers` | `to_personal` `to_user` `batch` | `/v1/transfer/*` |
-| `wallets` | `create` `qr` `block` `refund_blocked_deposit` | `/v1/wallet*` |
-| `webhooks` | `register` `rotate_secret` `deliveries` `test` `test_legacy` | `/v1/webhooks*` `/v1/test-webhook/{kind}` `/v1/payment/testing-webhook` |
-| `documents` | `create_job` `job_info` `job_file` `statement` `balance_certificate` `fee_schedule` `ledger` `split_report` `batch_report` `link_report` `wallet_statement` `referrals_report` `download` | `/v1/documents/*` |
-| `splits` | `create_rule` `list_rules` `delete_rule` `get_config` `set_config` `get_opt_in` `set_opt_in` | `/v1/split/*` |
-| `settings` | `set_discount` `list_discounts` `get_accuracy` `set_accuracy` `get_auto_refund` `set_auto_refund` `list_accepted` `set_accepted` `get_payment_fee_config` `set_payment_fee_config` `list_auto_withdraw` `set_auto_withdraw` `delete_auto_withdraw` `list_api_allowlist` `add_api_allowlist` `remove_api_allowlist` `enable_api_allowlist` | `/v1/payment/*` `/v1/auto-withdraw/*` `/v1/api-allowlist/*` |
-| `account` | `balance` `referral` `vrcs` | `/v1/balance` `/v1/referral/info` `/v1/vrcs` |
-| `catalog` | `currencies` `exchange_rates` | `/v1/currencies` `/v1/exchange-rate/list` |
-| `sandbox` | `faucet` `deposit` `webhooks` `replay` `reset` | `/v1/sandbox/*` |
-| `merchants` | `create` `create_sandbox` | `/v1/merchants` `/v1/merchants/{id}/sandbox` |
+| `payments` | `cancel` `create` `get_aml_links` `get_checkout_config` `get_info` `get_qr` `list_history` `list_services` `resolve` `send_email` `set_checkout_config` | `/v1/payment/cancel` `/v1/payment` `/v1/payment/aml-links` `/v1/checkout-config/get` `/v1/payment/info` `/v1/payment/qr` `/v1/payment/history` `/v1/payment/services` `/v1/payment/resolve` `/v1/payment/send-email` `/v1/checkout-config/set` |
+| `payment_links` | `create` `get` `list` `toggle` | `/v1/payment/link` `/v1/payment/link/info` `/v1/payment/link/list` `/v1/payment/link/toggle` |
+| `refunds` | `blocked_wallet` `payment` | `/v1/wallet/blocked-address-refund` `/v1/payment/refund` |
+| `payouts` | `approve` `calculate` `cancel` `create` `create_mass` `create_transfer_batch` `get_info` `list_history` `list_services` `transfer_to_personal` `transfer_to_user` `validate` | `/v1/payout/approve` `/v1/payout/calculate` `/v1/payout/cancel` `/v1/payout` `/v1/payout/mass` `/v1/transfer/batch` `/v1/payout/info` `/v1/payout/history` `/v1/payout/services` `/v1/transfer/to-personal` `/v1/transfer/to-user` `/v1/payout/validate` |
+| `payout_links` | `cancel` `claim_payout` `create` `create_batch` `get` `get_payout_claim` `list` | `/v1/payout/link/cancel` `/v1/claim/{token}` `/v1/payout/link` `/v1/payout/link/batch` `/v1/payout/link/info` `/v1/payout/link/list` |
+| `batches` | `create_payment` `create_payout` `create_refund` `get_info` | `/v1/payment/batch` `/v1/payout/batch` `/v1/refund/batch` `/v1/batch/info` |
+| `splits` | `create_rule` `delete_rule` `get_config` `get_recipient_opt_in` `list_rules` `set_config` `set_recipient_opt_in` | `/v1/split/rule` `/v1/split/rule/delete` `/v1/split/config/get` `/v1/split/recipient/optin/get` `/v1/split/rule/list` `/v1/split/config/set` `/v1/split/recipient/optin` |
+| `wallets` | `block` `create` `get_qr` | `/v1/wallet/block` `/v1/wallet` `/v1/wallet/qr` |
+| `account` | `get_balance` `get_summary` `list_exchange_rates` | `/v1/balance` `/v1/summary` `/v1/exchange-rate/list` |
+| `webhooks` | `list_deliveries` `register` `requeue_delivery` `resend_payment` `rotate_secret` `send_legacy_test` `send_test_conversion` `send_test_payment` `send_test_payout` `send_test_wallet` `set_active` | `/v1/webhooks/deliveries` `/v1/webhooks` `/v1/webhooks/deliveries/requeue` `/v1/payment/resend` `/v1/webhooks/rotate-secret` `/v1/payment/testing-webhook` `/v1/test-webhook/conversion` `/v1/test-webhook/payment` `/v1/test-webhook/payout` `/v1/test-webhook/wallet` `/v1/webhooks/active` |
+| `settings` | `configure_vrcs` `delete_auto_withdraw_rule` `get_accuracy` `get_auto_convert` `get_auto_refund` `get_payment_fee_config` `get_payout_fee_config` `get_refund_fee_config` `list_accepted_currencies` `list_api_log` `list_auto_withdraw_rules` `list_discounts` `set_accepted_currencies` `set_accuracy` `set_auto_convert` `set_auto_refund` `set_auto_withdraw_rule` `set_discount` `set_payment_fee_config` `set_payout_fee_config` `set_refund_fee_config` | `/v1/vrcs` `/v1/auto-withdraw/delete` `/v1/payment/accuracy/get` `/v1/payment/autoconvert/get` `/v1/payment/autorefund/get` `/v1/payment/fee-config/get` `/v1/payout/fee-config/get` `/v1/payout/refund-fee-config/get` `/v1/payment/accepted/list` `/v1/payment/api-log` `/v1/auto-withdraw/list` `/v1/payment/discount/list` `/v1/payment/accepted/set` `/v1/payment/accuracy/set` `/v1/payment/autoconvert/set` `/v1/payment/autorefund/set` `/v1/auto-withdraw/set` `/v1/payment/discount/set` `/v1/payment/fee-config/set` `/v1/payout/fee-config/set` `/v1/payout/refund-fee-config/set` |
+| `api_allowlist` | `add_entry` `list` `remove_entry` `set_enabled` | `/v1/api-allowlist/add` `/v1/api-allowlist/list` `/v1/api-allowlist/remove` `/v1/api-allowlist/enable` |
+| `referrals` | `get_info` | `/v1/referral/info` |
+| `documents` | `create_job` `download_job_file` `get_balance` `get_batch` `get_fees` `get_job` `get_ledger` `get_payment_link` `get_payout_link_cheque` `get_referrals` `get_signed` `get_split` `get_statement` `get_wallet_statement` | `/v1/documents/jobs` `/v1/documents/jobs/file` `/v1/documents/balance` `/v1/documents/batch` `/v1/documents/fees` `/v1/documents/jobs/info` `/v1/documents/ledger` `/v1/documents/link` `/v1/payout/link/cheque` `/v1/documents/referrals` `/v1/documents/{kind}/{id}` `/v1/documents/split` `/v1/documents/statement` `/v1/documents/wallet/statement` |
+| `checkout` | `get` `get_onramp` `get_public_payment_link` `get_qr` `get_source_of_funds_form` `list_currencies` `payment_link` `select_method` `start_onramp` `submit_source_of_funds` | `/v1/pay/{id}` `/v1/pay/{id}/onramp` `/v1/link/{id}` `/v1/pay/{id}/qr` `/v1/aml/{token}` `/v1/currencies` `/v1/link/{id}/checkout` `/v1/pay/{id}/select` |
+| `sandbox` | `faucet` `list_webhooks` `onboard_store` `replay_webhook` `reset` `simulate_deposit` | `/v1/sandbox/faucet` `/v1/sandbox/webhooks` `/v1/merchants/{id}/sandbox` `/v1/sandbox/webhooks/replay` `/v1/sandbox/reset` `/v1/sandbox/deposit` |
 
 Every method takes the same trailing keyword arguments (the fields of `oblodai.RequestOptions`):
 `idempotency_key`, `timeout` (seconds, per attempt), `max_retries`, `extra_headers` (extra headers
@@ -345,7 +347,7 @@ Branch on `err.code`, which is always `family.reason`. Codes worth handling by n
 `payout.insufficient_funds` (retryable), `payout.funds_maturing` (retryable),
 `idempotency.key_reused`, `invoice.not_payable`, `payment.not_found`,
 `merchant.bad_signature`, `request.rate_limited`. The full catalogue is `oblodai.ERROR_CODES`
-(469 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
+(450 codes) — the gateway's own list, so a code can be matched exactly instead of by substring.
 
 ## Retries, idempotency and timeouts
 
@@ -451,7 +453,7 @@ and carries `X-Admin-Token` when `admin_token` is set.
 `contract/` — in the repository and in the sdist, not in the installed wheel — holds the gateway's
 own export: the route registry, request schemas, all enums and error codes, signing vectors, golden
 response bodies for every route and real signed webhook deliveries. It pins one core commit
-(`CONTRACT_CORE_COMMIT`), and the 107 routes and 469 error codes this SDK exposes are exactly the
+(`CONTRACT_CORE_COMMIT`), and the 120 routes and 450 error codes this SDK exposes are exactly the
 ones in it.
 
 ```python

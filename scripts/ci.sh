@@ -20,8 +20,8 @@ need() {
 need ruff
 need mypy
 
-echo "== codegen drift"
-"$PY" scripts/check_drift.py
+echo "== generated code drift"
+"$PY" scripts/check_generated.py
 
 echo "== lint"
 ruff format --check .

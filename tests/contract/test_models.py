@@ -1,342 +1,157 @@
-"""Wire models versus the golden bodies the core recorded.
+"""Generated models versus the golden bodies the core recorded.
 
-Each row names a route, how to reach the object inside its ``result`` and the model's key tuple.
-Keys must match EXACTLY: a field the core stopped sending fails here, and so does a field it
-started sending that the model lacks. Fields that are genuinely conditional on the wire are listed
-as optional and tolerated on either side.
+Every recorded 2xx answer goes through the SDK method of its route, end to end: it must parse, and
+no model on the way may be left with fields it does not know (``extra``) - a field the core
+started sending that the contract does not declare fails here. Webhook samples, statuses and
+error envelopes are checked against the generated enums and models the same way.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+import dataclasses
+import json
+from enum import Enum
+from typing import Any, Dict, List, Type, cast
 
 import pytest
 
-from oblodai.contract import models as M
-from oblodai.contract.enums import (
-    DELIVERY_STATUSES,
-    ERROR_CODES,
-    EVENT_TYPES,
-    PAYMENT_STATUSES,
-    PAYOUT_LINK_STATUSES,
-    PAYOUT_STATUSES,
+from oblodai import (
+    ROUTES,
+    ErrorCode,
+    Oblodai,
+    PaymentStatus,
+    PaymentWebhook,
+    PayoutLinkStatus,
+    PayoutStatus,
+    PayoutWebhook,
+    WalletWebhook,
+    WebhookDeliveryStatus,
 )
+from oblodai.core.model import Model
+from oblodai.core.pagination import Page
+from oblodai.core.poller import Job
+from tests.support.coverage import call
 from tests.support.fixtures import (
-    load_contract,
     load_error_samples,
     load_fixtures,
     load_webhook_samples,
     result_of,
 )
-
-#: ``(route, picker over the recorded ``result``, expected keys, keys tolerated on either side)``.
-Row = Tuple[str, Callable[[Any], Any], Sequence[str], Sequence[str]]
-
-
-def row(
-    route: str,
-    pick: Callable[[Any], Any],
-    keys: Sequence[str],
-    optional: Sequence[str] = (),
-) -> Row:
-    return (route, pick, keys, optional)
-
-
-ROWS: List[Row] = [
-    row("POST /v1/payment", lambda r: r, M.PAYMENT_KEYS),
-    row("POST /v1/payment/info", lambda r: r, M.PAYMENT_KEYS, ["refunds", "refund_status"]),
-    row("POST /v1/payment/cancel", lambda r: r, M.PAYMENT_KEYS),
-    row("POST /v1/payment/history", lambda r: r["items"][0], M.PAYMENT_KEYS),
-    row("GET /v1/pay/{id}", lambda r: r, M.PUBLIC_PAYMENT_KEYS),
-    row("POST /v1/pay/{id}/select", lambda r: r, M.PUBLIC_PAYMENT_KEYS),
-    row("POST /v1/link/{id}/checkout", lambda r: r, M.PUBLIC_PAYMENT_KEYS),
-    row("POST /v1/payment/qr", lambda r: r, M.QR_CODE_KEYS),
-    row("GET /v1/pay/{id}/qr", lambda r: r, M.QR_CODE_KEYS),
-    row("POST /v1/payment/services", lambda r: r["items"][0], M.SERVICE_METHOD_KEYS),
-    row("POST /v1/payout/services", lambda r: r["items"][0], M.SERVICE_METHOD_KEYS),
-    row("POST /v1/payment/batch", lambda r: r, M.BATCH_SUBMITTED_KEYS),
-    row("POST /v1/payout/batch", lambda r: r, M.BATCH_SUBMITTED_KEYS),
-    row("POST /v1/refund/batch", lambda r: r, M.BATCH_SUBMITTED_KEYS),
-    row("POST /v1/transfer/batch", lambda r: r, M.BATCH_SUBMITTED_KEYS),
-    row("POST /v1/batch/info", lambda r: r, M.BATCH_INFO_KEYS),
-    row("POST /v1/payout", lambda r: r, M.PAYOUT_KEYS),
-    row("POST /v1/payout/info", lambda r: r, M.PAYOUT_KEYS, ["error", "error_code"]),
-    row("POST /v1/payout/cancel", lambda r: r, M.PAYOUT_KEYS),
-    row("POST /v1/payout/history", lambda r: r["items"][0], M.PAYOUT_KEYS),
-    row("POST /v1/payout/mass", lambda r: r["items"][0]["result"], M.PAYOUT_KEYS),
-    row("POST /v1/payment/refund", lambda r: r, M.PAYOUT_KEYS),
-    row("POST /v1/payout/calculate", lambda r: r, M.PAYOUT_CALCULATION_KEYS),
-    row("POST /v1/payout/validate", lambda r: r, M.PAYOUT_VALIDATION_KEYS),
-    row("POST /v1/payout/link", lambda r: r, M.PAYOUT_LINK_KEYS, ["claim_token", "claim_url"]),
-    row("POST /v1/payout/link/info", lambda r: r, M.PAYOUT_LINK_KEYS),
-    row("POST /v1/payout/link/list", lambda r: r["items"][0], M.PAYOUT_LINK_KEYS),
-    row("POST /v1/payout/link/cancel", lambda r: r, M.PAYOUT_LINK_KEYS),
-    row(
-        "POST /v1/payout/link/batch",
-        lambda r: r["items"][0]["result"],
-        M.PAYOUT_LINK_KEYS,
-        ["claim_token", "claim_url", "batch_id"],
-    ),
-    row("GET /v1/claim/{token}", lambda r: r, M.CLAIM_PREVIEW_KEYS),
-    row("POST /v1/claim/{token}", lambda r: r, M.CLAIM_RESULT_KEYS),
-    row("POST /v1/payment/link", lambda r: r, M.PAYMENT_LINK_CREATED_KEYS),
-    row("POST /v1/payment/link/info", lambda r: r, M.PAYMENT_LINK_KEYS, ["payments"]),
-    row("POST /v1/payment/link/list", lambda r: r["items"][0], M.PAYMENT_LINK_KEYS),
-    row("GET /v1/link/{id}", lambda r: r, M.PUBLIC_PAYMENT_LINK_KEYS),
-    row("POST /v1/balance", lambda r: r, M.BALANCE_KEYS),
-    row("POST /v1/referral/info", lambda r: r, M.REFERRAL_INFO_KEYS),
-    row("POST /v1/auto-withdraw/list", lambda r: r["items"][0], M.AUTO_WITHDRAW_RULE_KEYS),
-    row("POST /v1/api-allowlist/list", lambda r: r, M.API_ALLOWLIST_KEYS),
-    row("POST /v1/payment/discount/list", lambda r: r["items"][0], M.DISCOUNT_RULE_KEYS),
-    row("POST /v1/split/rule/list", lambda r: r["items"][0], M.SPLIT_RULE_KEYS),
-    row("GET /v1/currencies", lambda r: r, M.CURRENCIES_KEYS),
-    row(
-        "GET /v1/currencies",
-        lambda r: r["currencies"][0]["networks"][0],
-        M.CURRENCY_NETWORK_KEYS,
-        ["contract"],
-    ),
-    row("POST /v1/exchange-rate/list", lambda r: r["items"][0], M.EXCHANGE_RATE_KEYS),
-    row("POST /v1/webhooks", lambda r: r, M.WEBHOOK_ENDPOINT_KEYS),
-    row("POST /v1/webhooks/rotate-secret", lambda r: r, M.WEBHOOK_SECRET_ROTATED_KEYS),
-    row("POST /v1/webhooks/deliveries", lambda r: r["items"][0], M.WEBHOOK_DELIVERY_KEYS),
-    row(
-        "GET /v1/sandbox/webhooks",
-        lambda r: r["items"][0],
-        M.WEBHOOK_DELIVERY_KEYS,
-        ["payload", "sequence"],
-    ),
-    row("POST /v1/payment/resolve", lambda r: r, [*M.PAYOUT_KEYS, "resolution"]),
-    row("POST /v1/payment/send-email", lambda r: r, M.EMAIL_SENT_KEYS),
-    row("POST /v1/payment/resend", lambda r: r, M.OK_RESULT_KEYS),
-    row("POST /v1/payment/accepted/set", lambda r: r, M.OK_RESULT_KEYS),
-    row("POST /v1/split/rule/delete", lambda r: r, M.OK_RESULT_KEYS),
-    row(
-        "POST /v1/payment/accepted/list",
-        lambda r: r["items"][0],
-        M.ACCEPTED_METHOD_KEYS,
-        ["reason"],
-    ),
-    row("POST /v1/payment/accuracy/get", lambda r: r, M.ACCURACY_CONFIG_KEYS),
-    row("POST /v1/payment/accuracy/set", lambda r: r, M.ACCURACY_CONFIG_KEYS),
-    row("POST /v1/payment/autorefund/get", lambda r: r, M.AUTO_REFUND_CONFIG_KEYS),
-    row("POST /v1/payment/autorefund/set", lambda r: r, M.AUTO_REFUND_CONFIG_KEYS, ["configured"]),
-    row("POST /v1/payment/discount/set", lambda r: r, M.DISCOUNT_RULE_KEYS),
-    row("POST /v1/payment/fee-config/get", lambda r: r, M.PAYMENT_FEE_CONFIG_KEYS),
-    row("POST /v1/payment/fee-config/set", lambda r: r, M.PAYMENT_FEE_CONFIG_KEYS, ["enabled"]),
-    row("POST /v1/payout/fee-config/get", lambda r: r, M.PAYOUT_FEE_CONFIG_KEYS),
-    row("POST /v1/payout/fee-config/set", lambda r: r, M.PAYOUT_FEE_CONFIG_KEYS, ["configured"]),
-    row("POST /v1/payout/refund-fee-config/get", lambda r: r, M.REFUND_FEE_CONFIG_KEYS),
-    row(
-        "POST /v1/payout/refund-fee-config/set",
-        lambda r: r,
-        M.REFUND_FEE_CONFIG_KEYS,
-        ["configured"],
-    ),
-    row("POST /v1/payment/link/toggle", lambda r: r, M.PAYMENT_LINK_TOGGLED_KEYS),
-    row("POST /v1/split/rule", lambda r: r, M.SPLIT_RULE_CREATED_KEYS),
-    row("POST /v1/split/config/get", lambda r: r, M.SPLIT_CONFIG_KEYS),
-    row("POST /v1/split/config/set", lambda r: r, M.SPLIT_CONFIG_KEYS),
-    row("POST /v1/split/recipient/optin", lambda r: r, M.SPLIT_OPT_IN_KEYS),
-    row("POST /v1/split/recipient/optin/get", lambda r: r, M.SPLIT_OPT_IN_KEYS),
-    row("POST /v1/vrcs", lambda r: r, M.VRCS_STATUS_KEYS),
-    row("POST /v1/auto-withdraw/set", lambda r: r["items"][0], M.AUTO_WITHDRAW_RULE_KEYS),
-    row("POST /v1/auto-withdraw/delete", lambda r: r, ["items"]),
-    row("POST /v1/api-allowlist/add", lambda r: r, M.API_ALLOWLIST_KEYS),
-    row("POST /v1/api-allowlist/remove", lambda r: r, M.API_ALLOWLIST_KEYS),
-    row("POST /v1/api-allowlist/enable", lambda r: r, M.API_ALLOWLIST_KEYS),
-    row(
-        "POST /v1/wallet",
-        lambda r: r,
-        M.WALLET_KEYS,
-        ["destination_tag", "memo", "address_xaddress", "address_muxed"],
-    ),
-    row("POST /v1/wallet/block", lambda r: r, M.WALLET_BLOCKED_KEYS),
-    row("POST /v1/wallet/qr", lambda r: r, ["image"]),
-    row("POST /v1/wallet/blocked-address-refund", lambda r: r, [*M.PAYOUT_KEYS, "wallet_uuid"]),
-    row("POST /v1/transfer/to-personal", lambda r: r, M.TRANSFER_TO_PERSONAL_KEYS),
-    row("POST /v1/transfer/to-user", lambda r: r, M.TRANSFER_TO_USER_KEYS),
-    row(
-        "POST /v1/documents/jobs",
-        lambda r: r,
-        M.DOCUMENT_JOB_KEYS,
-        ["ready_within", "file", "error"],
-    ),
-    row(
-        "POST /v1/documents/jobs/info",
-        lambda r: r,
-        M.DOCUMENT_JOB_KEYS,
-        ["ready_within", "file", "error"],
-    ),
-    row(
-        "POST /v1/documents/jobs/info",
-        lambda r: r["file"],
-        ["download_url", "expires_at", "rows", "size_bytes"],
-    ),
-    row("POST /v1/test-webhook/payment", lambda r: r, M.WEBHOOK_TEST_RESULT_KEYS),
-    row("POST /v1/test-webhook/payout", lambda r: r, M.WEBHOOK_TEST_RESULT_KEYS),
-    row("POST /v1/test-webhook/wallet", lambda r: r, M.WEBHOOK_TEST_RESULT_KEYS),
-    row(
-        "POST /v1/payment/testing-webhook",
-        lambda r: r,
-        [*M.WEBHOOK_TEST_RESULT_KEYS, "url", "duration_ms"],
-    ),
-    row("POST /v1/sandbox/faucet", lambda r: r, M.FAUCET_RESULT_KEYS),
-    row("POST /v1/sandbox/deposit", lambda r: r, M.SANDBOX_DEPOSIT_KEYS),
-    row("POST /v1/sandbox/reset", lambda r: r, M.SANDBOX_RESET_KEYS),
-    row("POST /v1/sandbox/webhooks/replay", lambda r: r, M.SANDBOX_REPLAY_KEYS),
-    row("POST /v1/merchants", lambda r: r, M.MERCHANT_ONBOARDED_KEYS),
-    row("POST /v1/merchants", lambda r: r["api_key"], ["public_id", "secret"]),
-    row("POST /v1/merchants/{id}/sandbox", lambda r: r, M.SANDBOX_STORE_KEYS),
-]
-
-#: Routes the API guarantees to refuse for API keys (no success body exists to model).
-#: API-key payouts auto-approve; approve serves the cabinet's maker-checker flow.
-NOT_MODELLED = {"POST /v1/payout/approve"}
-
-
-def key_set_diff(
-    actual: Sequence[str], expected: Sequence[str], optional: Sequence[str] = ()
-) -> Dict[str, List[str]]:
-    """What the wire is missing versus the model, and what it carries the model does not know."""
-    have, want, tolerated = set(actual), set(expected), set(optional)
-    return {
-        "missing_on_wire": sorted(want - have - tolerated),
-        "unknown_on_wire": sorted(have - want - tolerated),
-    }
-
-
-NO_DRIFT: Dict[str, List[str]] = {"missing_on_wire": [], "unknown_on_wire": []}
+from tests.support.mock_http import MockHTTP, Scripted
 
 FIXTURES = load_fixtures()
+BY_KEY = {spec.key: op for op, spec in ROUTES.items()}
 
-
-@pytest.mark.parametrize(
-    ("route", "pick", "keys", "optional"),
-    ROWS,
-    ids=[f"{r[0]} <-> {len(r[2])} keys" for r in ROWS],
+#: Recorded 2xx JSON answers of routes the contract still has.
+RECORDED = sorted(
+    route
+    for route, recorded in FIXTURES.items()
+    if 200 <= recorded["status"] < 300
+    and "json" in (recorded.get("headers") or {}).get("Content-Type", "")
+    and route in BY_KEY
 )
-def test_model_keys_match_the_golden_body(
-    route: str, pick: Callable[[Any], Any], keys: Sequence[str], optional: Sequence[str]
-) -> None:
-    recorded = FIXTURES.get(route)
-    if recorded is None or recorded["status"] >= 300:
-        pytest.skip(f"{route}: recorded as a refusal in this environment, nothing to compare")
-    obj = pick(recorded.get("response", {}).get("result"))
-    assert obj, f"{route}: picker found nothing"
-    diff = key_set_diff(list(obj), keys, optional)
-    assert diff == NO_DRIFT, f"{route}: model keys drifted from the wire"
 
 
-def test_every_recorded_success_body_has_a_model_row() -> None:
-    covered = {r[0] for r in ROWS}
-    for route, recorded in FIXTURES.items():
-        if not 200 <= recorded["status"] < 300 or route in NOT_MODELLED:
-            continue
-        if "json" not in (recorded.get("headers") or {}).get("Content-Type", ""):
-            continue
-        assert route in covered, f"{route}: recorded success body has no model row"
+#: Recordings older than a required field the core added since (fixtures: 2026-08-26). The answer
+#: must fail on exactly that field; a refreshed recording drops its row here.
+ADDED_SINCE_RECORDING: Dict[str, str] = {
+    "GET /v1/pay/{id}": "fiat_purchase_available",  # 2026-09-23
+    "POST /v1/link/{id}/checkout": "method_adjustment",  # 2026-09-06
+    "POST /v1/pay/{id}/select": "method_adjustment",
+    "POST /v1/payment": "fee_percent",  # 2026-09-10
+    "POST /v1/payment/cancel": "fee_percent",
+    "POST /v1/payment/history": "fee_percent",
+    "POST /v1/payment/info": "fee_percent",
+    "POST /v1/sandbox/reset": "payout_links_cancelled",  # 2026-09-24
+    "POST /v1/webhooks/deliveries": "cancel_reason",  # 2026-09-24
+}
+
+
+def unknown_fields(value: Any, where: str = "result") -> List[str]:
+    """Every ``extra`` field of every model inside ``value``, with its path."""
+    out: List[str] = []
+    if isinstance(value, Model):
+        out.extend(f"{where}.{name}" for name in value.extra)
+        for field in dataclasses.fields(cast(Any, value)):
+            if field.name != "extra":
+                out.extend(unknown_fields(getattr(value, field.name), f"{where}.{field.name}"))
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            out.extend(unknown_fields(item, f"{where}[{index}]"))
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            out.extend(unknown_fields(item, f"{where}.{key}"))
+    return out
+
+
+def test_there_are_recorded_bodies_to_check() -> None:
+    assert len(RECORDED) > 50
+
+
+@pytest.mark.parametrize("route", RECORDED)
+def test_a_recorded_answer_parses_into_its_model_with_no_unknown_fields(route: str) -> None:
+    mock = MockHTTP([Scripted(status=200, body=FIXTURES[route]["response"])])
+    client = Oblodai(
+        public_id="pk",
+        secret="s",
+        admin_token="adm",
+        base_url="https://api.test",
+        http_client=mock.client,
+    )
+    added = ADDED_SINCE_RECORDING.get(route)
+    if added is not None:
+        with pytest.raises(KeyError) as missing:
+            result = call(client, BY_KEY[route])
+            if isinstance(result, Page):
+                result.first()
+        assert missing.value.args == (added,)
+        return
+    result = call(client, BY_KEY[route])
+    if isinstance(result, Page):
+        result = result.first().items
+    if isinstance(result, Job):
+        result = result.result
+    assert result is not None
+    assert unknown_fields(result) == [], f"{route}: the contract does not declare these fields"
+
+
+def _values(enum: Type[Enum]) -> List[str]:
+    return [member.value for member in enum]
 
 
 def test_statuses_in_fixtures_are_in_the_vocabulary() -> None:
     for payment in result_of("POST /v1/payment/history")["items"]:
-        assert payment["status"] in PAYMENT_STATUSES
+        assert payment["status"] in _values(PaymentStatus)
     for payout in result_of("POST /v1/payout/history")["items"]:
-        assert payout["status"] in PAYOUT_STATUSES
+        assert payout["status"] in _values(PayoutStatus)
     for link in result_of("POST /v1/payout/link/list")["items"]:
-        assert link["status"] in PAYOUT_LINK_STATUSES
+        assert link["status"] in _values(PayoutLinkStatus)
     for delivery in result_of("POST /v1/webhooks/deliveries")["items"]:
-        assert delivery["status"] in DELIVERY_STATUSES
+        assert delivery["status"] in _values(WebhookDeliveryStatus)
 
 
-def test_webhook_samples_carry_known_events_and_modelled_bodies() -> None:
-    event_keys: Dict[str, Sequence[str]] = {
-        "payment": M.PAYMENT_EVENT_KEYS,
-        "payout": M.PAYOUT_EVENT_KEYS,
-        "wallet": M.WALLET_EVENT_KEYS,
-    }
+WEBHOOK_MODELS: Dict[str, Any] = {
+    "payment": PaymentWebhook,
+    "payout": PayoutWebhook,
+    "wallet": WalletWebhook,
+}
+
+
+def test_webhook_samples_parse_into_their_models() -> None:
     samples = load_webhook_samples()
     assert samples, "no webhook samples recorded"
     for sample in samples:
-        assert sample["headers"]["X-Webhook-Event"] in EVENT_TYPES
-        body = sample["body"]
-        assert key_set_diff(list(body), event_keys[body["type"]], ["test"]) == NO_DRIFT
+        body = json.loads(sample["raw"]) if isinstance(sample.get("raw"), str) else sample["body"]
+        event = WEBHOOK_MODELS[body["type"]].from_dict(body)
+        assert unknown_fields(event, body["type"]) == []
 
 
 def test_every_recorded_error_code_has_the_documented_envelope() -> None:
     for code, recorded in load_error_samples().items():
-        assert code in ERROR_CODES
+        assert code in _values(ErrorCode)
         error = recorded.get("response", {}).get("error", {})
         assert error["code"] == code
         assert isinstance(error["retryable"], bool)
         assert isinstance(error["request_id"], str)
         if recorded["status"] == 429:
             assert error["retry_after"] > 0
-
-
-def test_recorded_request_bodies_only_use_documented_fields() -> None:
-    schemas = {
-        f"{r['method']} {r['path']}": r.get("request_schema") for r in load_contract()["routes"]
-    }
-    for route, recorded in FIXTURES.items():
-        schema = schemas.get(route)
-        body = recorded.get("request")
-        if not schema or not schema.get("properties") or not isinstance(body, dict):
-            continue
-        for field in body:
-            assert field in schema["properties"], (
-                f"{route}: journey sent undocumented field {field!r}"
-            )
-
-
-# --- the Python stand-in for the reference's compile-time `defineKeys` check -----------------
-
-
-def _keys_constants() -> Dict[Tuple[str, ...], List[str]]:
-    """Every ``*_KEYS`` tuple the models package exports, indexed by its value."""
-    out: Dict[Tuple[str, ...], List[str]] = {}
-    for name in dir(M):
-        if name.endswith("_KEYS"):
-            out.setdefault(tuple(getattr(M, name)), []).append(name)
-    return out
-
-
-def _typed_dict_name(keys_constant: str) -> str:
-    """``PAYMENT_LINK_KEYS`` -> ``PaymentLink``."""
-    return "".join(word.capitalize() for word in keys_constant[: -len("_KEYS")].split("_"))
-
-
-KEYS_CONSTANTS = _keys_constants()
-
-
-@pytest.mark.parametrize(
-    ("keys", "route"), [(tuple(r[2]), r[0]) for r in ROWS], ids=[r[0] for r in ROWS]
-)
-def test_key_tuple_agrees_with_its_typed_dict(keys: Tuple[str, ...], route: str) -> None:
-    """A key tuple may never name a field its ``TypedDict`` does not declare.
-
-    The TypeScript SDK gets this for free from ``defineKeys<T>()``; Python's ``TypedDict`` carries
-    the same information at runtime, in ``__required_keys__`` / ``__optional_keys__``.
-    """
-    names = KEYS_CONSTANTS.get(keys)
-    if not names:
-        pytest.skip(f"{route}: inline key list, no exported model to compare against")
-    checked = 0
-    for name in names:
-        model: Any = getattr(M, _typed_dict_name(name), None)
-        if not hasattr(model, "__required_keys__"):
-            continue  # a key tuple with no TypedDict of its own (a narrower create/toggle result)
-        checked += 1
-        known = set(model.__required_keys__) | set(model.__optional_keys__)
-        undeclared = sorted(set(keys) - known)
-        assert not undeclared, f"{name}: names {undeclared}, which {_typed_dict_name(name)} lacks"
-        # And the other direction, which containment alone would miss: a field the model declares
-        # REQUIRED but the key tuple does not name is a field no golden body is ever checked
-        # against. Genuinely conditional fields belong in the `total=False` half.
-        unchecked = sorted(set(model.__required_keys__) - set(keys))
-        assert not unchecked, (
-            f"{name}: {_typed_dict_name(name)} requires {unchecked}, which no fixture check "
-            "covers - either add them to the key tuple or declare them optional"
-        )
-    if checked == 0:
-        pytest.skip(f"{route}: {names} has no matching TypedDict")

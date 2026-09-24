@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from oblodai.contract.models.common import Paginate
-from oblodai.core.pagination import AsyncPage, Page, PageResult
+from oblodai.core.pagination import AsyncPage, Page, PageResult, Paginate
 
 ITEMS = ["a", "b", "c", "d", "e", "f"]
 PER_PAGE = 2

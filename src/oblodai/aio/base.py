@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, List, Mapping, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Mapping, Optional, TypeVar
 
-from ..contract.routes import ROUTES
 from ..core.atransport import AsyncTransport
 from ..core.engine import unwrap_result
 from ..core.options import RequestOptions
@@ -18,11 +17,8 @@ from ..resources.base import (
     FileResult,
     PagedRequest,
     PathParams,
-    Resource,
-    _to_page,
     call_options,
     file_result,
-    plan_page,
     plan_paged,
     raw_copy,
 )
@@ -136,59 +132,3 @@ class AsyncResource:
             )
 
         return build
-
-    async def _call(
-        self,
-        key: str,
-        body: Any = None,
-        *,
-        path_params: Optional[PathParams] = None,
-        query: Optional[Query] = None,
-        **options: Any,
-    ) -> Any:
-        """Call an envelope route and return its ``result``."""
-        return await self._transport.call(
-            ROUTES[key], Resource._options(body, path_params, query, options)
-        )
-
-    async def _plain_list(self, key: str, body: Any = None, **options: Any) -> List[Any]:
-        """Call a plain list route (``{items}`` without ``paginate``)."""
-        from ..core.envelope import as_plain_list
-
-        result = await self._transport.call(
-            ROUTES[key], Resource._options(body, None, None, options)
-        )
-        return as_plain_list(result)
-
-    def _page(
-        self,
-        key: str,
-        params: Optional[Mapping[str, Any]] = None,
-        *,
-        path_params: Optional[PathParams] = None,
-        via_query: bool = False,
-        **options: Any,
-    ) -> AsyncPage[Any]:
-        """Call a paged list route (``{items, paginate}``); returns a lazy :class:`AsyncPage`."""
-        plan = plan_page(key, params, via_query, options)
-
-        async def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
-            call_options = plan.call_options(page_limit, page_offset, path_params)
-            return _to_page(await self._transport.call(plan.route, call_options))
-
-        return AsyncPage(fetch, plan.limit, plan.offset)
-
-    async def _file(
-        self,
-        key: str,
-        *,
-        body: Any = None,
-        path_params: Optional[PathParams] = None,
-        query: Optional[Query] = None,
-        **options: Any,
-    ) -> FileResult:
-        """Call a ``bare`` route and return its bytes."""
-        raw = await self._transport.call_raw(
-            ROUTES[key], Resource._options(body, path_params, query, options)
-        )
-        return file_result(raw)

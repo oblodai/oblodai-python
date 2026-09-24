@@ -18,7 +18,9 @@ from typing import Dict, List, Tuple
 import pytest
 
 import oblodai
-from oblodai import ERROR_CODES, ROUTES
+from oblodai import ROUTES, ErrorCode
+
+ERROR_CODES = [code.value for code in ErrorCode]
 
 ROOT = Path(oblodai.__file__).resolve().parents[2]
 #: The English prose. Checked for English-only text.
@@ -81,7 +83,7 @@ def test_every_sdk_name_the_docs_import_exists() -> None:
 
 def test_the_route_and_error_code_counts_the_docs_quote_are_the_real_ones() -> None:
     routes, codes = len(ROUTES), len(ERROR_CODES)
-    assert (routes, codes) == (107, 469), "the counts below need updating with the contract"
+    assert (routes, codes) == (120, 450), "the counts below need updating with the contract"
     for name in ("README.md", "README.ru.md", "AGENTS.md", "CHANGELOG.md"):
         text = read(name)
         for wrong in (f"{routes - 1} routes", f"{routes + 1} routes"):
@@ -91,7 +93,7 @@ def test_the_route_and_error_code_counts_the_docs_quote_are_the_real_ones() -> N
     for name in READMES:
         assert f"({codes} codes)" in read(name), f"{name} does not quote the code count"
         assert f"({routes})" in read(name), f"{name} does not quote the route count"
-    assert f"`ERROR_CODES` ({codes})" in read("AGENTS.md")
+    assert f"`ErrorCode` ({codes})" in read("AGENTS.md")
     assert f"`ROUTES` ({routes} routes" in read("AGENTS.md")
 
 

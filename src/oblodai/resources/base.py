@@ -5,15 +5,13 @@ from __future__ import annotations
 import copy
 import re
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Mapping, Optional, TypeVar, Union
 from urllib.parse import unquote
 
-from ..contract.models.common import Paginate
-from ..contract.routes import ROUTES
 from ..core.engine import CallOptions, unwrap_result
-from ..core.envelope import as_page, as_plain_list
+from ..core.envelope import as_page
 from ..core.errors import ConfigError
-from ..core.options import RequestOptions, options_from_kwargs
+from ..core.options import RequestOptions
 from ..core.pagination import DEFAULT_PAGE_LIMIT, Page, PageResult
 from ..core.poller import Job, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
@@ -24,12 +22,10 @@ from ..core.transport import Transport
 
 __all__ = [
     "FileResult",
-    "PagePlan",
     "PagedRequest",
     "Resource",
     "call_options",
     "file_result",
-    "plan_page",
     "plan_paged",
     "raw_copy",
 ]
@@ -194,66 +190,6 @@ class Resource:
 
         return build
 
-    @staticmethod
-    def _options(
-        body: Any,
-        path_params: Optional[PathParams],
-        query: Optional[Query],
-        options: Mapping[str, Any],
-    ) -> CallOptions:
-        """The hand-written resources' ``**options`` adapter (until generated resources)."""
-        return call_options(options_from_kwargs(options), body, path_params, query)
-
-    def _call(
-        self,
-        key: str,
-        body: Any = None,
-        *,
-        path_params: Optional[PathParams] = None,
-        query: Optional[Query] = None,
-        **options: Any,
-    ) -> Any:
-        """Call an envelope route and return its ``result``."""
-        return self._transport.call(ROUTES[key], self._options(body, path_params, query, options))
-
-    def _plain_list(self, key: str, body: Any = None, **options: Any) -> List[Any]:
-        """Call a plain list route (``{items}`` without ``paginate``)."""
-        result = self._transport.call(ROUTES[key], self._options(body, None, None, options))
-        return as_plain_list(result)
-
-    def _page(
-        self,
-        key: str,
-        params: Optional[Mapping[str, Any]] = None,
-        *,
-        path_params: Optional[PathParams] = None,
-        via_query: bool = False,
-        **options: Any,
-    ) -> Page[Any]:
-        """Call a paged list route (``{items, paginate}``); returns a lazy :class:`Page`."""
-        plan = plan_page(key, params, via_query, options)
-
-        def fetch(page_limit: int, page_offset: int) -> PageResult[Any]:
-            call_options = plan.call_options(page_limit, page_offset, path_params)
-            return _to_page(self._transport.call(plan.route, call_options))
-
-        return Page(fetch, plan.limit, plan.offset)
-
-    def _file(
-        self,
-        key: str,
-        *,
-        body: Any = None,
-        path_params: Optional[PathParams] = None,
-        query: Optional[Query] = None,
-        **options: Any,
-    ) -> FileResult:
-        """Call a ``bare`` route and return its bytes."""
-        raw = self._transport.call_raw(
-            ROUTES[key], self._options(body, path_params, query, options)
-        )
-        return file_result(raw)
-
 
 R = TypeVar("R")
 
@@ -263,68 +199,6 @@ def raw_copy(resource: R) -> R:
     clone = copy.copy(resource)
     clone._raw_response = True  # type: ignore[attr-defined]
     return clone
-
-
-@dataclass(frozen=True)
-class PagePlan:
-    """Everything a paged call needs, worked out once and shared by both client tiers."""
-
-    route: RouteSpec
-    use_query: bool
-    rest: Mapping[str, Any]
-    limit: Optional[int]
-    offset: Optional[int]
-    options: Mapping[str, Any]
-
-    def call_options(
-        self, page_limit: int, page_offset: int, path_params: Optional[PathParams]
-    ) -> CallOptions:
-        merged = {**self.rest, "limit": page_limit, "offset": page_offset}
-        return Resource._options(
-            None if self.use_query else merged,
-            path_params,
-            merged if self.use_query else None,
-            self.options,
-        )
-
-
-def plan_page(
-    key: str,
-    params: Optional[Mapping[str, Any]],
-    via_query: bool,
-    options: Dict[str, Any],
-) -> PagePlan:
-    """Split a list call into its paging arguments, its body/query and its per-call options.
-
-    One place for both tiers, so the sync and async ``_page`` cannot disagree about what a list
-    call sends.
-    """
-    route = ROUTES[key]
-    rest: Dict[str, Any] = dict(params or {})
-    # `history({"limit": 50})` and `history(limit=50)` are both accepted.
-    for shortcut in ("limit", "offset"):
-        if shortcut in options:
-            rest[shortcut] = options.pop(shortcut)
-    limit = rest.pop("limit", None)
-    offset = rest.pop("offset", None)
-    if options.get("idempotency_key") is not None and not route.idempotent:
-        # Silently dropping it would be worse: the caller believes the call is deduplicated, and
-        # reusing one key across pages would make the core replay page 1 forever.
-        raise ConfigError(
-            "sdk.idempotency_unsupported",
-            f"{route.method} {route.path} does not deduplicate by Idempotency-Key; "
-            "remove idempotency_key from this call",
-            "idempotency_key",
-        )
-    page_options = {k: v for k, v in options.items() if k != "idempotency_key"}
-    return PagePlan(
-        route=route,
-        use_query=route.method == "GET" or via_query,
-        rest=rest,
-        limit=limit,
-        offset=offset,
-        options=page_options,
-    )
 
 
 @dataclass(frozen=True)
@@ -392,7 +266,7 @@ def plan_paged(
         limit = rest_query.pop("limit", limit)
         offset = rest_query.pop("offset", offset)
     if options.idempotency_key is not None and not route.idempotent:
-        # Same rule as plan_page: one key reused across pages would replay page 1 forever.
+        # One key reused across pages would replay page 1 forever.
         raise ConfigError(
             "sdk.idempotency_unsupported",
             f"{route.method} {route.path} does not deduplicate by Idempotency-Key; "
@@ -413,8 +287,7 @@ def plan_paged(
 
 def _to_page(result: Any) -> PageResult[Any]:
     page = as_page(result)
-    paginate: Paginate = page["paginate"]
-    return PageResult(list(page["items"]), paginate)
+    return PageResult(list(page["items"]), page["paginate"])
 
 
 _FILENAME_UTF8 = re.compile(r"filename\*=UTF-8''([^;]+)", re.IGNORECASE)

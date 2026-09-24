@@ -8,7 +8,7 @@ from typing import Any, Dict
 import httpx
 import pytest
 
-from oblodai import Oblodai
+from oblodai import AccuracyResult, BatchInfoResponse, Oblodai, PaymentView, PayoutView
 from oblodai.core.errors import (
     AuthenticationError,
     IdempotencyConflictError,
@@ -19,6 +19,7 @@ from oblodai.core.errors import (
 )
 from oblodai.core.retry import RetryOptions
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
+from tests.support.samples import sample
 
 CREDS: Dict[str, Any] = {
     "public_id": "pk_test_1",
@@ -46,9 +47,9 @@ def test_signs_path_and_query_on_get_and_sends_no_body() -> None:
             )
         ]
     )
-    client(mock).sandbox.webhooks({"limit": 10, "offset": 0}).first()
+    client(mock).sandbox.list_webhooks().first()
     call = mock.calls[0]
-    assert call.url == "https://api.test/v1/sandbox/webhooks?limit=10&offset=0"
+    assert call.url == "https://api.test/v1/sandbox/webhooks?limit=50&offset=0"
     assert call.body is None
     assert call.headers["x-public-id"] == "pk_test_1"
     assert HEX64.match(call.headers["x-signature"])
@@ -59,7 +60,7 @@ def test_generates_one_idempotency_key_per_create_and_reuses_it_across_retries()
     mock = MockHTTP(
         [
             api_error(503, {"code": "db.unavailable", "message": "down", "retryable": True}),
-            ok({"uuid": "u"}),
+            ok(sample(PaymentView, uuid="u")),
         ]
     )
     client(mock).payments.create({"amount": "1", "currency": "USDT"})
@@ -72,13 +73,13 @@ def test_generates_one_idempotency_key_per_create_and_reuses_it_across_retries()
 
 
 def test_honours_a_caller_key_and_adds_none_to_read_routes() -> None:
-    mock = MockHTTP([ok({"uuid": "u"}), ok({"uuid": "u"})])
+    mock = MockHTTP([ok(sample(PayoutView, uuid="u")), ok(sample(PaymentView, uuid="u"))])
     api = client(mock)
     api.payouts.create(
         {"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"},
         idempotency_key="my-key-1",
     )
-    api.payments.info({"uuid": "u"})
+    api.payments.get_info({"uuid": "u"})
     assert mock.calls[0].headers["idempotency-key"] == "my-key-1"
     assert "idempotency-key" not in mock.calls[1].headers
 
@@ -86,7 +87,7 @@ def test_honours_a_caller_key_and_adds_none_to_read_routes() -> None:
 def test_does_not_retry_a_non_retryable_error_even_on_a_5xx() -> None:
     mock = MockHTTP([api_error(500, {"code": "internal", "retryable": False})])
     with pytest.raises(OblodaiError) as excinfo:
-        client(mock).account.balance()
+        client(mock).account.get_balance()
     error = excinfo.value
     assert error.code == "internal"
     assert error.http_status == 500
@@ -100,7 +101,7 @@ def test_retries_a_retryable_error_and_surfaces_it_after_the_budget() -> None:
     )
     mock = MockHTTP([rate_limited, rate_limited, rate_limited])
     with pytest.raises(RateLimitError) as excinfo:
-        client(mock).account.balance()
+        client(mock).account.get_balance()
     assert excinfo.value.retry_after == 0
     assert len(mock.calls) == 3  # 1 + max_retries(2)
 
@@ -109,16 +110,16 @@ def test_retries_a_transport_failure_only_when_the_request_is_safe_to_repeat() -
     boom = Scripted(raises=httpx.ConnectError("connection refused"))
 
     read = MockHTTP([boom, ok({"balance": {"merchant": []}})])
-    client(read).account.balance()  # read route -> retried
+    client(read).account.get_balance()  # read route -> retried
     assert len(read.calls) == 2
 
-    write = MockHTTP([boom, ok({})])
+    write = MockHTTP([boom, ok(sample(AccuracyResult))])
     with pytest.raises(TransportError) as excinfo:
         client(write).settings.set_accuracy({"enabled": True})
     assert excinfo.value.code == "transport.network"  # write without a key -> not retried
     assert len(write.calls) == 1
 
-    keyed = MockHTTP([boom, ok({"uuid": "u"})])
+    keyed = MockHTTP([boom, ok(sample(PaymentView, uuid="u"))])
     client(keyed).payments.create({"amount": "1", "currency": "USDT"})  # keyed -> retried
     assert len(keyed.calls) == 2
 
@@ -153,7 +154,7 @@ def test_classifies_the_envelope_and_keeps_request_id_and_field() -> None:
     assert validation.value.family == "payment"
 
     with pytest.raises(AuthenticationError):
-        api.account.balance()
+        api.account.get_balance()
     with pytest.raises(IdempotencyConflictError):
         api.payments.create({"amount": "1", "currency": "USDT"})
 
@@ -173,7 +174,7 @@ def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> None:
             ok({"balance": {"merchant": []}}),
         ]
     )
-    client(mock, retry=RetryOptions(max_retries=0)).account.balance()
+    client(mock, retry=RetryOptions(max_retries=0)).account.get_balance()
     assert len(mock.calls) == 2
     assert abs(int(mock.calls[1].headers["x-timestamp"]) - server_now) < 5
 
@@ -181,17 +182,23 @@ def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> None:
 def test_times_out_and_reports_transport_timeout() -> None:
     mock = MockHTTP([Scripted(raises=httpx.ReadTimeout("too slow"))])
     with pytest.raises(TransportError) as excinfo:
-        client(mock, retry=RetryOptions(max_retries=0)).account.balance()
+        client(mock, retry=RetryOptions(max_retries=0)).account.get_balance()
     assert excinfo.value.code == "transport.timeout"
 
 
 def test_one_api_key_signs_money_in_money_out_and_batch_routes_alike() -> None:
     """The merchant has a single key; nothing in the SDK may reach for a second one."""
-    mock = MockHTTP([ok({"uuid": "p"}), ok({"uuid": "i"}), ok({"batch_id": "b1"})])
+    mock = MockHTTP(
+        [
+            ok(sample(PayoutView, uuid="p")),
+            ok(sample(PaymentView, uuid="i")),
+            ok(sample(BatchInfoResponse, batch_id="b1")),
+        ]
+    )
     api = client(mock)
     api.payouts.create({"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"})
     api.payments.create({"amount": "1", "currency": "USDT"})
-    api.batches.info({"batch_id": "b1"})
+    api.batches.get_info({"batch_id": "b1"})
     assert [call.headers["x-public-id"] for call in mock.calls] == ["pk_test_1"] * 3
 
 
@@ -199,7 +206,7 @@ def test_batches_info_sends_exactly_one_request() -> None:
     """There is no second key to fall back to, so a refusal is a refusal."""
     mock = MockHTTP([api_error(403, {"code": "merchant.frozen", "retryable": False})])
     with pytest.raises(OblodaiError) as excinfo:
-        client(mock).batches.info({"batch_id": "b1"})
+        client(mock).batches.get_info({"batch_id": "b1"})
     assert excinfo.value.code == "merchant.frozen"
     assert len(mock.calls) == 1
 
@@ -207,7 +214,7 @@ def test_batches_info_sends_exactly_one_request() -> None:
 def test_a_per_call_option_the_sdk_no_longer_has_is_refused_before_a_request() -> None:
     mock = MockHTTP([])
     with pytest.raises(TypeError, match="prefer_payout_key"):
-        client(mock).payouts.create(
+        client(mock).payouts.create(  # type: ignore[call-arg]
             {"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"},
             prefer_payout_key=True,
         )
@@ -217,20 +224,22 @@ def test_a_per_call_option_the_sdk_no_longer_has_is_refused_before_a_request() -
 def test_refuses_a_signed_call_with_no_credentials_but_allows_public_ones() -> None:
     mock = MockHTTP([ok({"currencies": [], "pricing_currencies": []})])
     api = Oblodai(base_url="https://api.test", http_client=mock.client, env={})
-    assert api.catalog.currencies()["currencies"] == []
+    assert api.checkout.list_currencies().currencies == []
     with pytest.raises(OblodaiError) as excinfo:
-        api.account.balance()
+        api.account.get_balance()
     assert excinfo.value.code == "sdk.missing_credentials"
 
 
 def test_the_user_agent_names_the_sdk_and_the_contract() -> None:
     mock = MockHTTP([ok({"balance": {"merchant": []}})])
-    client(mock).account.balance()
+    client(mock).account.get_balance()
     assert mock.calls[0].headers["user-agent"].startswith("oblodai-python/1.3.0 (contract ")
 
 
 def test_unknown_per_call_options_are_rejected_before_anything_is_sent() -> None:
     mock = MockHTTP([])
     with pytest.raises(TypeError, match="idempotencyKey"):
-        client(mock).payments.create({"amount": "1", "currency": "USDT"}, idempotencyKey="k")
+        client(mock).payments.create(  # type: ignore[call-arg]
+            {"amount": "1", "currency": "USDT"}, idempotencyKey="k"
+        )
     assert mock.calls == []

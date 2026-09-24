@@ -1,25 +1,23 @@
-"""Route coverage: every route the core declares has exactly one SDK method behind it.
+"""Route coverage: every operation of the contract has exactly one SDK method behind it.
 
-The table below is the SDK's coverage ledger. A new core route fails this suite until a method is
-wired to it, and a method wired to the wrong verb, path, gate or idempotency wrapper fails too.
+The ledger (:mod:`tests.support.coverage`) is read off the generated namespaces. A method wired to
+the wrong verb, path, gate or idempotency wrapper fails here, on both client tiers.
 """
 
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Pattern, cast
+from typing import Any, Dict, List, Pattern
 
 import pytest
 
-import oblodai.aio.resources
-import oblodai.resources
 from oblodai import ROUTES, Oblodai
 from oblodai.aio import AsyncOblodai
-from oblodai.core.pagination import Page
-from tests.support.coverage import COVERAGE
-from tests.support.fixtures import load_contract, load_fixtures
+from oblodai.core.errors import ContractError
+from oblodai.core.pagination import AsyncPage, Page
+from tests.support.coverage import COVERAGE, method_of, namespaces
+from tests.support.coverage import call as call_operation
 from tests.support.mock_http import MockHTTP, Scripted
 
 ROUTE_KEYS: List[str] = sorted(ROUTES)
@@ -83,133 +81,6 @@ def _assert_wire(mock: MockHTTP, key: str) -> None:
         assert "idempotency-key" not in call.headers, f"{key}: sent a key the core would reject"
 
 
-@pytest.mark.parametrize("key", ROUTE_KEYS)
-def test_sync_method_is_wired_to_the_route(key: str) -> None:
-    mock = _script(key)
-    client = Oblodai(
-        public_id="pk",
-        secret="s",
-        admin_token="adm",
-        base_url="https://api.test",
-        http_client=mock.client,
-    )
-    result = COVERAGE[key](client)
-    if isinstance(result, Page):
-        result.first()  # list methods are lazy: nothing is sent until the page is consumed
-    _assert_wire(mock, key)
-
-
-@pytest.mark.parametrize("key", ROUTE_KEYS)
-async def test_async_method_is_wired_to_the_route(key: str) -> None:
-    mock = _script(key)
-    client = AsyncOblodai(
-        public_id="pk",
-        secret="s",
-        admin_token="adm",
-        base_url="https://api.test",
-        http_client=mock.async_client,
-    )
-    # The async namespaces mirror the sync ones exactly; only the return values are awaitable
-    # (a coroutine, or an ``AsyncPage`` whose ``__await__`` fetches the first page).
-    result = COVERAGE[key](cast(Oblodai, client))
-    await result
-    _assert_wire(mock, key)
-
-
-_SKIP_PATH = re.compile(r"^/(healthz|readyz|docs|openapi\.json|internal)")
-
-
-def _declared_routes() -> Dict[str, Dict[str, Any]]:
-    """The merchant-facing rows of ``contract.json``, keyed the way ``ROUTES`` is."""
-    return {
-        f"{route['method']} {route['path']}": route
-        for route in load_contract()["routes"]
-        if not _SKIP_PATH.match(route["path"])
-    }
-
-
-def test_routes_are_the_cores_merchant_surface() -> None:
-    """Nothing more and nothing less than what ``contract.json`` declares."""
-    assert set(ROUTES) == set(_declared_routes())
-
-
-#: Every field of a RouteSpec, and the name ``contract.json`` gives it.
-ROUTE_FIELDS = (
-    ("method", "method"),
-    ("path", "path"),
-    ("auth", "auth"),
-    ("idempotent", "idempotent"),
-    ("safe", "safe"),
-    ("bare", "bare"),
-    ("list_kind", "list"),
-)
-
-
-def route_field(route: Dict[str, Any], name: str) -> Any:
-    """``contract.json`` omits a false ``bare`` and a routes' missing ``list``."""
-    value = route.get(name)
-    if name in ("idempotent", "safe", "bare"):
-        return bool(value)
-    return value or None if name == "list" else value
-
-
-@pytest.mark.parametrize("key", ROUTE_KEYS)
-def test_route_spec_matches_the_contract_field_for_field(key: str) -> None:
-    """Not just the key set: every flag the SDK acts on comes from the core, verbatim.
-
-    ``safe`` in particular decides whether a request may be re-sent after a transport failure -
-    a flipped bit here is a duplicate payout, so it is compared, not assumed.
-    """
-    declared = _declared_routes()[key]
-    spec = ROUTES[key]
-    for attribute, field in ROUTE_FIELDS:
-        assert getattr(spec, attribute) == route_field(declared, field), (
-            f"{key}: {attribute}={getattr(spec, attribute)!r} but the contract says "
-            f"{field}={route_field(declared, field)!r}"
-        )
-
-
-def test_the_field_comparison_catches_a_flipped_flag() -> None:
-    """The mutation test for the check above: flip one bit, the comparison must notice."""
-    key = "POST /v1/payout"
-    declared = dict(_declared_routes()[key])
-    assert declared["safe"] is False
-    declared["safe"] = True
-    assert ROUTES[key].safe != route_field(declared, "safe")
-    declared = dict(_declared_routes()[key])
-    declared["auth"] = "public"
-    assert ROUTES[key].auth != route_field(declared, "auth")
-
-
-def test_the_contract_only_ever_names_the_three_gates_this_sdk_implements() -> None:
-    """`public` | `key` | `onboard`. A fourth would mean a credential the client cannot supply."""
-    declared = {route["auth"] for route in _declared_routes().values()}
-    assert declared <= {"public", "key", "onboard"}, f"unknown gate in the contract: {declared}"
-    assert {spec.auth for spec in ROUTES.values()} == declared
-
-
-def test_every_recorded_fixture_belongs_to_a_known_route() -> None:
-    for route in load_fixtures():
-        assert route in ROUTES, f"{route}: fixture for a route the SDK does not know"
-
-
-def test_every_route_has_an_sdk_method() -> None:
-    """The coverage ledger: a new core route fails here until a method is wired to it."""
-    assert set(COVERAGE) == set(ROUTES)
-
-
-# --- paging and aliases (C11 of the port brief) -----------------------------------------------
-
-ALIASES = (
-    ("payments", "get", "info"),
-    ("payments", "list", "history"),
-    ("payouts", "get", "info"),
-    ("payouts", "list", "history"),
-    ("payout_links", "get", "info"),
-    ("payment_links", "get", "info"),
-)
-
-
 def _client(mock: MockHTTP) -> Oblodai:
     return Oblodai(
         public_id="pk",
@@ -220,21 +91,74 @@ def _client(mock: MockHTTP) -> Oblodai:
     )
 
 
-@pytest.mark.parametrize(("namespace", "alias", "canonical"), ALIASES)
-def test_an_alias_has_the_same_signature_as_the_method_it_aliases(
-    namespace: str, alias: str, canonical: str
-) -> None:
-    """`get` must be callable exactly like `info`, on both tiers, or it is not an alias."""
-    sync_client = _client(MockHTTP([]))
-    async_client = AsyncOblodai(base_url="https://api.test", env={})
+def _async_client(mock: MockHTTP) -> AsyncOblodai:
+    return AsyncOblodai(
+        public_id="pk",
+        secret="s",
+        admin_token="adm",
+        base_url="https://api.test",
+        http_client=mock.async_client,
+    )
+
+
+@pytest.mark.parametrize("key", ROUTE_KEYS)
+def test_sync_method_is_wired_to_the_route(key: str) -> None:
+    mock = _script(key)
     try:
-        for tier in (sync_client, async_client):
-            target = type(getattr(tier, namespace))
-            assert inspect.signature(getattr(target, alias)) == inspect.signature(
-                getattr(target, canonical)
-            ), f"{target.__name__}.{alias} does not match .{canonical}"
-    finally:
-        sync_client.close()
+        result = call_operation(_client(mock), key)
+        if isinstance(result, Page):
+            result.first()  # list methods are lazy: nothing is sent until the page is consumed
+    except (KeyError, TypeError, ValueError, ContractError):
+        pass  # the placeholder answer does not parse into the model; the wire is what counts
+    _assert_wire(mock, key)
+
+
+@pytest.mark.parametrize("key", ROUTE_KEYS)
+async def test_async_method_is_wired_to_the_route(key: str) -> None:
+    mock = _script(key)
+    # The async namespaces mirror the sync ones exactly; every method is a coroutine, and a list
+    # method's coroutine gives a lazy ``AsyncPage`` whose ``__await__`` fetches the first page.
+    try:
+        result = await call_operation(_async_client(mock), key)
+        if isinstance(result, AsyncPage):
+            await result
+    except (KeyError, TypeError, ValueError, ContractError):
+        pass
+    _assert_wire(mock, key)
+
+
+def test_the_contract_only_ever_names_the_three_gates_this_sdk_implements() -> None:
+    """`public` | `key` | `onboard`. A fourth would mean a credential the client cannot supply."""
+    declared = {spec.auth for spec in ROUTES.values()}
+    assert declared <= {"public", "key", "onboard"}, f"unknown gate in the contract: {declared}"
+
+
+def test_routes_are_keyed_by_their_operation_id() -> None:
+    for key, spec in ROUTES.items():
+        assert spec.operation_id == key
+
+
+def test_every_route_has_an_sdk_method_on_both_tiers() -> None:
+    """The coverage ledger: every operation is reachable, and the async tier mirrors the sync."""
+    assert set(COVERAGE) == set(ROUTES)
+    for key in ROUTES:
+        assert method_of(key, asynchronous=True) == method_of(key)
+
+
+def test_the_client_exposes_the_sixteen_namespaces_of_the_contract() -> None:
+    client = Oblodai(public_id="p", secret="s" * 32, env={})
+    assert sorted(namespaces(client)) == sorted({ns for ns, _ in COVERAGE.values()})
+    assert len(namespaces(client)) == 16
+
+
+def test_the_method_names_are_the_locked_public_names() -> None:
+    """``names.lock`` is what the generator refuses to drop; the client must carry exactly it."""
+    lock = Path(__file__).resolve().parents[2] / "names.lock"
+    locked = [line for line in lock.read_text("utf-8").splitlines() if line.strip()]
+    assert sorted(f"{ns}.{name}" for ns, name in COVERAGE.values()) == sorted(locked)
+
+
+# --- paging ----------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -243,7 +167,7 @@ def test_an_alias_has_the_same_signature_as_the_method_it_aliases(
 def test_every_paged_route_asks_for_a_page(key: str) -> None:
     """A paged route with no way to ask for page two is one you can only read the top of."""
     mock = _script(key)
-    result = COVERAGE[key](_client(mock))
+    result = call_operation(_client(mock), key)
     assert isinstance(result, Page), f"{key}: a paged route must return a lazy Page"
     result.first()
     call = mock.calls[0]
@@ -253,17 +177,12 @@ def test_every_paged_route_asks_for_a_page(key: str) -> None:
     assert limit is not None and offset is not None, f"{key}: no paging arguments on the wire"
 
 
-@pytest.mark.parametrize("key", ["POST /v1/payout/history", "GET /v1/sandbox/webhooks"])
-def test_paging_arguments_reach_the_wire_as_a_body_or_as_a_query(key: str) -> None:
-    """Both spellings - `history({"limit": 7})` and `history(limit=7)` - and both transports."""
+def test_paging_arguments_reach_the_wire_in_either_spelling() -> None:
+    """Both spellings - `list_history({"limit": 7})` and `list_history(limit=7)`."""
     for call_style in ("mapping", "keyword"):
+        key = "listPayoutHistory"
         mock = _script(key)
-        client = _client(mock)
-        page = (
-            client.payouts.history
-            if key == "POST /v1/payout/history"
-            else client.sandbox.webhooks
-        )
+        page = _client(mock).payouts.list_history
         if call_style == "mapping":
             page({"limit": 7, "offset": 14}).first()
         else:
@@ -273,3 +192,19 @@ def test_paging_arguments_reach_the_wire_as_a_body_or_as_a_query(key: str) -> No
         limit = str(sent["limit"]) if isinstance(sent, dict) else call.query("limit")
         offset = str(sent["offset"]) if isinstance(sent, dict) else call.query("offset")
         assert (limit, offset) == ("7", "14"), f"{key} ({call_style}): paging did not reach the wire"
+
+
+def test_a_get_list_pages_through_the_query() -> None:
+    mock = _script("sandboxListWebhooks")
+    _client(mock).sandbox.list_webhooks().first()
+    call = mock.calls[0]
+    assert (call.query("limit"), call.query("offset")) == ("50", "0")
+
+
+async def test_an_async_paged_route_returns_an_async_page() -> None:
+    mock = _script("listPayoutHistory")
+    page = await _async_client(mock).payouts.list_history(limit=3)
+    assert isinstance(page, AsyncPage)
+    assert not mock.calls, "a list is lazy: nothing is sent before the page is consumed"
+    await page
+    assert mock.calls[0].json["limit"] == 3

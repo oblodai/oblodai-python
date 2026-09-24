@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Mapping, Optional
 
-__all__ = ["OPTION_NAMES", "RequestOptions", "options_from_kwargs"]
+__all__ = ["RequestOptions"]
 
 
 @dataclass(frozen=True)
@@ -23,18 +23,3 @@ class RequestOptions:
     extra_headers: Optional[Mapping[str, str]] = None
     #: Sent as ``X-Request-ID`` to tie your logs to ours; a ``uuid4`` is generated when omitted.
     request_id: Optional[str] = None
-
-
-#: The keyword arguments that make up a :class:`RequestOptions`.
-OPTION_NAMES = ("idempotency_key", "timeout", "max_retries", "extra_headers", "request_id")
-
-
-def options_from_kwargs(options: Mapping[str, Any]) -> RequestOptions:
-    """Build :class:`RequestOptions` from trailing keyword arguments; anything else is a TypeError."""
-    unknown = sorted(set(options) - set(OPTION_NAMES))
-    if unknown:
-        raise TypeError(
-            f"unexpected keyword argument(s) {', '.join(unknown)}; "
-            f"resource methods accept {', '.join(OPTION_NAMES)}"
-        )
-    return RequestOptions(**options)
