@@ -130,5 +130,34 @@ def test_webhook_receiver_accepts_a_signed_delivery_and_rejects_a_forgery(
         "X-Webhook-Id": "d-1",
     }
     assert _deliver(module, body, headers) == 200
-    assert "payment u-1 -> paid" in capsys.readouterr().out
+    assert "payment:u-1 -> paid" in capsys.readouterr().out
     assert _deliver(module, body + b" ", headers) == 401
+
+
+def test_webhook_receiver_processes_a_resent_state_once_and_reads_a_conversion(
+    gateway: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = load(EXAMPLES / "webhook_receiver.py")
+    ts = int(time.time())
+
+    def deliver(event: Dict[str, Any], delivery_id: str, event_id: str) -> int:
+        body = json.dumps(event).encode()
+        return _deliver(
+            module,
+            body,
+            {
+                "X-Webhook-Timestamp": str(ts),
+                "X-Webhook-Signature": sign_webhook("whsec-example", ts, body),
+                "X-Webhook-Id": delivery_id,
+                "X-Webhook-Event-Id": event_id,
+            },
+        )
+
+    paid = {"type": "payment", "uuid": "u-2", "status": "paid", "sequence": 3}
+    assert deliver(paid, "d-1", "e-1") == 200
+    # A resend: a new delivery (new X-Webhook-Id, higher sequence) of the same state.
+    assert deliver({**paid, "sequence": 9}, "d-2", "e-1") == 200
+    assert capsys.readouterr().out.count("payment:u-2 -> paid") == 1
+    conversion = {"type": "conversion", "id": "c-1", "status": "completed", "sequence": 4}
+    assert deliver(conversion, "d-3", "e-3") == 200
+    assert "conversion:c-1 -> completed" in capsys.readouterr().out

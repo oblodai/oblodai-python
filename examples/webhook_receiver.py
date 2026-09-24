@@ -6,7 +6,8 @@
 The four rules that matter, whichever framework you use:
 
 1. Verify over the RAW request bytes. A re-serialized parse will not match the signature.
-2. Deduplicate on `X-Webhook-Id` - it is stable across retries of the same delivery.
+2. Deduplicate on `X-Webhook-Event-Id` (`delivery.event_id`) - it is the same for every retry AND
+   every resend of a state; `X-Webhook-Id` changes on a resend.
 3. Drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`; a retried `paid`
    can arrive after a newer state.
 4. Answer a rehearsal delivery (`delivery.is_test`) with 2xx, but never act on it as if money
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Dict, Optional, Set
+from typing import Dict, Mapping, Optional, Set
 
 from oblodai import SignatureError, WebhookPayloadError, webhooks
 
@@ -31,16 +32,20 @@ SECRET = os.environ["OBLODAI_WEBHOOK_SECRET"]
 # During a rotation keep the outgoing secret here for at least 26 h.
 PREVIOUS_SECRET = os.environ.get("OBLODAI_WEBHOOK_SECRET_PREVIOUS")
 
-seen_deliveries: Set[str] = set()
+seen_events: Set[str] = set()
 last_sequence: Dict[str, int] = {}
 
 
-def handle(event: Dict[str, object], delivery_id: Optional[str]) -> None:
-    """Your business logic. Runs once per delivery, in order, for each object."""
+def object_id(event: Mapping[str, object]) -> str:
+    """The object the event is about: ``uuid`` (payments, payouts, wallets) or ``id`` (conversions)."""
+    return f"{event['type']}:{event.get('uuid') or event.get('id')}"
+
+
+def handle(event: Dict[str, object], event_id: Optional[str]) -> None:
+    """Your business logic. Runs once per state, in order, for each object."""
     kind = event["type"]
-    uuid = str(event["uuid"])
     status = event["status"]
-    print(f"[{delivery_id}] {kind} {uuid} -> {status}")
+    print(f"[{event_id}] {object_id(event)} -> {status}")
     if kind == "payment" and status in ("paid", "paid_over"):
         ...  # release the goods
     elif kind == "payout" and status == "confirmed":
@@ -68,22 +73,24 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         event = delivery.event
-        object_id = str(event["uuid"])
+        obj = object_id(event)
+        # A core that does not send the event id yet leaves the delivery id as the next best key.
+        key = delivery.event_id or delivery.id
         if delivery.is_test:
             pass  # a rehearsal delivery (`webhooks.test`, sandbox): acknowledge, touch nothing
-        elif delivery.id and delivery.id in seen_deliveries:
-            pass  # a retry of something already processed
-        elif webhooks.is_stale(event, last_sequence.get(object_id)):
+        elif key and key in seen_events:
+            pass  # a retry or a resend of a state already processed
+        elif webhooks.is_stale(event, last_sequence.get(obj)):
             pass  # an older state arriving after a newer one
         else:
-            handle(dict(event), delivery.id)
-            if delivery.id:
-                seen_deliveries.add(delivery.id)
+            handle(dict(event), delivery.event_id)
+            if key:
+                seen_events.add(key)
             sequence = event.get("sequence")
             # Only remember a sequence the delivery actually carried: `int(None)` here would turn
             # a missing field into a crashed handler and a delivery the gateway keeps retrying.
             if isinstance(sequence, int) and not isinstance(sequence, bool):
-                last_sequence[object_id] = sequence
+                last_sequence[obj] = sequence
 
         # 2xx even for duplicates: the work is done, stop the retries.
         self.send_response(200)

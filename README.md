@@ -318,7 +318,10 @@ authentic one whose body this receiver cannot read (`webhook.bad_payload`; answe
 retry will fix it). The signature is checked before the freshness window, so a forged delivery never
 learns what time this endpoint thinks it is.
 
-Deduplicate on `delivery.id` (`X-Webhook-Id`, stable across retries). Rehearsal deliveries carry
+Deduplicate on `delivery.event_id` (`X-Webhook-Event-Id`): it names the state and is the same for
+every retry and every resend of it. `delivery.id` (`X-Webhook-Id`) names one delivery and changes on
+a resend (`webhooks.resend_payment`, a sandbox replay) — keyed on it, a resent `invoice.paid` is
+processed twice. Rehearsal deliveries carry
 `delivery.is_test`. During a secret rotation (`webhooks.rotate_secret`) pass `previous_secret=` for
 at least 26 h — deliveries queued before the rotation stay signed with the old secret for their
 whole retry life. `tolerance_sec` (default 300) bounds how stale a delivery may be.
