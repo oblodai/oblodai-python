@@ -234,7 +234,8 @@ def test_refuses_a_signed_call_with_no_credentials_but_allows_public_ones() -> N
 def test_the_user_agent_names_the_sdk_and_the_contract() -> None:
     mock = MockHTTP([ok({"balance": {"merchant": []}})])
     client(mock).account.get_balance()
-    assert mock.calls[0].headers["user-agent"].startswith(f"oblodai-python/{oblodai.__version__} (contract ")
+    agent = mock.calls[0].headers["user-agent"]
+    assert agent.startswith(f"oblodai-python/{oblodai.__version__} (contract ")
 
 
 def test_unknown_per_call_options_are_rejected_before_anything_is_sent() -> None:
