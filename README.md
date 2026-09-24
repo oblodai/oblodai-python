@@ -163,14 +163,19 @@ rules are I/O-free code that the sync and async transports both drive, so they c
 
 ### Amounts
 
-Amounts are decimal strings at the asset's own scale. Never `float()` them:
+Amounts are decimal strings at the asset's own scale. Never `float()` them: a `float` in a request
+body raises `ConfigError` (`sdk.float_amount`) before anything is sent. A `Decimal` is fine - it goes
+out as its exact string, and the helpers take it too:
 
 ```python
+from decimal import Decimal
+
 from oblodai import add_amounts, amount_equals, compare_amounts
 
 add_amounts("10.000000", "0.5")  # "10.500000"
 compare_amounts("25", "25.0000")  # 0
 amount_equals("25", "25.000000")  # True
+add_amounts(Decimal("1.10"), "2.20")  # "3.30"
 ```
 
 Never `<` or `sorted()` on the raw strings either — they compare lexicographically, and `"10" < "9"`

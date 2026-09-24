@@ -165,13 +165,18 @@ asyncio.run(main())
 ### Суммы
 
 Суммы — десятичные строки в собственном масштабе актива. Никогда не применяйте к ним `float()`:
+`float` в теле запроса — `ConfigError` (`sdk.float_amount`) до отправки. `Decimal` можно — он уходит
+точной строкой, и хелперы его тоже принимают:
 
 ```python
+from decimal import Decimal
+
 from oblodai import add_amounts, amount_equals, compare_amounts
 
 add_amounts("10.000000", "0.5")  # "10.500000"
 compare_amounts("25", "25.0000")  # 0
 amount_equals("25", "25.000000")  # True
+add_amounts(Decimal("1.10"), "2.20")  # "3.30"
 ```
 
 Точно так же нельзя сравнивать их через `<` или `sorted()`: строки сравниваются лексикографически, и

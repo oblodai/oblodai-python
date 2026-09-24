@@ -7,7 +7,8 @@ samples and real signed webhook deliveries).
 ## Non-negotiables
 
 - Amounts are decimal **strings**: `"amount": "25"`, never `25`. Do not `float()` them; use
-  `add_amounts` / `compare_amounts` from `oblodai`.
+  `add_amounts` / `compare_amounts` from `oblodai`. A `Decimal` is accepted and sent as its exact
+  string; a `float` in a request body raises `ConfigError` `sdk.float_amount` before any request.
 - Request bodies are **dicts with the wire's own snake_case names** — no renaming, no wrapper
   objects. Every body has a `TypedDict` in `oblodai.contract.requests` (`PaymentBody`, `PayoutBody`,
   …) and every response one in `oblodai.contract.models` (`Payment`, `Payout`, …). Responses are

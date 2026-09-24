@@ -25,6 +25,7 @@ from .signing import (
 
 __all__ = [
     "HEADER_REQUEST_ID",
+    "NON_MONEY_NUMBERS",
     "RESERVED_HEADERS",
     "BuiltRequest",
     "Credentials",
@@ -245,6 +246,31 @@ def _json_default(value: Any) -> str:
     )
 
 
+#: Request fields the contract types as a JSON ``number`` that are not money (a tolerance in
+#: percent). A float anywhere else in a body is an amount losing precision; a unit test keeps this
+#: set equal to the ``number`` properties of the contract's request schemas.
+NON_MONEY_NUMBERS = frozenset({"accuracy_payment_percent"})
+
+
+def reject_float_amounts(value: Any, path: str = "") -> None:
+    """Walk a body; a ``float`` outside :data:`NON_MONEY_NUMBERS` is ``sdk.float_amount``."""
+    if isinstance(value, float):
+        raise ConfigError(
+            "sdk.float_amount",
+            f'amount passed as float ({value!r}); pass a string "{value!r}" or '
+            f'Decimal("{value!r}") - float loses precision in money',
+            path or "body",
+        )
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key in NON_MONEY_NUMBERS and isinstance(item, (int, float)):
+                continue
+            reject_float_amounts(item, f"{path}.{key}" if path else str(key))
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            reject_float_amounts(item, f"{path}[{index}]")
+
+
 def serialize_body(body: Any, method: str) -> bytes:
     """Serialize a request body once; a missing POST body becomes ``{}``, GET signs nothing.
 
@@ -255,6 +281,7 @@ def serialize_body(body: Any, method: str) -> bytes:
         return b""
     if body is None:
         return b"{}"
+    reject_float_amounts(body)
     try:
         text = json.dumps(
             body,
