@@ -16,7 +16,9 @@ old-to-new table.
 - Typed models for every request and response (frozen dataclasses): money is `Decimal`, enums are
   `str` enums; an unknown enum value stays a plain string and an unknown field lands in `.extra`,
   so a newer gateway never breaks parsing.
-- Bodies as keyword arguments, as a wire-shaped mapping or as a request model.
+- Bodies as keyword arguments, as a wire-shaped mapping or as a request model. A field given both
+  in the mapping (or model) and as a keyword — the sandbox faucet's `idempotency_key` too — is
+  `ConfigError` `sdk.bad_config` before anything is sent, as in every Oblodai SDK.
 - `names.lock`: the public method names are pinned; the generator refuses to drop or rename one.
 - Explicit per-call options (`oblodai.RequestOptions`): `idempotency_key`, `timeout` (seconds),
   `max_retries`, `extra_headers`, `request_id`; every request carries an `X-Request-ID`.

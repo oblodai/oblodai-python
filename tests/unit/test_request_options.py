@@ -273,6 +273,7 @@ def test_the_faucet_key_given_twice_is_an_error_before_the_network() -> None:
     is ambiguous, and every SDK refuses it before a request is sent."""
     rec = Recorder()
     c = make_client(rec)
-    with pytest.raises(TypeError, match="idempotency_key"):
+    with pytest.raises(ConfigError, match="idempotency_key") as caught:
         c.sandbox.faucet({"idempotency_key": "a"}, asset="USDT", amount="1", idempotency_key="b")
+    assert (caught.value.code, caught.value.field) == ("sdk.bad_config", "idempotency_key")
     assert rec.requests == []

@@ -15,6 +15,7 @@ import dataclasses
 from enum import Enum
 from typing import Any, Dict, Mapping, Optional, Type, TypeVar, Union
 
+from .errors import ConfigError
 from .logger import is_sensitive, redact
 
 __all__ = ["REPR_LIMIT", "UNSET", "Model", "Unset", "merge_params", "parse_enum"]
@@ -90,8 +91,10 @@ UNSET = Unset()
 def merge_params(params: Union[Model, Mapping[str, Any], None], /, **fields: Any) -> Dict[str, Any]:
     """One request body from ``params`` (a model, a mapping or ``None``) and keyword ``fields``.
 
-    Keywords left :data:`UNSET` are dropped. A field given both ways is a ``TypeError`` - silently
-    preferring one would hide a bug in the caller.
+    Keywords left :data:`UNSET` are dropped. A field given both ways (a ``params`` value that is
+    not ``None`` or ``""``) is :class:`~oblodai.ConfigError` ``sdk.bad_config`` before anything is
+    sent, as in every Oblodai SDK: silently preferring one would hide a bug in the caller - and for
+    the sandbox faucet's ``idempotency_key`` a wrong guess re-credits or refuses a retry.
     """
     if params is None:
         body: Dict[str, Any] = {}
@@ -104,7 +107,11 @@ def merge_params(params: Union[Model, Mapping[str, Any], None], /, **fields: Any
     for name, value in fields.items():
         if isinstance(value, Unset):
             continue
-        if name in body:
-            raise TypeError(f"{name!r} is given both in params and as a keyword argument")
+        if body.get(name) not in (None, ""):
+            raise ConfigError(
+                "sdk.bad_config",
+                f"{name!r} is given both in params and as a keyword argument; keep one",
+                name,
+            )
         body[name] = value
     return body
