@@ -18,7 +18,18 @@ from oblodai.core import idempotency, request
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
 from tests.support.fixtures import load_signing
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "oblodai"
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "src" / "oblodai"
+
+
+def _hand_written() -> List[Path]:
+    """Every hand-written Python file that ships: the library outside ``generated/`` and the
+    examples (they go into the sdist and the README tests run them)."""
+    files = [p for p in SRC.rglob("*.py") if p.parent.name != "generated"]
+    files += (ROOT / "examples").rglob("*.py")
+    assert any(p.is_relative_to(ROOT / "examples") for p in files), "no examples scanned"
+    return sorted(files)
+
 
 REQUEST_ROLES = ("public_id", "signature", "timestamp", "idempotency_key")
 WEBHOOK_ROLES = (
@@ -91,16 +102,15 @@ def test_webhook_canonical_follows_the_generated_order(monkeypatch: pytest.Monke
 
 
 def test_no_signing_header_is_spelled_outside_generated() -> None:
-    """Every name of the spec's signing headers lives in ``generated/signing.py`` alone."""
+    """Every name of the spec's signing headers lives in ``generated/signing.py`` alone - neither the
+    library nor the examples spell one."""
     spec = _spec()
     webhook = spec["webhook"]
     names = [n.lower() for n in [*spec["headers"], *webhook["headers"], webhook["test_header"]]]
     offenders = []
-    for path in sorted(SRC.rglob("*.py")):
-        if path.parent.name == "generated":
-            continue
+    for path in _hand_written():
         text = path.read_text("utf-8").lower()
-        offenders += [f"{path.relative_to(SRC)}: {n}" for n in names if n in text]
+        offenders += [f"{path.relative_to(ROOT)}: {n}" for n in names if n in text]
     assert offenders == []
 
 
@@ -122,9 +132,7 @@ def test_no_signing_limit_is_spelled_outside_generated() -> None:
     read from ``generated/signing.py`` so a changed limit reaches the SDK by regeneration alone."""
     pats = _limit_patterns()
     offenders = []
-    for path in sorted(SRC.rglob("*.py")):
-        if path.parent.name == "generated":
-            continue
+    for path in _hand_written():
         text = re.sub(r"(?<=\d)_(?=\d)", "", path.read_text("utf-8"))
-        offenders += [f"{path.relative_to(SRC)}: {p.pattern}" for p in pats if p.search(text)]
+        offenders += [f"{path.relative_to(ROOT)}: {p.pattern}" for p in pats if p.search(text)]
     assert offenders == []
