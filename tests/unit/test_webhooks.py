@@ -16,6 +16,7 @@ from oblodai.generated.signing import (
     HEADER_WEBHOOK_ID,
     HEADER_WEBHOOK_SIGNATURE,
     HEADER_WEBHOOK_SIGNATURE_PREV,
+    HEADER_WEBHOOK_TEST,
     HEADER_WEBHOOK_TIMESTAMP,
     SKEW_SECONDS,
 )
@@ -45,7 +46,7 @@ def test_verifies_every_recorded_delivery(index: int) -> None:
     assert isinstance(delivery.event["sequence"], int)
     # Rehearsal deliveries (`webhooks.test`, sandbox) are signed like live ones and say so.
     assert delivery.is_test is (sample["body"].get("test") is True)
-    assert delivery.is_test is (sample["headers"].get("X-Webhook-Test") == "true")
+    assert delivery.is_test is (sample["headers"].get(HEADER_WEBHOOK_TEST) == "true")
     assert webhooks.is_test_event(delivery.event) is delivery.is_test
     # The generated tables know every event the core really sends, and its model parses the body.
     kind = webhooks.WEBHOOK_EVENTS[sample["headers"][HEADER_WEBHOOK_EVENT]]
@@ -122,11 +123,11 @@ def test_verifies_during_a_rotation_via_the_prev_header_or_previous_secret() -> 
 
 
 def test_flags_a_rehearsal_delivery_from_the_header_alone() -> None:
-    """The core sets `X-Webhook-Test` next to the body flag; either one marks the delivery."""
+    """The core sets the rehearsal header next to the body flag; either one marks the delivery."""
     plain = webhooks.verify_delivery(BODY, headers(), secret="whsec", now=TS)
     assert plain.is_test is False
     flagged = webhooks.verify_delivery(
-        BODY, headers(**{"x-webhook-test": "true"}), secret="whsec", now=TS
+        BODY, headers(**{HEADER_WEBHOOK_TEST.lower(): "true"}), secret="whsec", now=TS
     )
     assert flagged.is_test is True
     assert webhooks.is_test_event(flagged.event) is False  # the body itself said nothing

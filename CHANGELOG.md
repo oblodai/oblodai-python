@@ -39,7 +39,8 @@ old-to-new table.
   generated): the signed-request and webhook header names, the canonical strings, the clock skew
   (`SIGNATURE_SKEW_SECONDS`, the default `tolerance_sec` of `webhooks.verify`), `MAX_BODY` and
   `MAX_IDEMPOTENCY_KEY_LENGTH`. The public `HEADER_*` names of `oblodai.core.signing` and
-  `oblodai.webhooks` stay, as aliases of the generated values; a header the gateway renames
+  `oblodai.webhooks` stay, as aliases of the generated values (the rehearsal header
+  `HEADER_WEBHOOK_TEST` too, from `x-oblodai-signing.webhook.test_header`); a header the gateway renames
   reaches the SDK by regeneration alone, and the conformance suite checks the headers a signed
   request actually carries against the contract's names.
 - `str(err)` reads well in a log line: `[code] message (request_id=…)`.

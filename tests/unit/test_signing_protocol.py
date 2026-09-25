@@ -44,6 +44,7 @@ def test_generated_constants_are_the_spec() -> None:
         assert getattr(gen, f"HEADER_{role.upper()}") == name
     for role, name in zip(WEBHOOK_ROLES, spec["webhook"]["headers"], strict=True):
         assert getattr(gen, f"HEADER_WEBHOOK_{role.upper()}") == name
+    assert spec["webhook"]["test_header"] == gen.HEADER_WEBHOOK_TEST
     assert spec["skew_seconds"] == gen.SKEW_SECONDS
     assert spec["max_body"] == gen.MAX_BODY
     assert spec["max_idempotency_key_length"] == gen.MAX_IDEMPOTENCY_KEY_LENGTH
@@ -54,7 +55,7 @@ def test_public_names_alias_the_generated_values() -> None:
     for role in REQUEST_ROLES:
         name = f"HEADER_{role.upper()}"
         assert getattr(core_signing, name) is getattr(gen, name)
-    for role in WEBHOOK_ROLES:
+    for role in (*WEBHOOK_ROLES, "test"):
         name = f"HEADER_WEBHOOK_{role.upper()}"
         assert getattr(webhooks, name) is getattr(gen, name)
     assert core_signing.SIGNATURE_SKEW_SECONDS == gen.SKEW_SECONDS
@@ -91,7 +92,8 @@ def test_webhook_canonical_follows_the_generated_order(monkeypatch: pytest.Monke
 def test_no_signing_header_is_spelled_outside_generated() -> None:
     """Every name of the spec's signing headers lives in ``generated/signing.py`` alone."""
     spec = _spec()
-    names = [n.lower() for n in [*spec["headers"], *spec["webhook"]["headers"]]]
+    webhook = spec["webhook"]
+    names = [n.lower() for n in [*spec["headers"], *webhook["headers"], webhook["test_header"]]]
     offenders = []
     for path in sorted(SRC.rglob("*.py")):
         if path.parent.name == "generated":
