@@ -32,7 +32,7 @@ WEBHOOK_ID_FIELDS: Dict[str, str] = {
     "wallet": "uuid",
 }
 
-#: ``event name (X-Webhook-Event) -> kind``.
+#: ``event name -> kind``; the name is the value of :data:`.signing.HEADER_WEBHOOK_EVENT`.
 WEBHOOK_EVENTS: Dict[str, str] = {
     "conversion.completed": "conversion",
     "conversion.refunded": "conversion",
