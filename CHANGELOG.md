@@ -4,7 +4,7 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] — Unreleased
+## [2.0.0] — 2026-09-25
 
 Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every
 method name follows `client.<resource>.<method>` from the contract's tags and operation ids, and
