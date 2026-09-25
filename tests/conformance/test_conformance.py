@@ -84,6 +84,14 @@ def _header_names(suite: Dict[str, Any]) -> Dict[str, str]:
     return dict(zip(ref["roles"], names, strict=True))
 
 
+def _test_header(suite: Dict[str, Any]) -> str:
+    """The rehearsal header name the spec gives (``header_names.test_pointer``) - again the spec's
+    name, not this SDK's constant."""
+    name: str = _pointer(_spec(suite), suite["header_names"]["test_pointer"])
+    assert name
+    return name
+
+
 def _cases(name: str) -> List[Any]:
     suite = _suite(name)
     signing, vectors = _source(suite)
@@ -236,9 +244,12 @@ def test_webhook_delivery(
 ) -> None:
     assert check["kind"] == "webhook_delivery"
     secret = delivery[{"current": "secret", "previous": "previous_secret"}[check["key"]]]
-    info = webhooks.verify_delivery(
-        delivery["payload"], delivery["headers"], secret=secret, now=delivery["ts"]
-    )
+    headers = dict(delivery["headers"])
+    rehearsal = bool(check.get("test"))
+    if rehearsal:
+        headers[_test_header(_suite("webhook_delivery"))] = "true"
+    info = webhooks.verify_delivery(delivery["payload"], headers, secret=secret, now=delivery["ts"])
+    assert info.is_test is rehearsal
     assert webhooks.is_known_event(info.event)
     assert info.event["type"] == delivery["kind"]
     model = webhooks.to_model(info.event)
