@@ -5,8 +5,9 @@ limits from there, so a header the core renames reaches this SDK by regeneration
 from __future__ import annotations
 
 import inspect
+import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Pattern
 
 import pytest
 
@@ -100,4 +101,30 @@ def test_no_signing_header_is_spelled_outside_generated() -> None:
             continue
         text = path.read_text("utf-8").lower()
         offenders += [f"{path.relative_to(SRC)}: {n}" for n in names if n in text]
+    assert offenders == []
+
+
+def _limit_patterns() -> List[Pattern[str]]:
+    """The body and idempotency-key limits as source literals: decimal, and ``1 << n`` for a power of
+    two. The skew is not scanned for — its value is also an HTTP status class (``< 300``); the alias
+    assertions above hold it."""
+    pats = [
+        re.compile(rf"(?<![\w.]){limit}(?![\w.])")
+        for limit in (gen.MAX_BODY, gen.MAX_IDEMPOTENCY_KEY_LENGTH)
+    ]
+    if gen.MAX_BODY & (gen.MAX_BODY - 1) == 0:
+        pats.append(re.compile(rf"\b1\s*<<\s*{gen.MAX_BODY.bit_length() - 1}\b"))
+    return pats
+
+
+def test_no_signing_limit_is_spelled_outside_generated() -> None:
+    """No hand-written file carries a literal of the spec's body or idempotency-key limit: they are
+    read from ``generated/signing.py`` so a changed limit reaches the SDK by regeneration alone."""
+    pats = _limit_patterns()
+    offenders = []
+    for path in sorted(SRC.rglob("*.py")):
+        if path.parent.name == "generated":
+            continue
+        text = re.sub(r"(?<=\d)_(?=\d)", "", path.read_text("utf-8"))
+        offenders += [f"{path.relative_to(SRC)}: {p.pattern}" for p in pats if p.search(text)]
     assert offenders == []
