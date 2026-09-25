@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple, Union
 
 import pytest
 
+from oblodai.core.errors import ConfigError
 from oblodai.core.model import UNSET, Model, Unset, merge_params, parse_enum
 
 
@@ -129,9 +130,18 @@ def test_merge_params_from_a_model_uses_to_dict() -> None:
     }
 
 
-def test_merge_params_same_field_twice_is_a_type_error() -> None:
-    with pytest.raises(TypeError, match="amount"):
+def test_merge_params_same_field_twice_is_bad_config() -> None:
+    """The same rule in every SDK: a field given both ways is ``sdk.bad_config`` before the network."""
+    with pytest.raises(ConfigError, match="amount") as caught:
         merge_params({"amount": "10"}, amount="11")
+    assert (caught.value.code, caught.value.field) == ("sdk.bad_config", "amount")
+
+
+def test_merge_params_a_none_or_empty_params_field_is_no_value() -> None:
+    assert merge_params({"idempotency_key": None, "note": ""}, idempotency_key="k", note="n") == {
+        "idempotency_key": "k",
+        "note": "n",
+    }
 
 
 def test_merge_params_does_not_mutate_the_callers_mapping() -> None:
