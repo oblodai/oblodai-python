@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Union
 
+from ..generated.enums import ErrorCode
 from .clock import SkewCorrectingClock
 from .envelope import decode_envelope
 from .errors import ConfigError, ContractError, OblodaiError, TransportError
@@ -55,7 +56,10 @@ __all__ = [
 ]
 
 #: Error codes that mean the core rejected the signature because of the timestamp or the MAC.
-SIGNATURE_FAILURE_CODES = frozenset({"merchant.bad_signature", "auth.bad_timestamp"})
+#: Taken from the generated :class:`ErrorCode`, so a code renamed in the contract fails the import.
+SIGNATURE_FAILURE_CODES = frozenset(
+    {ErrorCode.MERCHANT_BAD_SIGNATURE.value, ErrorCode.AUTH_BAD_TIMESTAMP.value}
+)
 
 
 @dataclass

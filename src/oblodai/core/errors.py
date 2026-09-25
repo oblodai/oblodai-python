@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional, TypedDict
 
+from ..generated.enums import ErrorCode
+
 __all__ = [
     "MAX_RETRY_AFTER_SECONDS",
     "TRANSIENT_STATUSES",
@@ -309,7 +311,7 @@ def api_error_from(
         "synthetic": synthetic,
         "raw": raw,
     }
-    if code == "idempotency.key_reused":
+    if code == ErrorCode.IDEMPOTENCY_KEY_REUSED.value:
         return IdempotencyConflictError(code, message, **kwargs)
     by_status = {
         400: ValidationError,
