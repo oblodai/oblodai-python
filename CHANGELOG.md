@@ -35,6 +35,13 @@ old-to-new table.
 - The README method table is generated from the contract (between `sdkgen:methods` markers), and
   the generator adds new method names to `names.lock` itself; `names.2.0.txt` freezes the names
   2.0 shipped with, which `MIGRATION-2.0.md` maps.
+- The signing protocol comes from the contract's `x-oblodai-signing` (`oblodai.generated.signing`,
+  generated): the signed-request and webhook header names, the canonical strings, the clock skew
+  (`SIGNATURE_SKEW_SECONDS`, the default `tolerance_sec` of `webhooks.verify`), `MAX_BODY` and
+  `MAX_IDEMPOTENCY_KEY_LENGTH`. The public `HEADER_*` names of `oblodai.core.signing` and
+  `oblodai.webhooks` stay, as aliases of the generated values; a header the gateway renames
+  reaches the SDK by regeneration alone, and the conformance suite checks the headers a signed
+  request actually carries against the contract's names.
 - `str(err)` reads well in a log line: `[code] message (request_id=…)`.
 - The shared conformance suite (`tests/conformance`) every Oblodai SDK runs: signing and webhook
   vectors read from the contract's `x-oblodai-signing`, retries and idempotency keys, `Retry-After`,

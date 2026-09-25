@@ -20,6 +20,12 @@ from oblodai.core.errors import (
 )
 from oblodai.core.retry import RetryOptions
 from oblodai.generated import contract as generated_contract
+from oblodai.generated.signing import (
+    HEADER_IDEMPOTENCY_KEY,
+    HEADER_PUBLIC_ID,
+    HEADER_SIGNATURE,
+    HEADER_TIMESTAMP,
+)
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
 from tests.support.samples import sample
 
@@ -53,8 +59,8 @@ def test_signs_path_and_query_on_get_and_sends_no_body() -> None:
     call = mock.calls[0]
     assert call.url == "https://api.test/v1/sandbox/webhooks?limit=50&offset=0"
     assert call.body is None
-    assert call.headers["x-public-id"] == "pk_test_1"
-    assert HEX64.match(call.headers["x-signature"])
+    assert call.headers[HEADER_PUBLIC_ID.lower()] == "pk_test_1"
+    assert HEX64.match(call.headers[HEADER_SIGNATURE.lower()])
     assert "content-type" not in call.headers
 
 
@@ -67,11 +73,11 @@ def test_generates_one_idempotency_key_per_create_and_reuses_it_across_retries()
     )
     client(mock).payments.create({"amount": "1", "currency": "USDT"})
     assert len(mock.calls) == 2
-    key = mock.calls[0].headers["idempotency-key"]
+    key = mock.calls[0].headers[HEADER_IDEMPOTENCY_KEY.lower()]
     assert re.match(r"^[0-9a-f-]{36}$", key)
-    assert mock.calls[1].headers["idempotency-key"] == key
+    assert mock.calls[1].headers[HEADER_IDEMPOTENCY_KEY.lower()] == key
     # Re-signed per attempt: the same key, a fresh signature.
-    assert HEX64.match(mock.calls[1].headers["x-signature"])
+    assert HEX64.match(mock.calls[1].headers[HEADER_SIGNATURE.lower()])
 
 
 def test_honours_a_caller_key_and_adds_none_to_read_routes() -> None:
@@ -82,8 +88,8 @@ def test_honours_a_caller_key_and_adds_none_to_read_routes() -> None:
         idempotency_key="my-key-1",
     )
     api.payments.get_info({"uuid": "u"})
-    assert mock.calls[0].headers["idempotency-key"] == "my-key-1"
-    assert "idempotency-key" not in mock.calls[1].headers
+    assert mock.calls[0].headers[HEADER_IDEMPOTENCY_KEY.lower()] == "my-key-1"
+    assert HEADER_IDEMPOTENCY_KEY.lower() not in mock.calls[1].headers
 
 
 def test_does_not_retry_a_non_retryable_error_even_on_a_5xx() -> None:
@@ -178,7 +184,7 @@ def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> None:
     )
     client(mock, retry=RetryOptions(max_retries=0)).account.get_balance()
     assert len(mock.calls) == 2
-    assert abs(int(mock.calls[1].headers["x-timestamp"]) - server_now) < 5
+    assert abs(int(mock.calls[1].headers[HEADER_TIMESTAMP.lower()]) - server_now) < 5
 
 
 def test_times_out_and_reports_transport_timeout() -> None:
@@ -201,7 +207,7 @@ def test_one_api_key_signs_money_in_money_out_and_batch_routes_alike() -> None:
     api.payouts.create({"amount": "1", "currency": "USDT", "address": "T", "order_id": "o"})
     api.payments.create({"amount": "1", "currency": "USDT"})
     api.batches.get_info({"batch_id": "b1"})
-    assert [call.headers["x-public-id"] for call in mock.calls] == ["pk_test_1"] * 3
+    assert [call.headers[HEADER_PUBLIC_ID.lower()] for call in mock.calls] == ["pk_test_1"] * 3
 
 
 def test_batches_info_sends_exactly_one_request() -> None:

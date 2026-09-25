@@ -6,6 +6,7 @@ the wrong verb, path, gate or idempotency wrapper fails here, on both client tie
 
 from __future__ import annotations
 
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY, HEADER_PUBLIC_ID, HEADER_SIGNATURE
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Pattern
@@ -66,19 +67,19 @@ def _assert_wire(mock: MockHTTP, key: str) -> None:
     assert call.method == spec.method
     assert _path_pattern(spec.path).match(call.path), f"{key}: sent to {call.path}"
     if spec.auth == "public":
-        assert "x-signature" not in call.headers, f"{key}: signed a public route"
+        assert HEADER_SIGNATURE.lower() not in call.headers, f"{key}: signed a public route"
         assert "x-admin-token" not in call.headers
     elif spec.auth == "onboard":
-        assert "x-signature" not in call.headers
+        assert HEADER_SIGNATURE.lower() not in call.headers
         assert call.headers["x-admin-token"] == "adm"
     else:
         assert spec.auth == "key", f"{key}: unknown gate {spec.auth!r}"
-        assert call.headers["x-public-id"] == "pk", f"{key}: signed with something else"
+        assert call.headers[HEADER_PUBLIC_ID.lower()] == "pk", f"{key}: signed with something else"
         assert "x-admin-token" not in call.headers, f"{key}: leaked the admin token"
     if spec.idempotent:
-        assert "idempotency-key" in call.headers, f"{key}: idempotent route sent no key"
+        assert HEADER_IDEMPOTENCY_KEY.lower() in call.headers, f"{key}: idempotent route sent no key"
     else:
-        assert "idempotency-key" not in call.headers, f"{key}: sent a key the core would reject"
+        assert HEADER_IDEMPOTENCY_KEY.lower() not in call.headers, f"{key}: sent a key the core would reject"
 
 
 def _client(mock: MockHTTP) -> Oblodai:

@@ -1,6 +1,6 @@
 """Injectable clock for signing.
 
-The core rejects timestamps more than +/-300 s from its own time; a host with a drifting clock
+The core rejects timestamps more than +/- ``SKEW_SECONDS`` (``x-oblodai-signing``) from its own time; a host with a drifting clock
 would get ``merchant.bad_signature`` on every call. The transport learns the server's time from the
 ``Date`` header of a signature-failure response, re-signs once, and keeps the offset only if that
 re-signed attempt got past authentication.

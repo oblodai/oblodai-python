@@ -3,19 +3,19 @@
     from oblodai import webhooks
     event = webhooks.verify(raw_body, request.headers, secret=endpoint_secret)
 
-Deliveries are signed as::
+Deliveries carry these headers (the names are the contract's, from ``x-oblodai-signing``)::
 
-    X-Webhook-Timestamp: <unix seconds>
-    X-Webhook-Signature: hex(HMAC-SHA256(secret, "<ts>." + raw_body))
-    X-Webhook-Signature-Prev: same, with the previous secret - only during a rotation overlap
-    X-Webhook-Event: an event name of the contract (invoice.paid, conversion.completed, ...;
+    HEADER_WEBHOOK_TIMESTAMP: <unix seconds>
+    HEADER_WEBHOOK_SIGNATURE: hex(HMAC-SHA256(secret, "<ts>." + raw_body))
+    HEADER_WEBHOOK_SIGNATURE_PREV: same, with the previous secret - only during a rotation overlap
+    HEADER_WEBHOOK_EVENT: an event name of the contract (invoice.paid, conversion.completed, ...;
         all of them in WEBHOOK_EVENTS)
-    X-Webhook-Id: stable per delivery (identical across retries of THAT delivery)
-    X-Webhook-Event-Id: stable per STATE - the same for a resend of a state you already handled,
-        and different as soon as the state differs. This is the idempotency key to keep.
-    X-Webhook-Event-Time: unix seconds when the state change committed (order events by it)
-    X-Webhook-Test: "true" on a rehearsal delivery (`webhooks.test`, sandbox) - the body carries
-        `test: true` as well; never act on one as if money moved
+    HEADER_WEBHOOK_ID: stable per delivery (identical across retries of THAT delivery)
+    HEADER_WEBHOOK_EVENT_ID: stable per STATE - the same for a resend of a state you already
+        handled, and different as soon as the state differs. This is the idempotency key to keep.
+    HEADER_WEBHOOK_EVENT_TIME: unix seconds when the state change committed (order events by it)
+    HEADER_WEBHOOK_TEST: "true" on a rehearsal delivery (`webhooks.test`, sandbox) - the body
+        carries `test: true` as well; never act on one as if money moved
 
 Always verify over the RAW request bytes; a re-serialized parse will not match.
 
@@ -47,6 +47,16 @@ from .generated.events import (
     WEBHOOK_MODELS,
     WebhookModel,
 )
+from .generated.signing import (
+    HEADER_WEBHOOK_EVENT,
+    HEADER_WEBHOOK_EVENT_ID,
+    HEADER_WEBHOOK_EVENT_TIME,
+    HEADER_WEBHOOK_ID,
+    HEADER_WEBHOOK_SIGNATURE,
+    HEADER_WEBHOOK_SIGNATURE_PREV,
+    HEADER_WEBHOOK_TIMESTAMP,
+    SKEW_SECONDS,
+)
 
 __all__ = [
     "HEADER_WEBHOOK_EVENT",
@@ -75,13 +85,8 @@ __all__ = [
     "verify_delivery",
 ]
 
-HEADER_WEBHOOK_TIMESTAMP = "X-Webhook-Timestamp"
-HEADER_WEBHOOK_SIGNATURE = "X-Webhook-Signature"
-HEADER_WEBHOOK_SIGNATURE_PREV = "X-Webhook-Signature-Prev"
-HEADER_WEBHOOK_EVENT = "X-Webhook-Event"
-HEADER_WEBHOOK_ID = "X-Webhook-Id"
-HEADER_WEBHOOK_EVENT_ID = "X-Webhook-Event-Id"
-HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
+# The HEADER_WEBHOOK_* names above are the contract's (x-oblodai-signing.webhook.headers). The
+# rehearsal marker is not part of it: the body's `test: true` is the contract, this header a hint.
 HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
 # KNOWN_EVENT_KINDS (the ``type`` discriminators of this snapshot of the contract),
@@ -111,24 +116,24 @@ class WebhookDeliveryInfo:
     """A verified delivery: the event plus the advisory headers worth keeping."""
 
     event: AnyWebhookEvent
-    #: ``X-Webhook-Timestamp`` - unix seconds when this attempt was sent.
+    #: :data:`HEADER_WEBHOOK_TIMESTAMP` - unix seconds when this attempt was sent.
     sent_at: int
-    #: ``X-Webhook-Id`` - stable across retries of the same DELIVERY. It is NOT enough to
+    #: :data:`HEADER_WEBHOOK_ID` - stable across retries of the same DELIVERY. It is NOT enough to
     #: deduplicate on: a resend (``POST /v1/payment/resend``) is a new delivery of the state you
     #: may already have handled, and it carries a new id. Use :attr:`event_id`.
     id: Optional[str] = None
-    #: ``X-Webhook-Event-Id`` - the id of the STATE this delivery carries: identical for the
+    #: :data:`HEADER_WEBHOOK_EVENT_ID` - the id of the STATE this delivery carries: identical for the
     #: original, every retry of it and every resend of the same state, and different as soon as the
     #: state differs (an invoice that goes back to ``paid`` after a reorg, with another txid, is a
     #: new event and must be processed). Keep the ids you have handled and skip repeats of them.
     #: ``None`` from a core older than 2026-09-20; fall back to (uuid, status) idempotency then.
     event_id: Optional[str] = None
-    #: ``X-Webhook-Event`` - the event name (``invoice.paid``, ``conversion.completed``, ...;
+    #: :data:`HEADER_WEBHOOK_EVENT` - the event name (``invoice.paid``, ``conversion.completed``, ...;
     #: :data:`WEBHOOK_EVENTS` maps each to its kind).
     event_type: Optional[str] = None
-    #: ``X-Webhook-Event-Time`` - unix seconds when the state change committed.
+    #: :data:`HEADER_WEBHOOK_EVENT_TIME` - unix seconds when the state change committed.
     event_time: Optional[int] = None
-    #: A rehearsal delivery (``X-Webhook-Test: true`` / body ``test: true``): signed like a live
+    #: A rehearsal delivery (:data:`HEADER_WEBHOOK_TEST` ``true`` / body ``test: true``): signed like a live
     #: one, but no money moved.
     is_test: bool = False
 
@@ -139,7 +144,7 @@ def verify(
     *,
     secret: str,
     previous_secret: Optional[str] = None,
-    tolerance_sec: int = 300,
+    tolerance_sec: int = SKEW_SECONDS,
     now: Optional[int] = None,
 ) -> AnyWebhookEvent:
     """Verify the signature and freshness, then parse.
@@ -162,7 +167,7 @@ def verify_delivery(
     *,
     secret: str,
     previous_secret: Optional[str] = None,
-    tolerance_sec: int = 300,
+    tolerance_sec: int = SKEW_SECONDS,
     now: Optional[int] = None,
 ) -> WebhookDeliveryInfo:
     """Like :func:`verify`, and also returns the delivery id, event type and times.
@@ -331,7 +336,7 @@ def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -
     This is ORDERING, not deduplication, and the two used to be confused here. A resend carries a
     deliberately HIGHER sequence (a lower one could be discarded as a straggler, and a resend has
     to be able to correct a reorg reversal), so it is never stale and never a duplicate by
-    ``X-Webhook-Id`` either. Deduplicate on :attr:`WebhookDeliveryInfo.event_id`; a handler that
+    :data:`HEADER_WEBHOOK_ID` either. Deduplicate on :attr:`WebhookDeliveryInfo.event_id`; a handler that
     relied on these two alone shipped a resent ``invoice.paid`` twice.
     """
     if last_processed_sequence is None:

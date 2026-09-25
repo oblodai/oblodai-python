@@ -18,6 +18,7 @@ from oblodai.aio.base import AsyncResource
 from oblodai.contract.types import RouteSpec as LegacyRouteSpec
 from oblodai.core.errors import ConfigError, OblodaiError
 from oblodai.core.retry import RetryOptions
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY
 from oblodai.resources.base import Resource
 from tests.support.clients import make_async_client, make_client
 
@@ -209,7 +210,7 @@ def test_idempotency_key_option_is_sent_and_parse_is_applied() -> None:
         {"amount": "1"}, RequestOptions(idempotency_key="key-000000000001")
     )
     assert result == ("parsed", {"uuid": "u-1"})
-    assert rec.header("idempotency-key") == "key-000000000001"
+    assert rec.header(HEADER_IDEMPOTENCY_KEY.lower()) == "key-000000000001"
 
 
 def test_path_params_and_query_are_passed_through() -> None:

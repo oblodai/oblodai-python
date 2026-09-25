@@ -24,6 +24,7 @@ from oblodai import (
 )
 from oblodai.aio.base import AsyncResource
 from oblodai.core.errors import TransportError, UnavailableError
+from oblodai.generated.signing import HEADER_PUBLIC_ID, HEADER_SIGNATURE
 from oblodai.resources.base import Resource
 from tests.support.clients import PUBLIC_ID, SECRET, make_async_client, make_client
 
@@ -233,8 +234,8 @@ def test_hook_request_headers_hide_the_signature() -> None:
     c = make_client(Recorder(), hooks=seen.hooks())
     Account(c.transport).get_balance()
     headers = {k.lower(): v for k, v in seen.requests[0].headers.items()}
-    assert headers["x-signature"] == "[redacted]"
-    assert headers["x-public-id"] == PUBLIC_ID
+    assert headers[HEADER_SIGNATURE.lower()] == "[redacted]"
+    assert headers[HEADER_PUBLIC_ID.lower()] == PUBLIC_ID
 
 
 def test_on_response_sees_a_transport_error_attempt() -> None:

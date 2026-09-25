@@ -20,6 +20,7 @@ from oblodai import PaymentView
 from oblodai.aio import AsyncOblodai
 from oblodai.core.errors import ConfigError, RateLimitError, TransportError
 from oblodai.core.retry import RetryOptions
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY, HEADER_SIGNATURE, HEADER_TIMESTAMP
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
 from tests.support.samples import sample
 
@@ -48,11 +49,11 @@ async def test_signs_every_attempt_and_reuses_one_idempotency_key_across_retries
     )
     await client(mock).payments.create({"amount": "1", "currency": "USDT"})
     assert len(mock.calls) == 2
-    key = mock.calls[0].headers["idempotency-key"]
-    assert mock.calls[1].headers["idempotency-key"] == key
+    key = mock.calls[0].headers[HEADER_IDEMPOTENCY_KEY.lower()]
+    assert mock.calls[1].headers[HEADER_IDEMPOTENCY_KEY.lower()] == key
     # Re-signed per attempt (a fresh timestamp), never re-sent verbatim.
-    assert HEX64.match(mock.calls[1].headers["x-signature"])
-    assert "x-timestamp" in mock.calls[1].headers
+    assert HEX64.match(mock.calls[1].headers[HEADER_SIGNATURE.lower()])
+    assert HEADER_TIMESTAMP.lower() in mock.calls[1].headers
 
 
 async def test_does_not_repeat_an_unkeyed_write_after_a_transport_failure() -> None:
@@ -85,7 +86,7 @@ async def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> 
     )
     await client(mock, retry=RetryOptions(max_retries=0)).account.get_balance()
     assert len(mock.calls) == 2
-    assert abs(int(mock.calls[1].headers["x-timestamp"]) - server_now) < 5
+    assert abs(int(mock.calls[1].headers[HEADER_TIMESTAMP.lower()]) - server_now) < 5
 
 
 async def test_walks_every_page_with_async_for_and_sends_no_key() -> None:
@@ -106,7 +107,7 @@ async def test_walks_every_page_with_async_for_and_sends_no_key() -> None:
     listing = await client(mock).payments.list_history({"limit": 1})
     seen = [item.uuid async for item in listing]
     assert seen == ["u0", "u1"]
-    assert all("idempotency-key" not in call.headers for call in mock.calls)
+    assert all(HEADER_IDEMPOTENCY_KEY.lower() not in call.headers for call in mock.calls)
 
 
 async def test_a_list_method_refuses_a_caller_idempotency_key_here_too() -> None:

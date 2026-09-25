@@ -24,7 +24,7 @@ from .logger import Logger, NoopLogger, redact
 from .request import HEADER_REQUEST_ID, Credentials, Query, build_request, serialize_body
 from .retry import DEFAULT_RETRY, RetryOptions, retry_delay_ms, should_retry
 from .route import RouteSpec
-from .signing import SIGNATURE_SKEW_SECONDS
+from .signing import HEADER_IDEMPOTENCY_KEY, SIGNATURE_SKEW_SECONDS
 from .steps import (
     MAX_FILE_BYTES,
     MAX_JSON_BYTES,
@@ -183,7 +183,7 @@ class CallEngine:
                     # response into a double spend.
                     raise ConfigError(
                         "sdk.idempotency_unsupported",
-                        f"{self._label} does not deduplicate by Idempotency-Key; "
+                        f"{self._label} does not deduplicate by {HEADER_IDEMPOTENCY_KEY}; "
                         "remove idempotency_key from this call",
                         "idempotency_key",
                     )
@@ -375,7 +375,7 @@ def unwrap_result(route: RouteSpec, raw: RawResponse) -> Any:
     if not ok:  # pragma: no cover - the engine already raised for error statuses
         assert isinstance(decoded, BaseException)
         raise decoded
-    # The core replays a cached response by Idempotency-Key; when the original was too large to
+    # The core replays a cached response by idempotency key; when the original was too large to
     # cache it answers {ok, idempotent_replay: true, detail} instead of the object - surface that.
     if isinstance(decoded, Mapping) and decoded.get("idempotent_replay") is True:
         raise ContractError(

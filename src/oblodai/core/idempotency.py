@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import re
 
+from ..generated.signing import MAX_IDEMPOTENCY_KEY_LENGTH
 from .errors import ConfigError
 from .util import uuid4
 
 __all__ = ["MAX_IDEMPOTENCY_KEY_LENGTH", "assert_idempotency_key", "new_idempotency_key"]
 
-MAX_IDEMPOTENCY_KEY_LENGTH = 255
+# MAX_IDEMPOTENCY_KEY_LENGTH is the contract's (``x-oblodai-signing``), re-exported above.
 
 # Header values must be visible ASCII: the key is signed verbatim, so a stray control character or
 # surrounding whitespace would silently change the MAC on one side only.
