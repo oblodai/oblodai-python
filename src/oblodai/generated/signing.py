@@ -54,6 +54,8 @@ HEADER_WEBHOOK_ID = "X-Webhook-Id"
 HEADER_WEBHOOK_EVENT_ID = "X-Webhook-Event-Id"
 #: Webhook delivery header of the role ``event_time``.
 HEADER_WEBHOOK_EVENT_TIME = "X-Webhook-Event-Time"
+#: Rehearsal header (role ``test``): ``"true"`` on a test delivery, absent from a live one.
+HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
 #: Parts of the signed webhook string, in order: unix seconds, the raw body.
 WEBHOOK_CANONICAL_ORDER: Tuple[str, ...] = ("ts", "payload")

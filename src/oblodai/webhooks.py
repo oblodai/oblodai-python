@@ -54,6 +54,7 @@ from .generated.signing import (
     HEADER_WEBHOOK_ID,
     HEADER_WEBHOOK_SIGNATURE,
     HEADER_WEBHOOK_SIGNATURE_PREV,
+    HEADER_WEBHOOK_TEST,
     HEADER_WEBHOOK_TIMESTAMP,
     SKEW_SECONDS,
 )
@@ -84,10 +85,6 @@ __all__ = [
     "verify",
     "verify_delivery",
 ]
-
-# The HEADER_WEBHOOK_* names above are the contract's (x-oblodai-signing.webhook.headers). The
-# rehearsal marker is not part of it: the body's `test: true` is the contract, this header a hint.
-HEADER_WEBHOOK_TEST = "X-Webhook-Test"
 
 # KNOWN_EVENT_KINDS (the ``type`` discriminators of this snapshot of the contract),
 # WEBHOOK_MODELS (kind -> model of the body), WEBHOOK_ID_FIELDS (kind -> the body field holding the

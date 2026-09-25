@@ -67,6 +67,7 @@ RECORDED_WEBHOOK_HEADERS = {
     "X-Webhook-Id": "HEADER_WEBHOOK_ID",
     "X-Webhook-Event-Id": "HEADER_WEBHOOK_EVENT_ID",
     "X-Webhook-Event-Time": "HEADER_WEBHOOK_EVENT_TIME",
+    "X-Webhook-Test": "HEADER_WEBHOOK_TEST",
 }
 
 
