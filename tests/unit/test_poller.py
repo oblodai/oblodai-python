@@ -22,6 +22,7 @@ from oblodai.core.errors import ConfigError
 from oblodai.core.poller import AsyncJob, Job
 from oblodai.generated import enums, models
 from oblodai.generated import lro as generated_lro
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY
 from oblodai.lro import LRO, POLLS, TERMINAL_STATUSES
 from oblodai.resources.base import FileResult, Resource
 from tests.support.clients import make_async_client, make_client
@@ -232,8 +233,8 @@ def test_polls_keep_the_calls_headers_but_not_its_idempotency_key() -> None:
     options = RequestOptions(idempotency_key="k-1", extra_headers={"X-Tenant": "t"})
     Batches(make_client(server).transport).create({}, options).wait(interval=0)
     create, poll = server.requests
-    assert create.headers["idempotency-key"] == "k-1"
-    assert "idempotency-key" not in poll.headers
+    assert create.headers[HEADER_IDEMPOTENCY_KEY.lower()] == "k-1"
+    assert HEADER_IDEMPOTENCY_KEY.lower() not in poll.headers
     assert poll.headers["x-tenant"] == "t"
 
 

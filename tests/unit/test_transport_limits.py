@@ -26,6 +26,7 @@ from oblodai.core.errors import (
 )
 from oblodai.core.request import BuiltRequest
 from oblodai.core.retry import RetryOptions
+from oblodai.generated.signing import HEADER_TIMESTAMP
 from tests.support.mock_http import MockHTTP, Scripted, api_error, ok
 from tests.support.slow_http import (
     AsyncDripTransport,
@@ -180,7 +181,7 @@ def test_concurrent_calls_all_survive_an_hour_of_skew_with_one_correction() -> N
     corrected: List[bool] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
-        signed_at = int(request.headers["x-timestamp"])
+        signed_at = int(request.headers[HEADER_TIMESTAMP.lower()])
         with lock:
             if abs(signed_at - server_now) > 300:
                 corrected.append(False)

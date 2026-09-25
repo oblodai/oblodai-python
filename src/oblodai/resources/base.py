@@ -17,6 +17,7 @@ from ..core.poller import Job, JobPlan, Parsers, job_id, plan_job, poll_options
 from ..core.raw import RawAPIResponse
 from ..core.request import Query
 from ..core.route import RouteSpec
+from ..core.signing import HEADER_IDEMPOTENCY_KEY
 from ..core.steps import RawResponse
 from ..core.transport import Transport
 
@@ -271,7 +272,7 @@ def plan_paged(
         # One key reused across pages would replay page 1 forever.
         raise ConfigError(
             "sdk.idempotency_unsupported",
-            f"{route.method} {route.path} does not deduplicate by Idempotency-Key; "
+            f"{route.method} {route.path} does not deduplicate by {HEADER_IDEMPOTENCY_KEY}; "
             "remove idempotency_key from this call",
             "idempotency_key",
         )

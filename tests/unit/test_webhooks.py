@@ -10,6 +10,15 @@ import pytest
 from oblodai import webhooks
 from oblodai.core.errors import ConfigError, SignatureError, WebhookPayloadError
 from oblodai.core.signing import sign_webhook
+from oblodai.generated.signing import (
+    HEADER_WEBHOOK_EVENT,
+    HEADER_WEBHOOK_EVENT_ID,
+    HEADER_WEBHOOK_ID,
+    HEADER_WEBHOOK_SIGNATURE,
+    HEADER_WEBHOOK_SIGNATURE_PREV,
+    HEADER_WEBHOOK_TIMESTAMP,
+    SKEW_SECONDS,
+)
 from tests.support.fixtures import load_webhook_samples, result_of
 
 # The samples were delivered by the core's real dispatcher to the recorder, signed with the
@@ -21,17 +30,17 @@ SECRET: str = result_of("POST /v1/webhooks/rotate-secret")["secret"]
 @pytest.mark.parametrize(
     "index",
     range(len(SAMPLES)),
-    ids=[s["headers"]["X-Webhook-Event"] + f"#{i}" for i, s in enumerate(SAMPLES)],
+    ids=[s["headers"][HEADER_WEBHOOK_EVENT] + f"#{i}" for i, s in enumerate(SAMPLES)],
 )
 def test_verifies_every_recorded_delivery(index: int) -> None:
     sample = SAMPLES[index]
     raw = sample.get("raw") or json.dumps(sample["body"])
-    ts = int(sample["headers"]["X-Webhook-Timestamp"])
+    ts = int(sample["headers"][HEADER_WEBHOOK_TIMESTAMP])
 
     delivery = webhooks.verify_delivery(raw, sample["headers"], secret=SECRET, now=ts)
     assert delivery.event["uuid"] == sample["body"]["uuid"]
-    assert delivery.id == sample["headers"]["X-Webhook-Id"]
-    assert delivery.event_type == sample["headers"]["X-Webhook-Event"]
+    assert delivery.id == sample["headers"][HEADER_WEBHOOK_ID]
+    assert delivery.event_type == sample["headers"][HEADER_WEBHOOK_EVENT]
     assert delivery.event["type"] == sample["body"]["type"]
     assert isinstance(delivery.event["sequence"], int)
     # Rehearsal deliveries (`webhooks.test`, sandbox) are signed like live ones and say so.
@@ -39,7 +48,7 @@ def test_verifies_every_recorded_delivery(index: int) -> None:
     assert delivery.is_test is (sample["headers"].get("X-Webhook-Test") == "true")
     assert webhooks.is_test_event(delivery.event) is delivery.is_test
     # The generated tables know every event the core really sends, and its model parses the body.
-    kind = webhooks.WEBHOOK_EVENTS[sample["headers"]["X-Webhook-Event"]]
+    kind = webhooks.WEBHOOK_EVENTS[sample["headers"][HEADER_WEBHOOK_EVENT]]
     assert kind == delivery.event["type"]
     assert webhooks.is_known_event(delivery.event)
     assert isinstance(webhooks.to_model(delivery.event), webhooks.WEBHOOK_MODELS[kind])
@@ -66,8 +75,8 @@ TS = 1_755_600_000
 
 def headers(**overrides: str) -> Dict[str, str]:
     base = {
-        "x-webhook-timestamp": str(TS),
-        "x-webhook-signature": sign_webhook("whsec", TS, BODY),
+        HEADER_WEBHOOK_TIMESTAMP.lower(): str(TS),
+        HEADER_WEBHOOK_SIGNATURE.lower(): sign_webhook("whsec", TS, BODY),
     }
     base.update(overrides)
     return base
@@ -86,21 +95,22 @@ def test_rejects_a_wrong_secret_a_tampered_body_and_a_missing_header() -> None:
     with pytest.raises(SignatureError, match="does not match"):
         webhooks.verify(BODY.replace("paid", "paid_over"), headers(), secret="whsec", now=TS)
     with pytest.raises(SignatureError, match="missing"):
-        webhooks.verify(BODY, {"x-webhook-signature": "aa"}, secret="whsec")
+        webhooks.verify(BODY, {HEADER_WEBHOOK_SIGNATURE.lower(): "aa"}, secret="whsec")
 
 
 def test_rejects_stale_deliveries_unless_tolerance_is_disabled() -> None:
+    late = TS + SKEW_SECONDS + 1
     with pytest.raises(SignatureError, match="outside"):
-        webhooks.verify(BODY, headers(), secret="whsec", now=TS + 600)
-    event = webhooks.verify(BODY, headers(), secret="whsec", now=TS + 600, tolerance_sec=0)
+        webhooks.verify(BODY, headers(), secret="whsec", now=late)
+    event = webhooks.verify(BODY, headers(), secret="whsec", now=late, tolerance_sec=0)
     assert event["uuid"] == "u1"
 
 
 def test_verifies_during_a_rotation_via_the_prev_header_or_previous_secret() -> None:
     rotated = headers(
         **{
-            "x-webhook-signature": sign_webhook("new", TS, BODY),
-            "x-webhook-signature-prev": sign_webhook("old", TS, BODY),
+            HEADER_WEBHOOK_SIGNATURE.lower(): sign_webhook("new", TS, BODY),
+            HEADER_WEBHOOK_SIGNATURE_PREV.lower(): sign_webhook("old", TS, BODY),
         }
     )
     assert webhooks.verify(BODY, rotated, secret="old", now=TS)["uuid"] == "u1"  # not yet swapped
@@ -186,7 +196,9 @@ def test_accepts_the_header_objects_python_web_stacks_hand_over() -> None:
 
 def test_a_non_integer_timestamp_header_is_a_signature_failure() -> None:
     with pytest.raises(SignatureError, match="not an integer"):
-        webhooks.verify(BODY, headers(**{"x-webhook-timestamp": "later"}), secret="whsec")
+        webhooks.verify(
+            BODY, headers(**{HEADER_WEBHOOK_TIMESTAMP.lower(): "later"}), secret="whsec"
+        )
 
 
 # --- the rules a forged or malformed delivery must run into ---------------------------------
@@ -215,7 +227,7 @@ def test_the_mac_is_checked_before_the_freshness_window() -> None:
 
     Otherwise an unauthenticated caller can probe what this endpoint believes the time is.
     """
-    stale_and_forged = headers(**{"x-webhook-timestamp": str(TS - 100_000)})
+    stale_and_forged = headers(**{HEADER_WEBHOOK_TIMESTAMP.lower(): str(TS - 100_000)})
     with pytest.raises(SignatureError) as excinfo:
         webhooks.verify(BODY, stale_and_forged, secret="whsec", now=TS)
     assert excinfo.value.code == "webhook.bad_signature"
@@ -224,14 +236,14 @@ def test_the_mac_is_checked_before_the_freshness_window() -> None:
 def test_a_signature_header_may_be_padded_or_uppercase_but_not_0x_prefixed() -> None:
     good = sign_webhook("whsec", TS, BODY)
     assert webhooks.verify(
-        BODY, headers(**{"x-webhook-signature": f"  {good} "}), secret="whsec", now=TS
+        BODY, headers(**{HEADER_WEBHOOK_SIGNATURE.lower(): f"  {good} "}), secret="whsec", now=TS
     )
     assert webhooks.verify(
-        BODY, headers(**{"x-webhook-signature": good.upper()}), secret="whsec", now=TS
+        BODY, headers(**{HEADER_WEBHOOK_SIGNATURE.lower(): good.upper()}), secret="whsec", now=TS
     )
     with pytest.raises(SignatureError, match="missing"):
         webhooks.verify(
-            BODY, headers(**{"x-webhook-signature": f"0x{good}"}), secret="whsec", now=TS
+            BODY, headers(**{HEADER_WEBHOOK_SIGNATURE.lower(): f"0x{good}"}), secret="whsec", now=TS
         )
 
 
@@ -239,7 +251,9 @@ def test_a_non_ascii_digit_timestamp_is_not_a_number() -> None:
     """`int("\u0661\u0662\u0663")` parses Arabic-Indic digits; the core never wrote those."""
     with pytest.raises(SignatureError, match="not an integer"):
         webhooks.verify(
-            BODY, headers(**{"x-webhook-timestamp": "\u0661\u0662\u0663"}), secret="whsec"
+            BODY,
+            headers(**{HEADER_WEBHOOK_TIMESTAMP.lower(): "\u0661\u0662\u0663"}),
+            secret="whsec",
         )
 
 
@@ -264,8 +278,8 @@ def test_a_deeply_nested_body_is_a_payload_error_not_a_recursion_crash() -> None
 def test_a_verified_but_unusable_body_still_reports_the_delivery_as_authentic() -> None:
     broken = '{"type":"payment"}'
     signed = {
-        "x-webhook-timestamp": str(TS),
-        "x-webhook-signature": sign_webhook("whsec", TS, broken),
+        HEADER_WEBHOOK_TIMESTAMP.lower(): str(TS),
+        HEADER_WEBHOOK_SIGNATURE.lower(): sign_webhook("whsec", TS, broken),
     }
     with pytest.raises(WebhookPayloadError):
         webhooks.verify(broken, signed, secret="whsec", now=TS)
@@ -301,11 +315,11 @@ def test_resend_is_deduplicated_by_the_event_id_not_the_delivery_id() -> None:
 
     def headers(raw: str, delivery_id: str, event_id: str) -> Dict[str, Any]:
         return {
-            "X-Webhook-Timestamp": str(ts),
-            "X-Webhook-Signature": sign_webhook(SECRET, ts, raw.encode()),
-            "X-Webhook-Event": "invoice.paid",
-            "X-Webhook-Id": delivery_id,
-            "X-Webhook-Event-Id": event_id,
+            HEADER_WEBHOOK_TIMESTAMP: str(ts),
+            HEADER_WEBHOOK_SIGNATURE: sign_webhook(SECRET, ts, raw.encode()),
+            HEADER_WEBHOOK_EVENT: "invoice.paid",
+            HEADER_WEBHOOK_ID: delivery_id,
+            HEADER_WEBHOOK_EVENT_ID: event_id,
         }
 
     state = "5d9f1c0e-0000-5000-8000-000000000001"
@@ -330,10 +344,10 @@ def test_event_id_is_absent_on_an_older_core() -> None:
     delivery = webhooks.verify_delivery(
         raw,
         {
-            "X-Webhook-Timestamp": str(ts),
-            "X-Webhook-Signature": sign_webhook(SECRET, ts, raw.encode()),
-            "X-Webhook-Event": "invoice.paid",
-            "X-Webhook-Id": "d-9",
+            HEADER_WEBHOOK_TIMESTAMP: str(ts),
+            HEADER_WEBHOOK_SIGNATURE: sign_webhook(SECRET, ts, raw.encode()),
+            HEADER_WEBHOOK_EVENT: "invoice.paid",
+            HEADER_WEBHOOK_ID: "d-9",
         },
         secret=SECRET,
         now=ts,
@@ -354,8 +368,8 @@ def test_conversion_events_are_known_and_parse_to_their_model() -> None:
     assert "uuid" not in body, "a conversion is identified by id, not uuid"
     # Signed and verified like any delivery - no uuid is not a bad payload.
     signed = {
-        "x-webhook-timestamp": str(TS),
-        "x-webhook-signature": sign_webhook("whsec", TS, json.dumps(body)),
+        HEADER_WEBHOOK_TIMESTAMP.lower(): str(TS),
+        HEADER_WEBHOOK_SIGNATURE.lower(): sign_webhook("whsec", TS, json.dumps(body)),
     }
     event = webhooks.verify(json.dumps(body), signed, secret="whsec", now=TS)
     assert webhooks.is_known_event(event) is True

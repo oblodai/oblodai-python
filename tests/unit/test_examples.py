@@ -22,6 +22,12 @@ import pytest
 
 import oblodai.generated.models as models
 from oblodai.core.signing import sign_webhook
+from oblodai.generated.signing import (
+    HEADER_WEBHOOK_EVENT_ID,
+    HEADER_WEBHOOK_ID,
+    HEADER_WEBHOOK_SIGNATURE,
+    HEADER_WEBHOOK_TIMESTAMP,
+)
 from tests.support.samples import sample
 from tests.unit.test_readme_examples import ROOT, _route_for, answer
 
@@ -125,9 +131,9 @@ def test_webhook_receiver_accepts_a_signed_delivery_and_rejects_a_forgery(
     body = json.dumps(event).encode()
     ts = int(time.time())
     headers = {
-        "X-Webhook-Timestamp": str(ts),
-        "X-Webhook-Signature": sign_webhook("whsec-example", ts, body),
-        "X-Webhook-Id": "d-1",
+        HEADER_WEBHOOK_TIMESTAMP: str(ts),
+        HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec-example", ts, body),
+        HEADER_WEBHOOK_ID: "d-1",
     }
     assert _deliver(module, body, headers) == 200
     assert "payment:u-1 -> paid" in capsys.readouterr().out
@@ -146,10 +152,10 @@ def test_webhook_receiver_processes_a_resent_state_once_and_reads_a_conversion(
             module,
             body,
             {
-                "X-Webhook-Timestamp": str(ts),
-                "X-Webhook-Signature": sign_webhook("whsec-example", ts, body),
-                "X-Webhook-Id": delivery_id,
-                "X-Webhook-Event-Id": event_id,
+                HEADER_WEBHOOK_TIMESTAMP: str(ts),
+                HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec-example", ts, body),
+                HEADER_WEBHOOK_ID: delivery_id,
+                HEADER_WEBHOOK_EVENT_ID: event_id,
             },
         )
 

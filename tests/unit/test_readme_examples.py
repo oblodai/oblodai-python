@@ -25,6 +25,7 @@ import oblodai.generated.models as models
 import oblodai.generated.resources as generated
 from oblodai.core.signing import sign_webhook
 from oblodai.generated.routes import ROUTES
+from oblodai.generated.signing import HEADER_WEBHOOK_SIGNATURE, HEADER_WEBHOOK_TIMESTAMP
 from tests.support.samples import sample
 
 ROOT = Path(oblodai.__file__).resolve().parents[2]
@@ -129,8 +130,8 @@ def test_readme_blocks_run(document: str, monkeypatch: pytest.MonkeyPatch) -> No
     body = json.dumps({"type": "payment", "uuid": "u", "status": "paid"}).encode()
     ts = int(time.time())
     headers = {
-        "X-Webhook-Timestamp": str(ts),
-        "X-Webhook-Signature": sign_webhook(secret, ts, body),
+        HEADER_WEBHOOK_TIMESTAMP: str(ts),
+        HEADER_WEBHOOK_SIGNATURE: sign_webhook(secret, ts, body),
     }
     assert receive(body, headers, None) == 200
     assert receive(body + b" ", headers, None) == 401

@@ -6,8 +6,8 @@
 The four rules that matter, whichever framework you use:
 
 1. Verify over the RAW request bytes. A re-serialized parse will not match the signature.
-2. Deduplicate on `X-Webhook-Event-Id` (`delivery.event_id`) - it is the same for every retry AND
-   every resend of a state; `X-Webhook-Id` changes on a resend.
+2. Deduplicate on `delivery.event_id` (header `webhooks.HEADER_WEBHOOK_EVENT_ID`) - it is the same
+   for every retry AND every resend of a state; `delivery.id` changes on a resend.
 3. Drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`; a retried `paid`
    can arrive after a newer state.
 4. Answer a rehearsal delivery (`delivery.is_test`) with 2xx, but never act on it as if money

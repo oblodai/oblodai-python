@@ -10,6 +10,7 @@ import pytest
 from oblodai import Oblodai, PaymentView, PayoutView, PublicPayResult
 from oblodai.core.errors import ConfigError, OblodaiError, TransportError
 from oblodai.core.retry import RetryOptions
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY, HEADER_SIGNATURE, HEADER_TIMESTAMP
 from tests.support.mock_http import MockHTTP, Scripted, api_error, html, ok
 from tests.support.samples import sample
 
@@ -123,7 +124,7 @@ def test_refuses_a_caller_idempotency_key_on_a_list_route_instead_of_dropping_it
         ]
     )
     assert len(client(paged).payouts.list_history({"limit": 1}).all()) == 2
-    assert all("idempotency-key" not in call.headers for call in paged.calls)
+    assert all(HEADER_IDEMPOTENCY_KEY.lower() not in call.headers for call in paged.calls)
 
 
 # --- clock skew ----------------------------------------------------------------------------
@@ -156,7 +157,7 @@ def test_reverts_the_correction_when_the_re_signed_attempt_is_still_rejected() -
         api.account.get_balance()
     api.account.get_balance()
     # One bad `Date` cannot wedge the client: the third call signs with the local clock again.
-    assert abs(int(mock.calls[2].headers["x-timestamp"]) - int(time.time())) < 5
+    assert abs(int(mock.calls[2].headers[HEADER_TIMESTAMP.lower()]) - int(time.time())) < 5
 
 
 # --- request construction ------------------------------------------------------------------
@@ -170,8 +171,8 @@ def test_keeps_a_path_prefix_on_the_base_url_and_signs_the_full_path() -> None:
 
 def test_drops_caller_headers_that_collide_with_signed_headers() -> None:
     mock = MockHTTP([ok({"balance": {"merchant": []}})])
-    client(mock, headers={"x-signature": "zz", "X-Trace": "t1"}).account.get_balance()
-    assert mock.calls[0].headers["x-signature"] != "zz"
+    client(mock, headers={HEADER_SIGNATURE.lower(): "zz", "X-Trace": "t1"}).account.get_balance()
+    assert mock.calls[0].headers[HEADER_SIGNATURE.lower()] != "zz"
     assert mock.calls[0].headers["x-trace"] == "t1"
 
 

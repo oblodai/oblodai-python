@@ -21,6 +21,7 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 import pytest
@@ -28,7 +29,11 @@ import pytest
 import oblodai.generated.resources as generated
 from oblodai import AsyncOblodai, Oblodai, webhooks
 from oblodai.core import atransport, transport
+from oblodai.core.clock import SkewCorrectingClock
+from oblodai.core.engine import CallOptions, EngineSettings
 from oblodai.core.errors import OblodaiError, SignatureError, WebhookPayloadError
+from oblodai.core.request import Credentials
+from oblodai.core.route import RouteSpec
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
 from oblodai.webhooks import verify
 from scripts.check_generated import backend_root
@@ -58,12 +63,25 @@ def _pointer(doc: Any, pointer: str) -> Any:
     return cur
 
 
+def _spec(suite: Dict[str, Any]) -> Dict[str, Any]:
+    spec: Dict[str, Any] = json.loads((CONFORMANCE / suite["source"]["spec"]).read_text("utf-8"))
+    return spec
+
+
 def _source(suite: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """The spec's ``x-oblodai-signing`` and the vectors the suite points at."""
-    src = suite["source"]
-    spec = json.loads((CONFORMANCE / src["spec"]).read_text("utf-8"))
-    vectors: List[Dict[str, Any]] = _pointer(spec, src["pointer"])
+    spec = _spec(suite)
+    vectors: List[Dict[str, Any]] = _pointer(spec, suite["source"]["pointer"])
     return spec["x-oblodai-signing"], vectors
+
+
+def _header_names(suite: Dict[str, Any]) -> Dict[str, str]:
+    """Role -> header name, read from the spec (``header_names``), never from this SDK's constants:
+    a header the core renamed and the SDK did not follow fails the suite."""
+    ref = suite["header_names"]
+    names: List[str] = _pointer(_spec(suite), ref["pointer"])
+    assert len(names) == len(ref["roles"]), (names, ref["roles"])
+    return dict(zip(ref["roles"], names, strict=True))
 
 
 def _cases(name: str) -> List[Any]:
@@ -79,15 +97,91 @@ def _cases(name: str) -> List[Any]:
 # -- signing -----------------------------------------------------------------------------------
 
 
+REQUEST_HEADERS = _header_names(_suite("signing"))
+WEBHOOK_HEADERS = _header_names(_suite("webhook"))
+
+
 @pytest.mark.parametrize(("check", "vector", "signing"), _cases("signing"))
 def test_request_signing(check: Dict[str, Any], vector: Dict[str, Any], signing: Any) -> None:
     key = vector["idempotency_key"] or None
     args = (vector["ts"], vector["method"], vector["request_uri"], vector["body"], key)
     if check["kind"] == "request_canonical":
         assert canonical_string(*args) == vector["canonical"]
-    else:
-        assert check["kind"] == "request_signature"
+    elif check["kind"] == "request_signature":
         assert sign_request(vector["secret"], *args) == vector["signature"]
+    else:
+        assert check["kind"] == "request_headers"
+        _check_sent_headers(check, vector, _send_sync(check, vector))
+        _check_sent_headers(check, vector, asyncio.run(_send_async(check, vector)))
+
+
+def _vector_call(
+    check: Dict[str, Any], vector: Dict[str, Any]
+) -> Tuple[EngineSettings, RouteSpec, CallOptions]:
+    """The vector's request as a call of the signing engine every client method goes through:
+    the vector's keys, a clock stopped at its ``ts``, its method, path, query, body and key."""
+    uri = urlsplit(vector["request_uri"])
+    key = vector["idempotency_key"] or None
+    settings = EngineSettings(
+        base_url="https://conformance.invalid",
+        user_agent="oblodai-conformance",
+        credentials=Credentials(check["public_id"], vector["secret"]),
+        clock=SkewCorrectingClock(lambda: int(vector["ts"])),
+    )
+    route = RouteSpec(
+        method=vector["method"],
+        path=uri.path,
+        auth="key",
+        idempotent=key is not None,
+        safe=vector["method"] == "GET",
+        bare=True,
+    )
+    options = CallOptions(
+        body=json.loads(vector["body"]) if vector["body"] else None,
+        query=dict(parse_qsl(uri.query, keep_blank_values=True)) or None,
+        idempotency_key=key,
+        max_retries=0,
+    )
+    return settings, route, options
+
+
+def _send_sync(check: Dict[str, Any], vector: Dict[str, Any]) -> httpx.Request:
+    sent: List[httpx.Request] = []
+
+    def handle(req: httpx.Request) -> httpx.Response:
+        sent.append(req)
+        return httpx.Response(200, content=b"ok")
+
+    settings, route, options = _vector_call(check, vector)
+    with httpx.Client(transport=httpx.MockTransport(handle)) as http:
+        transport.Transport(settings, http).call_raw(route, options)
+    assert len(sent) == 1
+    return sent[0]
+
+
+async def _send_async(check: Dict[str, Any], vector: Dict[str, Any]) -> httpx.Request:
+    sent: List[httpx.Request] = []
+
+    async def handle(req: httpx.Request) -> httpx.Response:
+        sent.append(req)
+        return httpx.Response(200, content=b"ok")
+
+    settings, route, options = _vector_call(check, vector)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        await atransport.AsyncTransport(settings, http).call_raw(route, options)
+    assert len(sent) == 1
+    return sent[0]
+
+
+def _check_sent_headers(check: Dict[str, Any], vector: Dict[str, Any], req: httpx.Request) -> None:
+    names = REQUEST_HEADERS
+    assert req.method == vector["method"]
+    assert req.url.raw_path.decode("ascii") == vector["request_uri"]
+    assert req.content == vector["body"].encode("utf-8")
+    assert req.headers.get(names["public_id"]) == check["public_id"]
+    assert req.headers.get(names["signature"]) == vector["signature"]
+    assert req.headers.get(names["timestamp"]) == str(vector["ts"])
+    assert req.headers.get(names["idempotency_key"]) == (vector["idempotency_key"] or None)
 
 
 @pytest.mark.parametrize(("check", "vector", "signing"), _cases("webhook"))
@@ -104,7 +198,7 @@ def test_webhook(check: Dict[str, Any], vector: Dict[str, Any], signing: Dict[st
         payload = payload + " "
     elif check["mutate"] == "signature":
         signature = ("0" if signature[0] != "0" else "1") + signature[1:]
-    headers = {"X-Webhook-Timestamp": str(ts), "X-Webhook-Signature": signature}
+    headers = {WEBHOOK_HEADERS["timestamp"]: str(ts), WEBHOOK_HEADERS["signature"]: signature}
     if check["expect"] == "ok":
         # The vectors sign bare payloads, not whole events: verify() gets past the MAC and the
         # freshness window and only then may refuse to parse - that refusal still is a pass.
@@ -123,7 +217,7 @@ def _delivery_cases() -> List[Any]:
         pytest.param(
             check,
             delivery,
-            suite["headers"],
+            {_header_names(suite)[role]: field for role, field in suite["fields"].items()},
             id=f"{check['name']} - {delivery['event']} ({check['key']})",
         )
         for check in suite["checks"]
@@ -242,7 +336,7 @@ def _check(
 ) -> None:
     expect = scenario["expect"]
     assert len(script.requests) == expect["requests"], [str(r.url) for r in script.requests]
-    keys = [r.headers.get("idempotency-key") for r in script.requests]
+    keys = [r.headers.get(REQUEST_HEADERS["idempotency_key"]) for r in script.requests]
     if expect.get("idempotency_key") == "absent":
         assert keys == [None] * len(keys)
     elif expect.get("idempotency_key") == "present":

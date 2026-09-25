@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import oblodai.generated.signing as signing
+
 CONTRACT_DIR = Path(__file__).resolve().parent.parent.parent / "contract"
 
 
@@ -54,11 +56,35 @@ def result_of(route: str) -> Any:
     return found.get("response", {}).get("result")
 
 
+#: Header names the deliveries in ``webhook-samples.json`` were recorded under, by role - a fact of
+#: the recording, not of the contract: the loader re-keys them to the contract's current names
+#: (``oblodai.generated.signing``), so a renamed header does not strand the recordings.
+RECORDED_WEBHOOK_HEADERS = {
+    "X-Webhook-Timestamp": "HEADER_WEBHOOK_TIMESTAMP",
+    "X-Webhook-Signature": "HEADER_WEBHOOK_SIGNATURE",
+    "X-Webhook-Signature-Prev": "HEADER_WEBHOOK_SIGNATURE_PREV",
+    "X-Webhook-Event": "HEADER_WEBHOOK_EVENT",
+    "X-Webhook-Id": "HEADER_WEBHOOK_ID",
+    "X-Webhook-Event-Id": "HEADER_WEBHOOK_EVENT_ID",
+    "X-Webhook-Event-Time": "HEADER_WEBHOOK_EVENT_TIME",
+}
+
+
 def load_webhook_samples() -> List[Dict[str, Any]]:
-    """Real signed deliveries: ``headers``, parsed ``body`` and the exact ``raw`` bytes."""
+    """Real signed deliveries: ``headers`` (under the contract's current names), parsed ``body``
+    and the exact ``raw`` bytes."""
     data: List[Dict[str, Any]] = json.loads(
         (CONTRACT_DIR / "webhook-samples.json").read_text("utf-8")
     )
+    for sample in data:
+        sample["headers"] = {
+            (
+                getattr(signing, RECORDED_WEBHOOK_HEADERS[k])
+                if k in RECORDED_WEBHOOK_HEADERS
+                else k
+            ): v
+            for k, v in sample["headers"].items()
+        }
     return data
 
 

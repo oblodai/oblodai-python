@@ -25,6 +25,7 @@ from oblodai.core.idempotency import MAX_IDEMPOTENCY_KEY_LENGTH
 from oblodai.core.logger import redact
 from oblodai.core.request import RESERVED_HEADERS, Credentials
 from oblodai.core.retry import RetryOptions
+from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY, HEADER_SIGNATURE
 from oblodai.helpers.money import MAX_AMOUNT_LENGTH
 from tests.support.mock_http import MockHTTP, Scripted, ok
 from tests.support.samples import sample
@@ -68,7 +69,7 @@ def test_an_unusable_idempotency_key_is_refused_before_signing(key: str) -> None
 def test_a_key_of_exactly_the_maximum_length_is_accepted() -> None:
     mock = MockHTTP([ok(PAYMENT)])
     create(client(mock), idempotency_key="k" * MAX_IDEMPOTENCY_KEY_LENGTH)
-    assert len(mock.calls[0].headers["idempotency-key"]) == MAX_IDEMPOTENCY_KEY_LENGTH
+    assert len(mock.calls[0].headers[HEADER_IDEMPOTENCY_KEY.lower()]) == MAX_IDEMPOTENCY_KEY_LENGTH
 
 
 def test_a_key_on_a_route_the_core_does_not_deduplicate_is_refused() -> None:
@@ -313,5 +314,5 @@ def test_a_per_call_header_obeys_the_same_rules_as_a_client_one() -> None:
         create(client(mock), extra_headers={"X-Trace": "one\r\nX-Injected: yes"})
     assert excinfo.value.code == "sdk.bad_header"
     signed = MockHTTP([ok(PAYMENT)])
-    create(client(signed), extra_headers={"X-Signature": "hijacked"})
-    assert signed.calls[0].headers["x-signature"] != "hijacked"
+    create(client(signed), extra_headers={HEADER_SIGNATURE: "hijacked"})
+    assert signed.calls[0].headers[HEADER_SIGNATURE.lower()] != "hijacked"
