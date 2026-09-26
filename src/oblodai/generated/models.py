@@ -3471,6 +3471,40 @@ class PaymentFeeResult(Model):
 
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class PaymentHistoryRequest(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = ()
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "limit",
+        "offset",
+        "status",
+    )
+
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    status: Optional[str] = None
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PaymentHistoryRequest:
+        return cls(
+            limit=_opt(int, data.get("limit")),
+            offset=_opt(int, data.get("offset")),
+            status=_opt(str, data.get("status")),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        if self.limit is not None:
+            out["limit"] = _dump(self.limit)
+        if self.offset is not None:
+            out["offset"] = _dump(self.offset)
+        if self.status is not None:
+            out["status"] = _dump(self.status)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class PaymentInfoResult(Model):
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
         "additional_data",
