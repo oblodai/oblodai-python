@@ -1229,8 +1229,8 @@ ROUTES: Dict[str, RouteSpec] = {
         bare=False,
         list_kind=None,
     ),
-    "logoutCli": RouteSpec(
-        operation_id="logoutCli",
+    "logoutCliLogin": RouteSpec(
+        operation_id="logoutCliLogin",
         method="POST",
         path="/v1/cli/logout",
         auth="key",

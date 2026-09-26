@@ -8,12 +8,14 @@ All notable changes to this package are documented here. The format follows
 
 ### Added
 
-- `client.cli_login` — `start`, `poll`, `logout_cli` (sync and async): the browser login of the
+- `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the
   `oblodai` CLI (OAuth 2.0 device authorization) and logout of its key.
 - `OblodaiError.details`: the machine-readable facts of an error envelope's new `details` object
   (for example `cli.permission_denied` carries `required_role` and `role`); only string values are
   kept.
-- Every method's documentation names the minimum team role a CLI key needs to call it.
+- Every method's documentation names the minimum team role a CLI key needs to call it;
+  money-out operations (payouts, refunds, transfers, auto-withdrawal, split rules) take only the
+  store owner's own CLI key.
 
 ## [2.0.0] — 2026-09-25
 
