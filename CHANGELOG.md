@@ -4,6 +4,17 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- `client.cli_login` — `start`, `poll`, `logout_cli` (sync and async): the browser login of the
+  `oblodai` CLI (OAuth 2.0 device authorization) and logout of its key.
+- `OblodaiError.details`: the machine-readable facts of an error envelope's new `details` object
+  (for example `cli.permission_denied` carries `required_role` and `role`); only string values are
+  kept.
+- Every method's documentation names the minimum team role a CLI key needs to call it.
+
 ## [2.0.0] — 2026-09-25
 
 Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every

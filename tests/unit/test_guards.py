@@ -54,7 +54,7 @@ def create(api: Oblodai, **options: Any) -> Any:
 
 @pytest.mark.parametrize(
     "key",
-    ["", "x" * (MAX_IDEMPOTENCY_KEY_LENGTH + 1), "has space", "tab\there", "nl\nhere", "kлюч"],
+    ["", "x" * (MAX_IDEMPOTENCY_KEY_LENGTH + 1), "has space", "tab\there", "nl\nhere", "këy"],
 )
 def test_an_unusable_idempotency_key_is_refused_before_signing(key: str) -> None:
     """The key is signed verbatim; a stray byte changes the MAC on one side only."""
@@ -198,15 +198,35 @@ def test_each_envelope_field_is_decoded_on_its_own() -> None:
                 "request_id": {"x": 1},
                 "retryable": "yes",
                 "retry_after": "nonsense",
+                "details": ["finance"],
             },
         ),
     )
     assert error.code == "payment.bad_amount"
     assert error.message == "HTTP 400"
     assert error.field is None
+    assert error.details is None
     assert error.request_id is None
     assert error.retryable is False  # a non-boolean is not the core speaking
     assert error.retry_after is None
+
+
+def test_details_keep_only_string_values() -> None:
+    error = api_error_from(
+        403,
+        cast(
+            Any,
+            {
+                "code": "cli.permission_denied",
+                "message": "no",
+                "retryable": False,
+                "details": {"required_role": "finance", "role": "viewer", "n": 3, "x": None},
+            },
+        ),
+    )
+    assert error.details == {"required_role": "finance", "role": "viewer"}
+    assert error.to_dict()["details"] == {"required_role": "finance", "role": "viewer"}
+    assert api_error_from(403, {"code": "cli.permission_denied"}).details is None
 
 
 def test_an_envelope_without_a_usable_code_is_treated_as_no_envelope() -> None:

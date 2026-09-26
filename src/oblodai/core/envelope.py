@@ -2,7 +2,7 @@
 
     success : {"state": 0, "result": <payload>}
     list    : result = {"items": [...], "paginate": {total, per_page, offset, has_pages}}
-    error   : {"error": {code, message, field?, retryable, retry_after?, request_id?}}
+    error   : {"error": {code, message, field?, details?, retryable, retry_after?, request_id?}}
 
 Every non-``bare`` route uses these; bare routes (PDF documents, health pages) bypass this module.
 """
