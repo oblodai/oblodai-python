@@ -40,6 +40,11 @@ All notable changes to this package are documented here. The format follows
   The webhook signing constants already carry the event-id and delivery-id header names that the
   contract now names as `event_id_header` / `delivery_id_header`.
 
+- Method docs: refunds explicitly follow the store's refund fee setting (`getRefundFeeConfig`)
+  — when the merchant bears the Oblodai commission, refunds debit more than the payment
+  credited, paid from the merchant's balance. `refunds.calculate` docs now list
+  `payout.insufficient_funds` and `payout.convert_insufficient` among the errors it can return.
+
 ## [2.0.0] — 2026-09-25
 
 Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every
