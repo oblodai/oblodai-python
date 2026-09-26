@@ -20,6 +20,7 @@ from ..generated.aio_resources import (
     AsyncApiAllowlist,
     AsyncBatches,
     AsyncCheckout,
+    AsyncCliLogin,
     AsyncDocuments,
     AsyncPaymentLinks,
     AsyncPayments,
@@ -111,6 +112,7 @@ class AsyncOblodai:
         self.documents = AsyncDocuments(self.transport)
         self.checkout = AsyncCheckout(self.transport)
         self.sandbox = AsyncSandbox(self.transport)
+        self.cli_login = AsyncCliLogin(self.transport)
 
     def with_options(
         self,

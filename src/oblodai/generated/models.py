@@ -38,6 +38,7 @@ from .enums import (
     DocumentJobKind,
     DocumentJobStatus,
     FeeType,
+    KeyMode,
     OnrampIdleStatus,
     OnrampStatus,
     PaymentStatus,
@@ -48,6 +49,7 @@ from .enums import (
     PayoutSource,
     PayoutStatus,
     RefundRollup,
+    Role,
     SoFStatus,
     WebhookDeliveryStatus,
 )
@@ -1270,6 +1272,196 @@ class BlockedRefundResult(Model):
 
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class CLIDeviceAuthorization(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = (
+        "device_code",
+        "expires_in",
+        "interval",
+        "user_code",
+        "verification_uri",
+        "verification_uri_complete",
+    )
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "device_code",
+        "expires_in",
+        "interval",
+        "user_code",
+        "verification_uri",
+        "verification_uri_complete",
+    )
+
+    device_code: str
+    expires_in: int
+    interval: int
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CLIDeviceAuthorization:
+        return cls(
+            device_code=str(data["device_code"]),
+            expires_in=int(data["expires_in"]),
+            interval=int(data["interval"]),
+            user_code=str(data["user_code"]),
+            verification_uri=str(data["verification_uri"]),
+            verification_uri_complete=str(data["verification_uri_complete"]),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        out["device_code"] = _dump(self.device_code)
+        out["expires_in"] = _dump(self.expires_in)
+        out["interval"] = _dump(self.interval)
+        out["user_code"] = _dump(self.user_code)
+        out["verification_uri"] = _dump(self.verification_uri)
+        out["verification_uri_complete"] = _dump(self.verification_uri_complete)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class CLIDeviceRequest(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = ()
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "client_name",
+        "device_name",
+    )
+
+    client_name: Optional[str] = None
+    device_name: Optional[str] = None
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CLIDeviceRequest:
+        return cls(
+            client_name=_opt(str, data.get("client_name")),
+            device_name=_opt(str, data.get("device_name")),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        if self.client_name is not None:
+            out["client_name"] = _dump(self.client_name)
+        if self.device_name is not None:
+            out["device_name"] = _dump(self.device_name)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class CLILogoutResult(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = (
+        "public_id",
+        "revoked",
+    )
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "public_id",
+        "revoked",
+    )
+
+    public_id: str
+    revoked: bool
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CLILogoutResult:
+        return cls(
+            public_id=str(data["public_id"]),
+            revoked=bool(data["revoked"]),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        out["public_id"] = _dump(self.public_id)
+        out["revoked"] = _dump(self.revoked)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class CLIToken(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = (
+        "expires_at",
+        "label",
+        "merchant_id",
+        "merchant_name",
+        "mode",
+        "public_id",
+        "role",
+        "secret",
+    )
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "expires_at",
+        "label",
+        "merchant_id",
+        "merchant_name",
+        "mode",
+        "public_id",
+        "role",
+        "secret",
+    )
+
+    expires_at: str
+    label: str
+    merchant_id: str
+    merchant_name: str
+    mode: Union[KeyMode, str]
+    public_id: str
+    role: Union[Role, str]
+    secret: str
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CLIToken:
+        return cls(
+            expires_at=str(data["expires_at"]),
+            label=str(data["label"]),
+            merchant_id=str(data["merchant_id"]),
+            merchant_name=str(data["merchant_name"]),
+            mode=_enum_of(KeyMode)(data["mode"]),
+            public_id=str(data["public_id"]),
+            role=_enum_of(Role)(data["role"]),
+            secret=str(data["secret"]),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        out["expires_at"] = _dump(self.expires_at)
+        out["label"] = _dump(self.label)
+        out["merchant_id"] = _dump(self.merchant_id)
+        out["merchant_name"] = _dump(self.merchant_name)
+        out["mode"] = _dump(self.mode)
+        out["public_id"] = _dump(self.public_id)
+        out["role"] = _dump(self.role)
+        out["secret"] = _dump(self.secret)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class CLITokenRequest(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = ("device_code",)
+    _FIELDS: ClassVar[Tuple[str, ...]] = ("device_code",)
+
+    device_code: str
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CLITokenRequest:
+        return cls(
+            device_code=str(data["device_code"]),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        out["device_code"] = _dump(self.device_code)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class CancelPayoutRequest(Model):
     _REQUIRED: ClassVar[Tuple[str, ...]] = ("uuid",)
     _FIELDS: ClassVar[Tuple[str, ...]] = ("uuid",)
@@ -1509,8 +1701,8 @@ class ConversionModes(Model):
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class ConversionWebhook(Model):
-    """Приходит, когда конвертация в эконом-режиме исполнена (completed — зачислено) или отменена с
-    возвратом исходной суммы (refunded).
+    """Sent when an economy-mode conversion is executed (completed — credited) or cancelled with the
+    source amount returned (refunded).
     """
 
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
@@ -2124,6 +2316,7 @@ class ErrorError(Model):
     )
     _FIELDS: ClassVar[Tuple[str, ...]] = (
         "code",
+        "details",
         "field",
         "message",
         "request_id",
@@ -2133,6 +2326,7 @@ class ErrorError(Model):
 
     code: str
     retryable: bool
+    details: Optional[Dict[str, str]] = None
     field: Optional[str] = None
     message: Optional[str] = None
     request_id: Optional[str] = None
@@ -2144,6 +2338,7 @@ class ErrorError(Model):
         return cls(
             code=str(data["code"]),
             retryable=bool(data["retryable"]),
+            details=_opt(_dict_of(str), data.get("details")),
             field=_opt(str, data.get("field")),
             message=_opt(str, data.get("message")),
             request_id=_opt(str, data.get("request_id")),
@@ -2155,6 +2350,8 @@ class ErrorError(Model):
         out: Dict[str, Any] = dict(self.extra)
         out["code"] = _dump(self.code)
         out["retryable"] = _dump(self.retryable)
+        if self.details is not None:
+            out["details"] = _dump(self.details)
         if self.field is not None:
             out["field"] = _dump(self.field)
         if self.message is not None:
@@ -4580,10 +4777,10 @@ class PaymentViewList(Model):
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class PaymentWebhook(Model):
-    """Приходит, когда платёж переходит в paid, paid_over, wrong_amount, expired или under_review, и
-    когда откатывается из них (реорганизация сети). Текущий статус — любой из словаря — можно
-    запросить заново: POST /v1/payment/resend. Сверять с заказом по order_id/uuid, с блокчейном — по
-    txid и network.
+    """Sent when a payment moves to paid, paid_over, wrong_amount, expired or under_review, and when
+    it rolls back from them (a chain reorganization). The current status — any value from the
+    vocabulary — can be requested again: POST /v1/payment/resend. Match it to the order by
+    order_id/uuid and to the blockchain by txid and network.
     """
 
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
@@ -6252,9 +6449,9 @@ class PayoutViewList(Model):
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class PayoutWebhook(Model):
-    """Приходит на каждом переходе выплаты. Тело — тот же объект, что отвечают ручки выплат. Возврат
-    платежа — это выплата с is_refund = true: его события тоже payout.*, сверять с платежом по
-    refund_for и payment_order_id.
+    """Sent on every payout transition. The body is the same object the payout endpoints return. A
+    payment refund is a payout with is_refund = true: its events are payout.* as well; match it to
+    the payment by refund_for and payment_order_id.
     """
 
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
@@ -9085,7 +9282,7 @@ class WalletQRResult(Model):
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class WalletWebhook(Model):
-    """Приходит, когда депозит на статический кошелёк зачислен."""
+    """Sent when a deposit to a static wallet is credited."""
 
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
         "address",
