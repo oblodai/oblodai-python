@@ -2,7 +2,7 @@
 
 One family, :class:`OblodaiError`, mirrors the core's error envelope::
 
-    {"error": {"code", "message", "field"?, "retryable", "retry_after"?, "request_id"?}}
+    {"error": {"code", "message", "field"?, "details"?, "retryable", "retry_after"?, "request_id"?}}
 
 ``retryable`` is authoritative when the core wrote the envelope: it is the core's own
 classification of the failure. A response without an envelope (a proxy 502, an HTML 503) is
@@ -54,6 +54,7 @@ class ErrorDetail(TypedDict, total=False):
     code: str
     message: str
     field: str
+    details: Dict[str, str]
     retryable: bool
     retry_after: int
     request_id: str
@@ -72,6 +73,7 @@ class OblodaiError(Exception):
         retry_after: Optional[float] = None,
         request_id: Optional[str] = None,
         field: Optional[str] = None,
+        details: Optional[Dict[str, str]] = None,
         synthetic: bool = False,
         raw: Any = None,
     ) -> None:
@@ -88,6 +90,9 @@ class OblodaiError(Exception):
         self.request_id = request_id
         #: The request field the error refers to, for validation failures.
         self.field = field
+        #: Machine-readable facts about the refusal, keys documented by its code (e.g.
+        #: ``cli.permission_denied`` carries ``required_role`` and ``role``); ``None`` when absent.
+        self.details = details
         #: No core envelope: the answer came from something in front of the core.
         self.synthetic = synthetic
         # Deliberately not part of __repr__/to_dict: a raw body may hold merchant data.
@@ -117,6 +122,7 @@ class OblodaiError(Exception):
             "retry_after": self.retry_after,
             "request_id": self.request_id,
             "field": self.field,
+            "details": self.details,
             "synthetic": self.synthetic,
         }
 
@@ -251,6 +257,14 @@ def _text(value: Any) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def _details(value: Any) -> Optional[Dict[str, str]]:
+    """The string values of the envelope's ``details`` object; ``None`` when there are none."""
+    if not isinstance(value, Mapping):
+        return None
+    out = {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)}
+    return out or None
+
+
 def coerce_retry_after(value: Any) -> Optional[float]:
     """A retry hint in seconds: integer, float or numeric string, clamped and sane.
 
@@ -308,6 +322,7 @@ def api_error_from(
         "retry_after": body_retry_after if body_retry_after is not None else retry_after_header,
         "request_id": _text(detail.get("request_id")),
         "field": _text(detail.get("field")),
+        "details": None if synthetic else _details(detail.get("details")),
         "synthetic": synthetic,
         "raw": raw,
     }
