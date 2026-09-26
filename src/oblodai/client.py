@@ -22,6 +22,7 @@ from .generated.resources import (
     ApiAllowlist,
     Batches,
     Checkout,
+    CliLogin,
     Documents,
     PaymentLinks,
     Payments,
@@ -124,6 +125,7 @@ class Oblodai:
         self.documents = Documents(self.transport)
         self.checkout = Checkout(self.transport)
         self.sandbox = Sandbox(self.transport)
+        self.cli_login = CliLogin(self.transport)
 
     def with_options(
         self,

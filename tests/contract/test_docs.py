@@ -222,7 +222,7 @@ def test_the_russian_readme_is_a_translation_of_the_english_one() -> None:
     english, russian = read("README.md"), read("README.ru.md")
 
     assert re.search(r"[Ѐ-ӿ]", russian), "README.ru.md is not translated"
-    assert "[Читать по-русски →](README.ru.md)" in english
+    assert "[Read in Russian →](README.ru.md)" in english
     assert "[Read in English →](README.md)" in russian
 
     # The branded header is the family resemblance: same logo, same badges.

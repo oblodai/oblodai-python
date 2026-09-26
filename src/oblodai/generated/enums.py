@@ -73,7 +73,7 @@ class DocumentJobStatus(str, Enum):
 
 
 class ErrorCode(str, Enum):
-    """Коды ошибок, которыми отвечают операции этого документа."""
+    """Error codes returned by the operations of this document."""
 
     ACCEPTED_NO_NETWORK = "accepted.no_network"
     ACCEPTED_UNKNOWN_METHOD = "accepted.unknown_method"
@@ -135,6 +135,16 @@ class ErrorCode(str, Enum):
     CHECKOUTCFG_DISABLED = "checkoutcfg.disabled"
     CHECKOUTCFG_URL_TOO_LONG = "checkoutcfg.url_too_long"
     CHEQUE_TOKEN_REQUIRED = "cheque.token_required"
+    CLI_ACCESS_DENIED = "cli.access_denied"
+    CLI_AUTHORIZATION_PENDING = "cli.authorization_pending"
+    CLI_BAD_NAME = "cli.bad_name"
+    CLI_EXPIRED_TOKEN = "cli.expired_token"
+    CLI_INVALID_DEVICE_CODE = "cli.invalid_device_code"
+    CLI_NOT_CLI_KEY = "cli.not_cli_key"
+    CLI_PERMISSION_DENIED = "cli.permission_denied"
+    CLI_RATE_LIMITED = "cli.rate_limited"
+    CLI_SLOW_DOWN = "cli.slow_down"
+    CLI_UNAVAILABLE = "cli.unavailable"
     COMPLIANCE_BLOCKED = "compliance.blocked"
     COMPLIANCE_BLOCKED_ADDRESS = "compliance.blocked_address"
     COMPLIANCE_BLOCKLIST_UNAVAILABLE = "compliance.blocklist_unavailable"
@@ -221,7 +231,9 @@ class ErrorCode(str, Enum):
     MERCHANT_BAD_ID = "merchant.bad_id"
     MERCHANT_BAD_SIGNATURE = "merchant.bad_signature"
     MERCHANT_EMAIL_TAKEN = "merchant.email_taken"
+    MERCHANT_KEY_EXPIRED = "merchant.key_expired"
     MERCHANT_KEY_MODE_MISMATCH = "merchant.key_mode_mismatch"
+    MERCHANT_KEY_NOT_FOUND = "merchant.key_not_found"
     MERCHANT_NO_PERSONAL_WALLET = "merchant.no_personal_wallet"
     MERCHANT_NOT_FOUND = "merchant.not_found"
     MERCHANT_PROJECT_MISMATCH = "merchant.project_mismatch"
@@ -532,6 +544,11 @@ class FeeType(str, Enum):
     ESTIMATED = "estimated"
 
 
+class KeyMode(str, Enum):
+    LIVE = "live"
+    TEST = "test"
+
+
 class OnrampIdleStatus(str, Enum):
     EMPTY = ""
 
@@ -601,6 +618,13 @@ class RefundRollup(str, Enum):
     NONE = "none"
     PARTIAL = "partial"
     FULL = "full"
+
+
+class Role(str, Enum):
+    VIEWER = "viewer"
+    FINANCE = "finance"
+    ADMIN = "admin"
+    OWNER = "owner"
 
 
 class SoFStatus(str, Enum):

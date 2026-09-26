@@ -49,7 +49,7 @@ def test_the_idempotency_slot_is_empty_not_absent() -> None:
 
 
 def test_signs_the_body_bytes_so_text_and_bytes_agree() -> None:
-    body = '{"additional_data":"тест"}'
+    body = '{"additional_data":"tëst"}'
     assert sign_request("s", 5, "POST", "/v1/payment", body) == sign_request(
         "s", 5, "POST", "/v1/payment", body.encode("utf-8")
     )

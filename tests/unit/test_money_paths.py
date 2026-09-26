@@ -233,11 +233,11 @@ def test_reads_the_filename_from_content_disposition() -> None:
 
 def test_serializes_the_body_compactly_and_signs_exactly_those_bytes() -> None:
     mock = MockHTTP([ok(PAYMENT)])
-    client(mock).payments.create({"amount": "1", "currency": "USDT", "additional_data": "тест"})
+    client(mock).payments.create({"amount": "1", "currency": "USDT", "additional_data": "tëst"})
     body = mock.calls[0].body
     assert body is not None
-    assert " " not in body.replace("тест", "")
-    assert json.loads(body)["additional_data"] == "тест"
+    assert " " not in body.replace("tëst", "")
+    assert json.loads(body)["additional_data"] == "tëst"
 
 
 # --- deadline, redirects, serialization ------------------------------------------------------
