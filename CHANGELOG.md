@@ -17,6 +17,19 @@ All notable changes to this package are documented here. The format follows
   money-out operations (payouts, refunds, transfers, auto-withdrawal, split rules) take only the
   store owner's own CLI key.
 
+### Changed
+
+- **Breaking:** `payments.list_history` takes its own request model `PaymentHistoryRequest`
+  (`limit`, `offset`, `status`) instead of the shared `HistoryRequest`; `HistoryRequest` now serves
+  `payouts.list_history` only. The payment feed never honoured `kind`/`include_refunds`, so the new
+  model drops them, and `status` filters by the payment status vocabulary. Migration: pass only
+  `limit`, `offset` and `status` to `payments.list_history`; use `PaymentHistoryRequest` where you
+  built a typed request.
+- Method docs: the payout calculation lists `payout.unsupported_network` for an unknown network;
+  lookup, test-webhook (`ok` / `status_code`) and refund amount fields are described more precisely.
+  The webhook signing constants already carry the event-id and delivery-id header names that the
+  contract now names as `event_id_header` / `delivery_id_header`.
+
 ## [2.0.0] — 2026-09-25
 
 Generated from the gateway's OpenAPI contract by the backend's `tools/sdkgen`. Breaking: every

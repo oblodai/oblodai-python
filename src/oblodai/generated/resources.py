@@ -77,6 +77,7 @@ from .models import (
     PaymentBatchRequest,
     PaymentDiscountRule,
     PaymentFeeResult,
+    PaymentHistoryRequest,
     PaymentInfoResult,
     PaymentLinkCreateRequest,
     PaymentLinkDetail,
@@ -394,11 +395,9 @@ class Payments(Resource):
 
     def list_history(
         self,
-        params: Optional[Union[HistoryRequest, Mapping[str, Any]]] = None,
+        params: Optional[Union[PaymentHistoryRequest, Mapping[str, Any]]] = None,
         /,
         *,
-        include_refunds: Union[bool, Unset] = UNSET,
-        kind: Union[PayoutKind, str, Unset] = UNSET,
         limit: Union[int, Unset] = UNSET,
         offset: Union[int, Unset] = UNSET,
         status: Union[str, Unset] = UNSET,
@@ -427,8 +426,6 @@ class Payments(Resource):
         """
         body = merge_params(
             params,
-            include_refunds=include_refunds,
-            kind=kind,
             limit=limit,
             offset=offset,
             status=status,
