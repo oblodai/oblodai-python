@@ -614,6 +614,11 @@ class PayoutStatus(str, Enum):
     SENT = "sent"
 
 
+class RefundCommissionBearer(str, Enum):
+    CUSTOMER = "customer"
+    MERCHANT = "merchant"
+
+
 class RefundRollup(str, Enum):
     NONE = "none"
     PARTIAL = "partial"

@@ -48,6 +48,7 @@ from .enums import (
     PayoutLinkStatus,
     PayoutSource,
     PayoutStatus,
+    RefundCommissionBearer,
     RefundRollup,
     Role,
     SoFStatus,
@@ -6261,6 +6262,7 @@ class PayoutValidateRequest(Model):
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class PayoutValidateResult(Model):
     _REQUIRED: ClassVar[Tuple[str, ...]] = (
+        "address",
         "amount",
         "commission",
         "currency",
@@ -6271,17 +6273,21 @@ class PayoutValidateResult(Model):
         "valid",
     )
     _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "address",
         "amount",
         "commission",
         "currency",
         "fee_bearer",
+        "from_amount",
         "funded_by",
         "maturity_note",
         "network",
         "payer_amount",
+        "rate",
         "valid",
     )
 
+    address: str
     amount: Decimal
     commission: Decimal
     currency: str
@@ -6290,12 +6296,15 @@ class PayoutValidateResult(Model):
     network: str
     payer_amount: Decimal
     valid: bool
+    from_amount: Optional[Decimal] = None
     funded_by: Optional[str] = None
+    rate: Optional[Decimal] = None
     extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> PayoutValidateResult:
         return cls(
+            address=str(data["address"]),
             amount=_decimal(data["amount"]),
             commission=_decimal(data["commission"]),
             currency=str(data["currency"]),
@@ -6304,12 +6313,15 @@ class PayoutValidateResult(Model):
             network=str(data["network"]),
             payer_amount=_decimal(data["payer_amount"]),
             valid=bool(data["valid"]),
+            from_amount=_opt(_decimal, data.get("from_amount")),
             funded_by=_opt(str, data.get("funded_by")),
+            rate=_opt(_decimal, data.get("rate")),
             extra=_extra(data, cls._FIELDS),
         )
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(self.extra)
+        out["address"] = _dump(self.address)
         out["amount"] = _dump(self.amount)
         out["commission"] = _dump(self.commission)
         out["currency"] = _dump(self.currency)
@@ -6318,8 +6330,12 @@ class PayoutValidateResult(Model):
         out["network"] = _dump(self.network)
         out["payer_amount"] = _dump(self.payer_amount)
         out["valid"] = _dump(self.valid)
+        if self.from_amount is not None:
+            out["from_amount"] = _dump(self.from_amount)
         if self.funded_by is not None:
             out["funded_by"] = _dump(self.funded_by)
+        if self.rate is not None:
+            out["rate"] = _dump(self.rate)
         return out
 
 
@@ -7218,6 +7234,118 @@ class RefundBatchRequest(Model):
         out["refunds"] = _dump(self.refunds)
         if self.on_error is not None:
             out["on_error"] = _dump(self.on_error)
+        return out
+
+
+@dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
+class RefundCalculation(Model):
+    _REQUIRED: ClassVar[Tuple[str, ...]] = (
+        "address",
+        "address_is_payer",
+        "amount",
+        "amount_paid",
+        "commission",
+        "commission_bearer",
+        "credited",
+        "currency",
+        "network",
+        "order_id",
+        "refundable",
+        "refunded",
+        "remaining",
+        "surcharge",
+        "uuid",
+    )
+    _FIELDS: ClassVar[Tuple[str, ...]] = (
+        "address",
+        "address_is_payer",
+        "amount",
+        "amount_paid",
+        "commission",
+        "commission_bearer",
+        "credited",
+        "currency",
+        "from_amount",
+        "funded_by",
+        "network",
+        "order_id",
+        "rate",
+        "refundable",
+        "refunded",
+        "remaining",
+        "surcharge",
+        "uuid",
+    )
+
+    address: str
+    address_is_payer: bool
+    amount: Decimal
+    amount_paid: Decimal
+    commission: Decimal
+    commission_bearer: Union[RefundCommissionBearer, str]
+    currency: str
+    network: str
+    refundable: Decimal
+    refunded: Decimal
+    remaining: Decimal
+    surcharge: Decimal
+    uuid: str
+    credited: Optional[Decimal] = None
+    from_amount: Optional[Decimal] = None
+    funded_by: Optional[str] = None
+    order_id: Optional[str] = None
+    rate: Optional[Decimal] = None
+    extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RefundCalculation:
+        return cls(
+            address=str(data["address"]),
+            address_is_payer=bool(data["address_is_payer"]),
+            amount=_decimal(data["amount"]),
+            amount_paid=_decimal(data["amount_paid"]),
+            commission=_decimal(data["commission"]),
+            commission_bearer=_enum_of(RefundCommissionBearer)(data["commission_bearer"]),
+            currency=str(data["currency"]),
+            network=str(data["network"]),
+            refundable=_decimal(data["refundable"]),
+            refunded=_decimal(data["refunded"]),
+            remaining=_decimal(data["remaining"]),
+            surcharge=_decimal(data["surcharge"]),
+            uuid=str(data["uuid"]),
+            credited=_opt(_decimal, data.get("credited")),
+            from_amount=_opt(_decimal, data.get("from_amount")),
+            funded_by=_opt(str, data.get("funded_by")),
+            order_id=_opt(str, data.get("order_id")),
+            rate=_opt(_decimal, data.get("rate")),
+            extra=_extra(data, cls._FIELDS),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self.extra)
+        out["address"] = _dump(self.address)
+        out["address_is_payer"] = _dump(self.address_is_payer)
+        out["amount"] = _dump(self.amount)
+        out["amount_paid"] = _dump(self.amount_paid)
+        out["commission"] = _dump(self.commission)
+        out["commission_bearer"] = _dump(self.commission_bearer)
+        out["currency"] = _dump(self.currency)
+        out["network"] = _dump(self.network)
+        out["refundable"] = _dump(self.refundable)
+        out["refunded"] = _dump(self.refunded)
+        out["remaining"] = _dump(self.remaining)
+        out["surcharge"] = _dump(self.surcharge)
+        out["uuid"] = _dump(self.uuid)
+        if self.credited is not None:
+            out["credited"] = _dump(self.credited)
+        if self.from_amount is not None:
+            out["from_amount"] = _dump(self.from_amount)
+        if self.funded_by is not None:
+            out["funded_by"] = _dump(self.funded_by)
+        if self.order_id is not None:
+            out["order_id"] = _dump(self.order_id)
+        if self.rate is not None:
+            out["rate"] = _dump(self.rate)
         return out
 
 

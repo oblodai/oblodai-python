@@ -16,9 +16,19 @@ All notable changes to this package are documented here. The format follows
 - Every method's documentation names the minimum team role a CLI key needs to call it;
   money-out operations (payouts, refunds, transfers, auto-withdrawal, split rules) take only the
   store owner's own CLI key.
+- `client.refunds.calculate` (sync and async, POST /v1/payment/refund/calculate): dry-run a
+  refund and get back a `RefundCalculation` — `amount`, `currency`, `network`, `address`,
+  `amount_paid`, `surcharge`, `commission`/`commission_bearer`, `credited`, `refundable`,
+  `refunded`, `remaining`, and, with `from_currency` set, the estimated `from_amount`. Runs the
+  same checks as `refunds.payment` and reserves/sends nothing.
 
 ### Changed
 
+- `PayoutValidateResult` (`payouts.validate`) gains `address` (the destination), and, for a
+  `from_currency` payout, `from_amount` and `rate` alongside the existing `funded_by`.
+- `PayoutRequest.memo` / `PayoutValidateRequest.memo` docs are now network-specific: the XRP
+  destination tag, the Stellar memo id, a TON comment (at most 64 bytes), and at most 120 bytes on
+  every other network.
 - **Breaking:** `payments.list_history` takes its own request model `PaymentHistoryRequest`
   (`limit`, `offset`, `status`) instead of the shared `HistoryRequest`; `HistoryRequest` now serves
   `payouts.list_history` only. The payment feed never honoured `kind`/`include_refunds`, so the new

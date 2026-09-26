@@ -62,6 +62,7 @@ ADDED_SINCE_RECORDING: Dict[str, str] = {
     "POST /v1/payment/cancel": "fee_percent",
     "POST /v1/payment/history": "fee_percent",
     "POST /v1/payment/info": "fee_percent",
+    "POST /v1/payout/validate": "address",  # 2026-09-26
     "POST /v1/sandbox/reset": "payout_links_cancelled",  # 2026-09-24
     "POST /v1/webhooks/deliveries": "cancel_reason",  # 2026-09-24
 }

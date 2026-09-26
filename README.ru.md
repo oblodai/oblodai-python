@@ -214,13 +214,13 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 метода — в `oblodai.ROUTES[operation_id]`.
 
 <!-- sdkgen:methods -->
-17 ресурсов, 123 метода.
+17 ресурсов, 124 метода.
 
 | Ресурс | Методы |
 | --- | --- |
 | `payments` | `create` · `get_info` · `get_qr` · `list_history` · `list_services` · `cancel` · `send_email` · `set_checkout_config` · `get_checkout_config` · `get_aml_links` · `resolve` |
 | `payment_links` | `create` · `list` · `get` · `toggle` |
-| `refunds` | `payment` · `blocked_wallet` |
+| `refunds` | `payment` · `calculate` · `blocked_wallet` |
 | `payouts` | `create` · `create_mass` · `get_info` · `list_history` · `calculate` · `validate` · `cancel` · `approve` · `list_services` · `transfer_to_personal` · `transfer_to_user` · `create_transfer_batch` |
 | `payout_links` | `create` · `create_batch` · `list` · `get` · `cancel` · `get_payout_claim` · `claim_payout` |
 | `batches` | `create_payment` · `create_refund` · `create_payout` · `get_info` |
