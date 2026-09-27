@@ -218,6 +218,16 @@ def test_webhook(check: Dict[str, Any], vector: Dict[str, Any], signing: Dict[st
     assert caught.value.code == "webhook." + check["expect"]
 
 
+#: The suite's field names -> this SDK's: headers the webhook MAC does not cover are exposed only
+#: under an `unverified_` name.
+_UNVERIFIED_FIELDS = {
+    "id": "unverified_delivery_id",
+    "event_id": "unverified_event_id",
+    "event_type": "unverified_event_type",
+    "event_time": "unverified_event_time",
+}
+
+
 def _delivery_cases() -> List[Any]:
     suite = _suite("webhook_delivery")
     _, deliveries = _source(suite)
@@ -249,7 +259,11 @@ def test_webhook_delivery(
     if rehearsal:
         headers[_test_header(_suite("webhook_delivery"))] = "true"
     info = webhooks.verify_delivery(delivery["payload"], headers, secret=secret, now=delivery["ts"])
-    assert info.is_test is rehearsal
+    # The suite marks a rehearsal with the test HEADER, which the MAC does not cover: this SDK
+    # reports it as `unverified_test_header` and takes `is_test` from the signed body alone
+    # (whose `test` flag these deliveries do not set).
+    assert info.unverified_test_header is rehearsal
+    assert info.is_test is (info.event.get("test") is True)
     assert webhooks.is_known_event(info.event)
     assert info.event["type"] == delivery["kind"]
     model = webhooks.to_model(info.event)
@@ -257,7 +271,8 @@ def test_webhook_delivery(
     for header, field in fields.items():
         if not field:
             continue
-        value = getattr(info, field)
+        # Every header but the (signed) timestamp is exposed under its explicitly unverified name.
+        value = getattr(info, _UNVERIFIED_FIELDS.get(field, field))
         want = delivery["headers"][header]
         assert value == (int(want) if isinstance(value, int) else want), f"{field} != {header}"
 

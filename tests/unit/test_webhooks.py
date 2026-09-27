@@ -40,13 +40,16 @@ def test_verifies_every_recorded_delivery(index: int) -> None:
 
     delivery = webhooks.verify_delivery(raw, sample["headers"], secret=SECRET, now=ts)
     assert delivery.event["uuid"] == sample["body"]["uuid"]
-    assert delivery.id == sample["headers"][HEADER_WEBHOOK_ID]
-    assert delivery.event_type == sample["headers"][HEADER_WEBHOOK_EVENT]
+    assert delivery.unverified_delivery_id == sample["headers"][HEADER_WEBHOOK_ID]
+    assert delivery.unverified_event_type == sample["headers"][HEADER_WEBHOOK_EVENT]
     assert delivery.event["type"] == sample["body"]["type"]
     assert isinstance(delivery.event["sequence"], int)
+    assert delivery.event_key == (
+        f"{sample['body']['type']}:{sample['body']['uuid']}:{sample['body']['sequence']}"
+    )
     # Rehearsal deliveries (`webhooks.test`, sandbox) are signed like live ones and say so.
     assert delivery.is_test is (sample["body"].get("test") is True)
-    assert delivery.is_test is (sample["headers"].get(HEADER_WEBHOOK_TEST) == "true")
+    assert delivery.unverified_test_header is (sample["headers"].get(HEADER_WEBHOOK_TEST) == "true")
     assert webhooks.is_test_event(delivery.event) is delivery.is_test
     # The generated tables know every event the core really sends, and its model parses the body.
     kind = webhooks.WEBHOOK_EVENTS[sample["headers"][HEADER_WEBHOOK_EVENT]]
@@ -122,15 +125,28 @@ def test_verifies_during_a_rotation_via_the_prev_header_or_previous_secret() -> 
     )
 
 
-def test_flags_a_rehearsal_delivery_from_the_header_alone() -> None:
-    """The core sets the rehearsal header next to the body flag; either one marks the delivery."""
+def test_the_unsigned_test_header_never_makes_a_delivery_a_rehearsal() -> None:
+    """Only the signed body says `test: true`. The header is not under the MAC: trusting it let
+    anyone replaying a genuine `invoice.paid` with `X-Webhook-Test: true` make the receiver skip
+    a real payment."""
     plain = webhooks.verify_delivery(BODY, headers(), secret="whsec", now=TS)
     assert plain.is_test is False
     flagged = webhooks.verify_delivery(
         BODY, headers(**{HEADER_WEBHOOK_TEST.lower(): "true"}), secret="whsec", now=TS
     )
-    assert flagged.is_test is True
-    assert webhooks.is_test_event(flagged.event) is False  # the body itself said nothing
+    assert flagged.is_test is False
+    assert flagged.unverified_test_header is True
+    rehearsal_body = json.dumps({**json.loads(BODY), "test": True})
+    rehearsal = webhooks.verify_delivery(
+        rehearsal_body,
+        {
+            HEADER_WEBHOOK_TIMESTAMP: str(TS),
+            HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec", TS, rehearsal_body),
+        },
+        secret="whsec",
+        now=TS,
+    )
+    assert rehearsal.is_test is True
 
 
 def test_parses_the_union_and_detects_stale_sequences() -> None:
@@ -300,60 +316,61 @@ def test_is_known_event_narrows_without_dropping_anything() -> None:
         assert webhooks.is_known_event({"type": kind}) is True
 
 
-def test_resend_is_deduplicated_by_the_event_id_not_the_delivery_id() -> None:
-    """A resend is a new DELIVERY of a state the receiver may already have handled.
-
-    `POST /v1/payment/resend` queues a fresh delivery with a new `X-Webhook-Id` and a deliberately
-    HIGHER `sequence` — deliberately, because a lower number may be discarded as a straggler and a
-    resend has to be able to correct a reorg reversal. So neither of the two rules this SDK used to
-    teach (dedupe by id, skip by sequence) drops it, and a fulfilment that was not idempotent by
-    (uuid, status) shipped the goods twice. `X-Webhook-Event-Id` is the key that answers it.
-    """
+def test_a_replay_with_forged_headers_keeps_the_signed_dedupe_key() -> None:
+    """The event-id, delivery-id and event headers are not signed. A captured `invoice.paid`
+    resent with a fresh `X-Webhook-Event-Id` still verifies - and must still dedupe, so the key
+    comes from the signed body (type, object id, sequence), never from those headers."""
     body = {"type": "payment", "uuid": "inv-1", "status": "paid", "sequence": 7}
     ts = 1_800_000_000
-    raw_first = json.dumps(body)
-    raw_resend = json.dumps({**body, "sequence": 42})
+    raw = json.dumps(body)
 
-    def headers(raw: str, delivery_id: str, event_id: str) -> Dict[str, Any]:
+    def headers(delivery_id: str, event_id: str, event: str) -> Dict[str, Any]:
         return {
             HEADER_WEBHOOK_TIMESTAMP: str(ts),
             HEADER_WEBHOOK_SIGNATURE: sign_webhook(SECRET, ts, raw.encode()),
-            HEADER_WEBHOOK_EVENT: "invoice.paid",
+            HEADER_WEBHOOK_EVENT: event,
             HEADER_WEBHOOK_ID: delivery_id,
             HEADER_WEBHOOK_EVENT_ID: event_id,
         }
 
-    state = "5d9f1c0e-0000-5000-8000-000000000001"
-    first = webhooks.verify_delivery(
-        raw_first, headers(raw_first, "d-1", state), secret=SECRET, now=ts
+    genuine = webhooks.verify_delivery(
+        raw, headers("d-1", "state-1", "invoice.paid"), secret=SECRET, now=ts
     )
-    resend = webhooks.verify_delivery(
-        raw_resend, headers(raw_resend, "d-2", state), secret=SECRET, now=ts
+    replay = webhooks.verify_delivery(
+        raw, headers("attacker-2", "attacker-chosen", "invoice.cancelled"), secret=SECRET, now=ts
     )
+    assert genuine.unverified_event_id != replay.unverified_event_id
+    assert replay.unverified_event_type == "invoice.cancelled"
+    assert genuine.event_key == replay.event_key == "payment:inv-1:7"
+    assert webhooks.event_key(replay.event) == "payment:inv-1:7"
+    assert not hasattr(replay, "event_id") and not hasattr(replay, "id")
 
-    assert first.id != resend.id, "a resend is a different delivery"
-    assert not webhooks.is_stale(resend.event, last_processed_sequence=7), "a resend is never stale"
-    assert first.event_id == resend.event_id == state, "the state id is what repeats"
+
+def test_a_resend_has_a_new_key_and_is_never_stale() -> None:
+    """A resend (`POST /v1/payment/resend`) carries a deliberately HIGHER sequence, so it is a new
+    key and not stale: the action itself must be idempotent per object and status."""
+    body = {"type": "payment", "uuid": "inv-1", "status": "paid", "sequence": 7}
+    resend = {**body, "sequence": 42}
+    assert webhooks.event_key(body) != webhooks.event_key(resend)
+    assert not webhooks.is_stale(resend, last_processed_sequence=7)
 
 
-def test_event_id_is_absent_on_an_older_core() -> None:
-    """A core that predates the header must not make the field lie: it is None, and the receiver
-    falls back to (uuid, status) idempotency."""
-    body = {"type": "payment", "uuid": "inv-2", "status": "paid", "sequence": 1}
-    ts = 1_800_000_000
-    raw = json.dumps(body)
-    delivery = webhooks.verify_delivery(
-        raw,
-        {
-            HEADER_WEBHOOK_TIMESTAMP: str(ts),
-            HEADER_WEBHOOK_SIGNATURE: sign_webhook(SECRET, ts, raw.encode()),
-            HEADER_WEBHOOK_EVENT: "invoice.paid",
-            HEADER_WEBHOOK_ID: "d-9",
-        },
-        secret=SECRET,
-        now=ts,
-    )
-    assert delivery.event_id is None
+def test_event_key_is_none_without_an_object_id_or_sequence() -> None:
+    assert webhooks.event_key({"type": "alien", "uuid": "x", "sequence": 3}) is None
+    assert webhooks.event_key({"type": "payment", "uuid": "x"}) is None
+    assert webhooks.event_key({"type": "payment", "uuid": "x", "sequence": True}) is None
+    assert webhooks.event_key({"type": "conversion", "id": "c", "sequence": 2}) == "conversion:c:2"
+
+
+def test_a_huge_timestamp_header_is_a_signature_error() -> None:
+    """`int()` of a 4300+ digit string raises a bare ValueError: it must be a SignatureError."""
+    for ts_raw in ("9" * 5000, "1755600000\n", "１２３"):
+        with pytest.raises(SignatureError):
+            webhooks.verify(
+                BODY,
+                {HEADER_WEBHOOK_TIMESTAMP: ts_raw, HEADER_WEBHOOK_SIGNATURE: "ab"},
+                secret="whsec",
+            )
 
 
 def test_conversion_events_are_known_and_parse_to_their_model() -> None:

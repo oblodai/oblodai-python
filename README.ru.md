@@ -204,8 +204,8 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 
 Повторите `sandbox.simulate_deposit` с тем же `txid`, чтобы добавить подтверждений. Тестовые
 доставки — из `webhooks.send_test_payment` (и соседних `payout`/`wallet`/`conversion`) и из песочницы — подписаны ровно так же, как боевые, и несут `test: true` в
-теле (а также заголовок `X-Webhook-Test: true`): проверяйте `delivery.is_test` (или
-`webhooks.is_test_event(event)`) и никогда не считайте такую доставку движением денег.
+подписанном теле: проверяйте `delivery.is_test` (или `webhooks.is_test_event(event)`) и никогда не
+считайте такую доставку движением денег. Заголовок `X-Webhook-Test` не подписан и не в счёт.
 [`examples/sandbox.py`](examples/sandbox.py) проходит весь денежный путь примерно за секунду.
 
 ## Обзор методов
@@ -288,12 +288,14 @@ endpoint_secret = endpoint.secret  # store it; it is not shown again
 Проверяйте каждую доставку по **сырым байтам запроса**, а не по повторно сериализованному разбору:
 
 ```python
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Set
 
 from oblodai import SignatureError, WebhookPayloadError, webhooks
 
 
-def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int]) -> int:
+def receive(
+    raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int], handled: Set[str]
+) -> int:
     """The HTTP status to answer one delivery with."""
     try:
         delivery = webhooks.verify_delivery(raw_body, headers, secret=endpoint_secret)
@@ -302,6 +304,10 @@ def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional
     except WebhookPayloadError:
         return 400  # authentic, but this receiver cannot read it
     event = delivery.event  # {"type": "payment"|"payout"|"wallet"|"conversion", ...}
+    if delivery.is_test:
+        return 200  # a rehearsal (`test: true` in the signed body): never act on it
+    if delivery.event_key in handled:
+        return 200  # a retry or a replay of a delivery already processed
     if webhooks.is_stale(event, last_sequence):
         return 200  # a retry that arrived after a newer state
     if webhooks.is_known_event(event) and event["type"] == "payment":
@@ -321,11 +327,16 @@ def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional
 Подпись проверяется раньше окна свежести, поэтому поддельная доставка никогда не узнает, какое время
 считает текущим ваш эндпоинт.
 
-Дедуплицируйте по `delivery.event_id` (`X-Webhook-Event-Id`): он называет состояние и одинаков у
-всех повторов и переотправок. `delivery.id` (`X-Webhook-Id`) называет одну доставку и меняется при
-переотправке (`webhooks.resend_payment`, повтор в песочнице) — с ним ключом переотправленный
-`invoice.paid` обработается дважды. Тестовые доставки несут
-`delivery.is_test`. Во время ротации секрета (`webhooks.rotate_secret`) передавайте
+Подписаны только `<timestamp>.<сырое тело>`. Заголовки id доставки, id события, события, времени
+события и теста **не** подписаны: тот, кто перехватил одну настоящую доставку, может в окне свежести
+отправить её снова с другими значениями в них. Поэтому решайте только по подписанному телу.
+Дедуплицируйте по `delivery.event_key` (`webhooks.event_key(event)`: `"<type>:<id объекта>:<sequence>"`,
+всё из подписанного тела); всегда игнорируйте доставки с `delivery.is_test` (`test: true` в
+подписанном теле — заголовок не в счёт). Переотправка (`webhooks.resend_payment`, повтор в
+песочнице) несёт новый, больший `sequence` и потому новый ключ: сделайте само действие идемпотентным по
+объекту и статусу, иначе переотправленный `invoice.paid` отгрузит товар дважды. Значения заголовков
+доступны как `delivery.unverified_*` — только для логов.
+Во время ротации секрета (`webhooks.rotate_secret`) передавайте
 `previous_secret=` не меньше 26 часов: доставки, поставленные в очередь до ротации, всю свою жизнь
 повторов остаются подписанными старым секретом. `tolerance_sec` (по умолчанию 300) ограничивает,
 насколько несвежей может быть доставка.

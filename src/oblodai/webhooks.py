@@ -11,13 +11,26 @@ Deliveries carry these headers (the names are the contract's, from ``x-oblodai-s
     HEADER_WEBHOOK_EVENT: an event name of the contract (invoice.paid, conversion.completed, ...;
         all of them in WEBHOOK_EVENTS)
     HEADER_WEBHOOK_ID: stable per delivery (identical across retries of THAT delivery)
-    HEADER_WEBHOOK_EVENT_ID: stable per STATE - the same for a resend of a state you already
-        handled, and different as soon as the state differs. This is the idempotency key to keep.
-    HEADER_WEBHOOK_EVENT_TIME: unix seconds when the state change committed (order events by it)
-    HEADER_WEBHOOK_TEST: "true" on a rehearsal delivery (`webhooks.test`, sandbox) - the body
-        carries `test: true` as well; never act on one as if money moved
+    HEADER_WEBHOOK_EVENT_ID: stable per state of the object
+    HEADER_WEBHOOK_EVENT_TIME: unix seconds when the state change committed
+    HEADER_WEBHOOK_TEST: "true" on a rehearsal delivery (`webhooks.test`, sandbox)
 
 Always verify over the RAW request bytes; a re-serialized parse will not match.
+
+Only ``<ts>.<raw body>`` is signed. The event, id, event-id, event-time and test HEADERS are
+not: anyone who captured one genuine delivery can resend it within the freshness window with other
+values in them. So every decision is taken from the signed body alone:
+
+* deduplicate on :func:`event_key` (``WebhookDeliveryInfo.event_key``) - ``type``, the object's
+  id and ``sequence``, all read from the signed body;
+* a rehearsal is ``test: true`` in the signed body (:func:`is_test_event`,
+  ``WebhookDeliveryInfo.is_test``); ALWAYS ignore those deliveries;
+* a resend of a state carries a new, higher ``sequence``, so it has a new key: make the action
+  itself idempotent per object and status (ship an invoice once, whatever the number of
+  ``paid`` deliveries).
+
+The header values stay readable as ``WebhookDeliveryInfo.unverified_*`` for logs and support
+tickets only.
 
 The MAC is checked BEFORE the freshness window, so an unauthenticated caller cannot use the
 timestamp error as an oracle for what this endpoint considers "now". A delivery whose signature
@@ -76,6 +89,7 @@ __all__ = [
     "WebhookDeliveryInfo",
     "WebhookModel",
     "WebhookPayloadError",
+    "event_key",
     "is_known_event",
     "is_stale",
     "is_test_event",
@@ -103,36 +117,41 @@ WebhookEvent = Dict[str, Any]
 
 # ASCII digits only: `int("١٢٣")` succeeds on Arabic-Indic digits, and a header the core never
 # wrote must never be read as a number.
-_ASCII_INT = re.compile(r"^[0-9]+$")
+# `\A...\Z`, not `^...$`: `$` also matches before a trailing newline. At most 19 digits: a
+# longer header is no unix time, and `int()` of a 4300+ digit string raises a bare ValueError.
+_ASCII_INT = re.compile(r"\A[0-9]{1,19}\Z")
 # Lowercase or uppercase hex, no `0x` prefix (which would silently fail the constant-time compare).
-_HEX = re.compile(r"^[0-9a-fA-F]+$")
+_HEX = re.compile(r"\A[0-9a-fA-F]+\Z")
 
 
 @dataclass(frozen=True)
 class WebhookDeliveryInfo:
-    """A verified delivery: the event plus the advisory headers worth keeping."""
+    """A verified delivery: the signed event, what is derived from it, and the unsigned headers.
+
+    Only :attr:`event` (the body) is covered by the signature, and so are :attr:`event_key` and
+    :attr:`is_test`, which are read from it. The ``unverified_*`` fields are copied from headers
+    the signature does NOT cover: log them, never decide anything on them.
+    """
 
     event: AnyWebhookEvent
-    #: :data:`HEADER_WEBHOOK_TIMESTAMP` - unix seconds when this attempt was sent.
+    #: :data:`HEADER_WEBHOOK_TIMESTAMP` - unix seconds when this attempt was sent (it is signed).
     sent_at: int
-    #: :data:`HEADER_WEBHOOK_ID` - stable across retries of the same DELIVERY. It is NOT enough to
-    #: deduplicate on: a resend (``POST /v1/payment/resend``) is a new delivery of the state you
-    #: may already have handled, and it carries a new id. Use :attr:`event_id`.
-    id: Optional[str] = None
-    #: :data:`HEADER_WEBHOOK_EVENT_ID` - the id of the STATE this delivery carries: identical for the
-    #: original, every retry of it and every resend of the same state, and different as soon as the
-    #: state differs (an invoice that goes back to ``paid`` after a reorg, with another txid, is a
-    #: new event and must be processed). Keep the ids you have handled and skip repeats of them.
-    #: ``None`` from a core older than 2026-09-20; fall back to (uuid, status) idempotency then.
-    event_id: Optional[str] = None
-    #: :data:`HEADER_WEBHOOK_EVENT` - the event name (``invoice.paid``, ``conversion.completed``, ...;
-    #: :data:`WEBHOOK_EVENTS` maps each to its kind).
-    event_type: Optional[str] = None
-    #: :data:`HEADER_WEBHOOK_EVENT_TIME` - unix seconds when the state change committed.
-    event_time: Optional[int] = None
-    #: A rehearsal delivery (:data:`HEADER_WEBHOOK_TEST` ``true`` / body ``test: true``): signed like a live
-    #: one, but no money moved.
+    #: The deduplication key, from the signed body: ``"<type>:<object id>:<sequence>"``
+    #: (:func:`event_key`). Keep the keys you have handled and skip repeats. ``None`` when the body
+    #: lacks the object id or the ``sequence`` (an event kind newer than this SDK): process it.
+    event_key: Optional[str] = None
+    #: A rehearsal delivery (``test: true`` in the signed body): no money moved; ignore it.
     is_test: bool = False
+    #: :data:`HEADER_WEBHOOK_ID` - NOT signed; for logs and support only.
+    unverified_delivery_id: Optional[str] = None
+    #: :data:`HEADER_WEBHOOK_EVENT_ID` - NOT signed; for logs and support only.
+    unverified_event_id: Optional[str] = None
+    #: :data:`HEADER_WEBHOOK_EVENT` - NOT signed; switch on ``event["type"]`` and ``status``.
+    unverified_event_type: Optional[str] = None
+    #: :data:`HEADER_WEBHOOK_EVENT_TIME` - NOT signed; the body's ``event_at`` is.
+    unverified_event_time: Optional[int] = None
+    #: :data:`HEADER_WEBHOOK_TEST` ``"true"`` - NOT signed, so it never makes :attr:`is_test`.
+    unverified_test_header: bool = False
 
 
 def verify(
@@ -167,7 +186,7 @@ def verify_delivery(
     tolerance_sec: int = SKEW_SECONDS,
     now: Optional[int] = None,
 ) -> WebhookDeliveryInfo:
-    """Like :func:`verify`, and also returns the delivery id, event type and times.
+    """Like :func:`verify`, and also returns the dedupe key, the test flag and the headers.
 
     ``previous_secret`` keeps deliveries queued before a rotation verifiable: they stay signed with
     the outgoing secret for their whole retry life (~26 h), so keep it that long after rotating.
@@ -225,11 +244,13 @@ def verify_delivery(
     return WebhookDeliveryInfo(
         event=event,
         sent_at=ts,
-        id=header_value(headers, HEADER_WEBHOOK_ID),
-        event_id=header_value(headers, HEADER_WEBHOOK_EVENT_ID),
-        event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
-        event_time=_ascii_int(header_value(headers, HEADER_WEBHOOK_EVENT_TIME)),
-        is_test=header_value(headers, HEADER_WEBHOOK_TEST) == "true" or is_test_event(event),
+        event_key=event_key(event),
+        is_test=is_test_event(event),
+        unverified_delivery_id=header_value(headers, HEADER_WEBHOOK_ID),
+        unverified_event_id=header_value(headers, HEADER_WEBHOOK_EVENT_ID),
+        unverified_event_type=header_value(headers, HEADER_WEBHOOK_EVENT),
+        unverified_event_time=_ascii_int(header_value(headers, HEADER_WEBHOOK_EVENT_TIME)),
+        unverified_test_header=header_value(headers, HEADER_WEBHOOK_TEST) == "true",
     )
 
 
@@ -275,6 +296,29 @@ def object_id(event: Mapping[str, Any]) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def event_key(event: Mapping[str, Any]) -> Optional[str]:
+    """The deduplication key of a verified event, built from its signed body only:
+    ``"<type>:<object id>:<sequence>"`` (``"payment:2f1c...:7"``).
+
+    A retry of a delivery, and a captured delivery replayed by someone else, carry the same body
+    and so the same key: keep the keys you handled and skip repeats. The delivery and event-id
+    headers are not signed and must never be the key.
+
+    ``None`` when the body has no object id (:func:`object_id`) or no integer ``sequence`` - an
+    event kind newer than this SDK: process such a delivery rather than drop it.
+    """
+    if not isinstance(event, Mapping):
+        return None
+    kind = event.get("type")
+    obj = object_id(event)
+    sequence = event.get("sequence")
+    if not isinstance(kind, str) or obj is None:
+        return None
+    if isinstance(sequence, bool) or not isinstance(sequence, int):
+        return None
+    return f"{kind}:{obj}:{sequence}"
+
+
 def is_known_event(event: Mapping[str, Any]) -> TypeGuard[WebhookEvent]:
     """Is this one of the event kinds this snapshot of the contract declares?
 
@@ -315,7 +359,8 @@ def is_test_event(event: Mapping[str, Any]) -> bool:
     """True for rehearsal deliveries (``webhooks.test``, sandbox).
 
     They are signed exactly like live ones, so a handler must check this and never act on a test
-    event as if money moved.
+    event as if money moved. Only the signed body decides: the :data:`HEADER_WEBHOOK_TEST` header is not
+    signed.
     """
     if not isinstance(event, Mapping):
         return False
@@ -330,11 +375,10 @@ def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -
     field was missing would lose money, so the safe answer is to process it - and this never
     raises.
 
-    This is ORDERING, not deduplication, and the two used to be confused here. A resend carries a
+    This is ORDERING, not deduplication (that is :func:`event_key`). A resend carries a
     deliberately HIGHER sequence (a lower one could be discarded as a straggler, and a resend has
-    to be able to correct a reorg reversal), so it is never stale and never a duplicate by
-    :data:`HEADER_WEBHOOK_ID` either. Deduplicate on :attr:`WebhookDeliveryInfo.event_id`; a handler that
-    relied on these two alone shipped a resent ``invoice.paid`` twice.
+    to be able to correct a reorg reversal), so it is never stale and has a new key: make the
+    action itself idempotent per object and status, or a resent ``invoice.paid`` ships twice.
     """
     if last_processed_sequence is None:
         return False

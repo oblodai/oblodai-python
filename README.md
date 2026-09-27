@@ -203,8 +203,8 @@ oblodai.sandbox.reset()  # cancel open invoices, zero the balances
 Repeat `sandbox.simulate_deposit` with the same `txid` to add confirmations. Rehearsal deliveries
 — from `webhooks.send_test_payment` (and its `payout`/`wallet`/`conversion` siblings) and from the
 sandbox — are signed exactly like live ones and carry
-`test: true` in the body (and `X-Webhook-Test: true`): check `delivery.is_test` (or
-`webhooks.is_test_event(event)`) and never act on one as if money moved.
+`test: true` in the signed body: check `delivery.is_test` (or `webhooks.is_test_event(event)`) and
+never act on one as if money moved. The `X-Webhook-Test` header is not signed and does not count.
 [`examples/sandbox.py`](examples/sandbox.py) walks the whole money path in about a second.
 
 ## Method overview
@@ -286,12 +286,14 @@ endpoint_secret = endpoint.secret  # store it; it is not shown again
 Verify every delivery over the **raw request bytes**, never a re-serialised parse:
 
 ```python
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Set
 
 from oblodai import SignatureError, WebhookPayloadError, webhooks
 
 
-def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int]) -> int:
+def receive(
+    raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional[int], handled: Set[str]
+) -> int:
     """The HTTP status to answer one delivery with."""
     try:
         delivery = webhooks.verify_delivery(raw_body, headers, secret=endpoint_secret)
@@ -300,6 +302,10 @@ def receive(raw_body: bytes, headers: Mapping[str, str], last_sequence: Optional
     except WebhookPayloadError:
         return 400  # authentic, but this receiver cannot read it
     event = delivery.event  # {"type": "payment"|"payout"|"wallet"|"conversion", ...}
+    if delivery.is_test:
+        return 200  # a rehearsal (`test: true` in the signed body): never act on it
+    if delivery.event_key in handled:
+        return 200  # a retry or a replay of a delivery already processed
     if webhooks.is_stale(event, last_sequence):
         return 200  # a retry that arrived after a newer state
     if webhooks.is_known_event(event) and event["type"] == "payment":
@@ -319,11 +325,15 @@ authentic one whose body this receiver cannot read (`webhook.bad_payload`; answe
 retry will fix it). The signature is checked before the freshness window, so a forged delivery never
 learns what time this endpoint thinks it is.
 
-Deduplicate on `delivery.event_id` (`X-Webhook-Event-Id`): it names the state and is the same for
-every retry and every resend of it. `delivery.id` (`X-Webhook-Id`) names one delivery and changes on
-a resend (`webhooks.resend_payment`, a sandbox replay) — keyed on it, a resent `invoice.paid` is
-processed twice. Rehearsal deliveries carry
-`delivery.is_test`. During a secret rotation (`webhooks.rotate_secret`) pass `previous_secret=` for
+Only `<timestamp>.<raw body>` is signed. The delivery-id, event-id, event, event-time and test
+headers are **not**: anyone who captured one genuine delivery can resend it within the freshness
+window with other values in them. So decide on the signed body alone. Deduplicate on
+`delivery.event_key` (`webhooks.event_key(event)`: `"<type>:<object id>:<sequence>"`, all from the
+signed body); always ignore `delivery.is_test` deliveries (`test: true` in the signed body — the
+header does not count). A resend (`webhooks.resend_payment`, a sandbox replay) carries a new, higher
+`sequence` and so a new key: make the action itself idempotent per object and status, or a resent
+`invoice.paid` ships twice. The header values stay available as `delivery.unverified_*` for logs.
+During a secret rotation (`webhooks.rotate_secret`) pass `previous_secret=` for
 at least 26 h — deliveries queued before the rotation stay signed with the old secret for their
 whole retry life. `tolerance_sec` (default 300) bounds how stale a delivery may be.
 

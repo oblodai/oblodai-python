@@ -101,11 +101,13 @@ unusable (answer 400; retrying cannot fix it). An empty `secret` or a negative `
 kinds this snapshot declares (`webhooks.KNOWN_EVENT_KINDS`); `webhooks.to_model(event)` parses a
 known kind into its model (`None` for an unknown one).
 
-Verify over the **raw** bytes. `delivery.is_test` (also `webhooks.is_test_event(event)`) is true for
-rehearsal deliveries (`test: true` in the signed body, `X-Webhook-Test: true`) — never treat them as
-money. Deduplicate on `delivery.event_id` (`X-Webhook-Event-Id`, stable across retries and
-resends), not `delivery.id` (a resend gets a new one); drop out-of-order events with
-`webhooks.is_stale(event, last_sequence)`. During a rotation pass `previous_secret=` for at least
+Verify over the **raw** bytes. Only `<ts>.<raw body>` is signed; the delivery-id, event-id,
+event, event-time and test headers are not (exposed only as `delivery.unverified_*`). ALWAYS ignore
+`delivery.is_test` deliveries (also `webhooks.is_test_event(event)`: `test: true` in the signed
+body) — never treat them as money. Deduplicate on `delivery.event_key` (`"<type>:<object
+id>:<sequence>"` from the signed body), never on a header; drop out-of-order events with
+`webhooks.is_stale(event, last_sequence)`; a resend has a new sequence, so make the action
+idempotent per object and status. During a rotation pass `previous_secret=` for at least
 26 h.
 
 ## Machine-readable surface

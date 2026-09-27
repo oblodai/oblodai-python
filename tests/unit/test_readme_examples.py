@@ -133,5 +133,5 @@ def test_readme_blocks_run(document: str, monkeypatch: pytest.MonkeyPatch) -> No
         HEADER_WEBHOOK_TIMESTAMP: str(ts),
         HEADER_WEBHOOK_SIGNATURE: sign_webhook(secret, ts, body),
     }
-    assert receive(body, headers, None) == 200
-    assert receive(body + b" ", headers, None) == 401
+    assert receive(body, headers, None, set()) == 200
+    assert receive(body + b" ", headers, None, set()) == 401

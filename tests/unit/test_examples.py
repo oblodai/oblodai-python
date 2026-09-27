@@ -26,6 +26,7 @@ from oblodai.generated.signing import (
     HEADER_WEBHOOK_EVENT_ID,
     HEADER_WEBHOOK_ID,
     HEADER_WEBHOOK_SIGNATURE,
+    HEADER_WEBHOOK_TEST,
     HEADER_WEBHOOK_TIMESTAMP,
 )
 from tests.support.samples import sample
@@ -167,3 +168,29 @@ def test_webhook_receiver_processes_a_resent_state_once_and_reads_a_conversion(
     conversion = {"type": "conversion", "id": "c-1", "status": "completed", "sequence": 4}
     assert deliver(conversion, "d-3", "e-3") == 200
     assert "conversion:c-1 -> completed" in capsys.readouterr().out
+
+
+def test_webhook_receiver_ignores_forged_unsigned_headers(
+    gateway: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A captured delivery replayed with a new X-Webhook-Event-Id is still a duplicate, and an
+    unsigned X-Webhook-Test header cannot make a real payment look like a rehearsal."""
+    module = load(EXAMPLES / "webhook_receiver.py")
+    ts = int(time.time())
+    event = {"type": "payment", "uuid": "u-9", "status": "paid", "sequence": 5}
+    body = json.dumps(event).encode()
+    signed = {
+        HEADER_WEBHOOK_TIMESTAMP: str(ts),
+        HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec-example", ts, body),
+    }
+    assert _deliver(module, body, {**signed, HEADER_WEBHOOK_TEST: "true"}) == 200
+    assert capsys.readouterr().out.count("payment:u-9 -> paid") == 1
+    assert _deliver(module, body, {**signed, HEADER_WEBHOOK_EVENT_ID: "forged-1"}) == 200
+    assert "payment:u-9" not in capsys.readouterr().out
+    rehearsal = json.dumps({**event, "uuid": "u-10", "test": True}).encode()
+    headers = {
+        HEADER_WEBHOOK_TIMESTAMP: str(ts),
+        HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec-example", ts, rehearsal),
+    }
+    assert _deliver(module, rehearsal, headers) == 200
+    assert "u-10" not in capsys.readouterr().out

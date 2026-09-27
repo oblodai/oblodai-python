@@ -3,15 +3,17 @@
     OBLODAI_WEBHOOK_SECRET=whsec_... python examples/webhook_receiver.py
     # then point url_callback at http://<host>:8099/oblodai/webhook
 
-The four rules that matter, whichever framework you use:
+The rules that matter, whichever framework you use:
 
 1. Verify over the RAW request bytes. A re-serialized parse will not match the signature.
-2. Deduplicate on `delivery.event_id` (header `webhooks.HEADER_WEBHOOK_EVENT_ID`) - it is the same
-   for every retry AND every resend of a state; `delivery.id` changes on a resend.
-3. Drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`; a retried `paid`
-   can arrive after a newer state.
-4. Answer a rehearsal delivery (`delivery.is_test`) with 2xx, but never act on it as if money
-   moved - it is signed like a live one and nothing happened on chain.
+2. Decide on the SIGNED body only. The delivery id, event id, event and test headers are not
+   signed, so anyone who captured a delivery can resend it with other values in them.
+3. Always ignore a rehearsal delivery (`delivery.is_test`, from the body's `test: true`): answer
+   2xx, but never act on it as if money moved - it is signed like a live one.
+4. Deduplicate on `delivery.event_key` (type, object id and sequence from the signed body), and
+   drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`.
+5. A resend of a state carries a new, higher sequence: make the action itself idempotent per
+   object and status (below: `acted`), so a second `paid` never ships the goods twice.
 
 Answer 2xx quickly: the gateway retries anything else for about 26 hours.
 
@@ -24,7 +26,7 @@ from __future__ import annotations
 
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Dict, Mapping, Optional, Set
+from typing import Dict, Mapping, Optional, Set, Tuple
 
 from oblodai import SignatureError, WebhookPayloadError, webhooks
 
@@ -34,6 +36,8 @@ PREVIOUS_SECRET = os.environ.get("OBLODAI_WEBHOOK_SECRET_PREVIOUS")
 
 seen_events: Set[str] = set()
 last_sequence: Dict[str, int] = {}
+#: (object, status) pairs already acted on: a resend of `paid` must not ship twice.
+acted: Set[Tuple[str, object]] = set()
 
 
 def object_key(event: Mapping[str, object]) -> str:
@@ -41,11 +45,15 @@ def object_key(event: Mapping[str, object]) -> str:
     return f"{event['type']}:{webhooks.object_id(event)}"
 
 
-def handle(event: Dict[str, object], event_id: Optional[str]) -> None:
+def handle(event: Dict[str, object], key: Optional[str]) -> None:
     """Your business logic. Runs once per state, in order, for each object."""
     kind = event["type"]
     status = event["status"]
-    print(f"[{event_id}] {object_key(event)} -> {status}")
+    obj = object_key(event)
+    if (obj, status) in acted:
+        return  # a resend of a state already acted on
+    acted.add((obj, status))
+    print(f"[{key}] {obj} -> {status}")
     if kind == "payment" and status in ("paid", "paid_over"):
         ...  # release the goods
     elif kind == "payout" and status == "confirmed":
@@ -74,16 +82,16 @@ class Handler(BaseHTTPRequestHandler):
 
         event = delivery.event
         obj = object_key(event)
-        # A core that does not send the event id yet leaves the delivery id as the next best key.
-        key = delivery.event_id or delivery.id
+        # From the signed body: never from the (unsigned) event-id or delivery-id headers.
+        key = delivery.event_key
         if delivery.is_test:
             pass  # a rehearsal delivery (`webhooks.test`, sandbox): acknowledge, touch nothing
         elif key and key in seen_events:
-            pass  # a retry or a resend of a state already processed
+            pass  # a retry, or a replay of a delivery already processed
         elif webhooks.is_stale(event, last_sequence.get(obj)):
             pass  # an older state arriving after a newer one
         else:
-            handle(dict(event), delivery.event_id)
+            handle(dict(event), key)
             if key:
                 seen_events.add(key)
             sequence = event.get("sequence")
