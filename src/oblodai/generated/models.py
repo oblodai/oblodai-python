@@ -1728,6 +1728,7 @@ class ConversionWebhook(Model):
         "created_at",
         "document_url",
         "event_at",
+        "event_id",
         "fee_percent",
         "from",
         "id",
@@ -1758,6 +1759,7 @@ class ConversionWebhook(Model):
     status: Union[ConversionWebhookStatus, str]
     to: str
     type_: str
+    event_id: Optional[str] = None
     received: Optional[Decimal] = None
     test: Optional[bool] = None
     extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
@@ -1780,6 +1782,7 @@ class ConversionWebhook(Model):
             status=_enum_of(ConversionWebhookStatus)(data["status"]),
             to=str(data["to"]),
             type_=str(data["type"]),
+            event_id=_opt(str, data.get("event_id")),
             received=_opt(_decimal, data.get("received")),
             test=_opt(bool, data.get("test")),
             extra=_extra(data, cls._FIELDS),
@@ -1802,6 +1805,8 @@ class ConversionWebhook(Model):
         out["status"] = _dump(self.status)
         out["to"] = _dump(self.to)
         out["type"] = _dump(self.type_)
+        if self.event_id is not None:
+            out["event_id"] = _dump(self.event_id)
         if self.received is not None:
             out["received"] = _dump(self.received)
         if self.test is not None:
@@ -4842,6 +4847,7 @@ class PaymentWebhook(Model):
         "amount",
         "currency",
         "event_at",
+        "event_id",
         "is_final",
         "network",
         "order_id",
@@ -4875,6 +4881,7 @@ class PaymentWebhook(Model):
     txid: str
     type_: str
     uuid: str
+    event_id: Optional[str] = None
     test: Optional[bool] = None
     extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -4898,6 +4905,7 @@ class PaymentWebhook(Model):
             txid=str(data["txid"]),
             type_=str(data["type"]),
             uuid=str(data["uuid"]),
+            event_id=_opt(str, data.get("event_id")),
             test=_opt(bool, data.get("test")),
             extra=_extra(data, cls._FIELDS),
         )
@@ -4921,6 +4929,8 @@ class PaymentWebhook(Model):
         out["txid"] = _dump(self.txid)
         out["type"] = _dump(self.type_)
         out["uuid"] = _dump(self.uuid)
+        if self.event_id is not None:
+            out["event_id"] = _dump(self.event_id)
         if self.test is not None:
             out["test"] = _dump(self.test)
         return out
@@ -6539,6 +6549,7 @@ class PayoutWebhook(Model):
         "currency",
         "document_url",
         "event_at",
+        "event_id",
         "fee_bearer",
         "is_final",
         "is_refund",
@@ -6579,6 +6590,7 @@ class PayoutWebhook(Model):
     type_: str
     updated_at: str
     uuid: str
+    event_id: Optional[str] = None
     order_id: Optional[str] = None
     payment_order_id: Optional[str] = None
     refund_for: Optional[str] = None
@@ -6609,6 +6621,7 @@ class PayoutWebhook(Model):
             type_=str(data["type"]),
             updated_at=str(data["updated_at"]),
             uuid=str(data["uuid"]),
+            event_id=_opt(str, data.get("event_id")),
             order_id=_opt(str, data.get("order_id")),
             payment_order_id=_opt(str, data.get("payment_order_id")),
             refund_for=_opt(str, data.get("refund_for")),
@@ -6639,6 +6652,8 @@ class PayoutWebhook(Model):
         out["type"] = _dump(self.type_)
         out["updated_at"] = _dump(self.updated_at)
         out["uuid"] = _dump(self.uuid)
+        if self.event_id is not None:
+            out["event_id"] = _dump(self.event_id)
         if self.order_id is not None:
             out["order_id"] = _dump(self.order_id)
         if self.payment_order_id is not None:
@@ -9465,6 +9480,7 @@ class WalletWebhook(Model):
         "address",
         "currency",
         "event_at",
+        "event_id",
         "is_final",
         "network",
         "order_id",
@@ -9491,6 +9507,7 @@ class WalletWebhook(Model):
     txid: str
     type_: str
     uuid: str
+    event_id: Optional[str] = None
     test: Optional[bool] = None
     extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -9510,6 +9527,7 @@ class WalletWebhook(Model):
             txid=str(data["txid"]),
             type_=str(data["type"]),
             uuid=str(data["uuid"]),
+            event_id=_opt(str, data.get("event_id")),
             test=_opt(bool, data.get("test")),
             extra=_extra(data, cls._FIELDS),
         )
@@ -9529,6 +9547,8 @@ class WalletWebhook(Model):
         out["txid"] = _dump(self.txid)
         out["type"] = _dump(self.type_)
         out["uuid"] = _dump(self.uuid)
+        if self.event_id is not None:
+            out["event_id"] = _dump(self.event_id)
         if self.test is not None:
             out["test"] = _dump(self.test)
         return out
