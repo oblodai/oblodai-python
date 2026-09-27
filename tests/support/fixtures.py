@@ -14,10 +14,11 @@ CONTRACT_DIR = Path(__file__).resolve().parent.parent.parent / "contract"
 
 
 def backend_spec_path() -> Path:
-    """The backend's ``openapi.json`` (``$OBLODAI_BACKEND``, else ``../oblodai-backend``)."""
-    from scripts.check_generated import backend_root
+    """The contract's ``openapi.json``: ``$OBLODAI_BACKEND``'s, else the vendored
+    ``contract/snapshot`` (kept equal to the backend by the drift check)."""
+    from scripts.check_generated import SNAPSHOT_SPEC, contract_root
 
-    return backend_root() / "services" / "core" / "api" / "openapi.json"
+    return contract_root() / SNAPSHOT_SPEC
 
 
 def load_signing() -> Optional[Dict[str, Any]]:

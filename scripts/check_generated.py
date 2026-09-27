@@ -8,6 +8,10 @@ file by file.
 The backend checkout is ``$OBLODAI_BACKEND``, else ``../oblodai-backend`` next to this repository.
 Without a backend that has ``tools/sdkgen`` the check is skipped, loudly; with ``--require`` it
 fails instead. Fix drift by regenerating (``make sdk`` in the backend), never by hand.
+
+It also checks ``contract/snapshot`` - the copy of the backend's ``openapi.json`` and conformance
+suite the tests run against when there is no backend checkout (public CI) - against the backend,
+so the snapshot cannot silently fall behind; ``--sync-snapshot`` refreshes it from the backend.
 """
 
 from __future__ import annotations
@@ -26,9 +30,48 @@ GENERATED = ROOT / "src" / "oblodai" / "generated"
 READMES = ("README.md", "README.ru.md")
 
 
+SNAPSHOT = ROOT / "contract" / "snapshot"
+#: What the snapshot carries, as paths relative to a backend checkout.
+SNAPSHOT_SPEC = Path("services") / "core" / "api" / "openapi.json"
+SNAPSHOT_CONFORMANCE = Path("tools") / "sdkgen" / "conformance"
+
+
 def backend_root() -> Path:
     configured = os.environ.get("OBLODAI_BACKEND")
     return Path(configured) if configured else ROOT.parent / "oblodai-backend"
+
+
+def contract_root() -> Path:
+    """Where the tests read the contract and the conformance suite from: ``$OBLODAI_BACKEND`` when
+    set, else the vendored snapshot (laid out like a backend checkout). Never a guessed sibling
+    checkout, which may sit at another contract."""
+    configured = os.environ.get("OBLODAI_BACKEND")
+    return Path(configured) if configured else SNAPSHOT
+
+
+def snapshot_files(root: Path) -> List[Path]:
+    """The snapshot's files, relative to ``root`` (a backend checkout or the snapshot itself)."""
+    suite = root / SNAPSHOT_CONFORMANCE
+    names = sorted(p.name for p in suite.glob("*.json")) if suite.is_dir() else []
+    return [SNAPSHOT_SPEC] + [SNAPSHOT_CONFORMANCE / n for n in names]
+
+
+def check_snapshot(backend: Path, sync: bool) -> List[str]:
+    """Stale snapshot files (empty when current); with ``sync`` they are copied over instead."""
+    want = snapshot_files(backend)
+    have = {p for p in snapshot_files(SNAPSHOT) if (SNAPSHOT / p).is_file()}
+    stale = [
+        str(p)
+        for p in want
+        if not (SNAPSHOT / p).is_file() or not filecmp.cmp(backend / p, SNAPSHOT / p, shallow=False)
+    ] + sorted(str(p) for p in have - set(want))
+    if sync:
+        shutil.rmtree(SNAPSHOT, ignore_errors=True)
+        for p in want:
+            (SNAPSHOT / p).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(backend / p, SNAPSHOT / p)
+        return []
+    return stale
 
 
 def py_files(directory: Path) -> List[str]:
@@ -46,6 +89,15 @@ def main(argv: List[str]) -> int:
             return 1
         print(f"  (skipped: {message})")
         return 0
+    stale_snapshot = check_snapshot(backend, "--sync-snapshot" in argv)
+    if stale_snapshot:
+        print(
+            "check_generated: contract/snapshot differs from the backend ("
+            + ", ".join(stale_snapshot)
+            + "); refresh it with `python scripts/check_generated.py --sync-snapshot`",
+            file=sys.stderr,
+        )
+        return 1
     env = dict(os.environ)
     env.setdefault("GOTOOLCHAIN", "go1.26.6")
     with tempfile.TemporaryDirectory() as tmp:
@@ -85,7 +137,7 @@ def main(argv: List[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-    print(f"generated code matches {spec}")
+    print(f"generated code and contract/snapshot match {spec}")
     return 0
 
 

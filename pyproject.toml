@@ -60,6 +60,8 @@ packages = ["src/oblodai"]
 "AGENTS.md" = "oblodai/AGENTS.md"
 
 [tool.hatch.build.targets.sdist]
+# The contract snapshot is for this repository's CI; the package does not need 1.2 MB of spec.
+exclude = ["contract/snapshot"]
 include = [
     "src/oblodai",
     "contract",

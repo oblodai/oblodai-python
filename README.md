@@ -518,6 +518,9 @@ too: `oblodai.CONTRACT_VERSION` (`info.version`) and `oblodai.CONTRACT_HASH` (sh
 `openapi.json`, named in the User-Agent). `contract/` — in the repository and in the sdist — keeps
 recordings from a live core (golden bodies, error samples, signed webhook deliveries) that the
 contract tests compare against; the signing vectors are read from the spec's `x-oblodai-signing`.
+`contract/snapshot` (repository only) is a copy of the backend's `openapi.json` and conformance
+suite, so the tests run without a backend checkout; `make drift` fails when it differs from the
+backend, and `python scripts/check_generated.py --sync-snapshot` refreshes it.
 
 ## Development
 
@@ -531,8 +534,8 @@ make drift         # fail when src/oblodai/generated is stale against the backen
 
 Four test tiers: `tests/unit` (signing and webhook vectors, retry/idempotency/skew/URL rules over a
 scripted HTTP layer, and every code block of this README run against a mock gateway),
-`tests/conformance` (the scenario suite every Oblodai SDK runs, read from the backend's
-`tools/sdkgen/conformance`; `SDKGEN_CONFORMANCE` points elsewhere), `tests/contract` (every route is wired to the right method, path, auth and
+`tests/conformance` (the scenario suite every Oblodai SDK runs, read from `$OBLODAI_BACKEND`'s
+`tools/sdkgen/conformance`, else from `contract/snapshot`; `SDKGEN_CONFORMANCE` points elsewhere), `tests/contract` (every route is wired to the right method, path, auth and
 idempotency header; every golden body matches its model key-for-key; the documentation is checked
 like code) and `tests/live` (a real gateway: onboard, invoice, deposit, payout, refund, links,
 documents).

@@ -1,7 +1,7 @@
 """The shared conformance suite every Oblodai SDK runs (backend ``tools/sdkgen/conformance``).
 
-Scenarios are read from ``$SDKGEN_CONFORMANCE``, else from ``tools/sdkgen/conformance`` of the
-backend checkout the drift check uses (``$OBLODAI_BACKEND``, else ``../oblodai-backend``).
+Scenarios are read from ``$SDKGEN_CONFORMANCE``, else from ``tools/sdkgen/conformance`` of
+``$OBLODAI_BACKEND``, else of the vendored ``contract/snapshot`` (so public CI runs them too).
 Signing vectors are not in the scenario files: each suite names the backend ``openapi.json`` and a
 pointer into its ``x-oblodai-signing``, and the vectors are read from there.
 
@@ -36,11 +36,11 @@ from oblodai.core.request import Credentials
 from oblodai.core.route import RouteSpec
 from oblodai.core.signing import canonical_string, sign_request, sign_webhook
 from oblodai.webhooks import verify
-from scripts.check_generated import backend_root
+from scripts.check_generated import SNAPSHOT_CONFORMANCE, contract_root
 from tests.support.clients import PUBLIC_ID, SECRET
 
 _EXPLICIT = os.environ.get("SDKGEN_CONFORMANCE")
-CONFORMANCE = Path(_EXPLICIT) if _EXPLICIT else backend_root() / "tools" / "sdkgen" / "conformance"
+CONFORMANCE = Path(_EXPLICIT) if _EXPLICIT else contract_root() / SNAPSHOT_CONFORMANCE
 
 if not CONFORMANCE.is_dir():
     if _EXPLICIT or os.environ.get("OBLODAI_BACKEND"):

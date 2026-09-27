@@ -65,6 +65,13 @@ All notable changes to this package are documented here. The format follows
   `oblodai_live_…` / `oblodai_test_…` secrets and public ids are all-zero placeholders of the same
   format (they ship in the sdist).
 
+- CI and release: GitHub Actions are pinned to full commit SHAs, checkouts do not persist the
+  token, and the publish job installs only pinned `build` and `twine` (no pip upgrade, no dev
+  dependencies next to the PyPI token). The backend's `openapi.json` and conformance suite are
+  vendored in `contract/snapshot` (not shipped in the sdist), so public CI runs the signing
+  vectors and the conformance suite without the private backend; the drift check fails when the
+  snapshot differs from the backend. `.env` files are git-ignored.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the

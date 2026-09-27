@@ -12,8 +12,9 @@ jobs:
       matrix:
         python-version: ['3.10', '3.12', '3.14']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
@@ -23,12 +24,15 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: { python-version: '3.12' }
       - run: pip install -e ".[dev]"
-      # src/oblodai/generated must be exactly what the backend generator makes of the contract. The
-      # check needs a backend checkout (OBLODAI_BACKEND); without one it says it skipped.
+      # src/oblodai/generated (and contract/snapshot) must be exactly what the backend generator
+      # makes of the contract. That needs the private backend, so here it says it skipped: run it
+      # locally with `make ci` and OBLODAI_BACKEND. The tests below run the conformance suite and
+      # the signing vectors against the vendored contract/snapshot instead.
       - run: python scripts/check_generated.py
       - run: ruff format --check .
       - run: ruff check .
@@ -37,10 +41,11 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: { python-version: '3.12' }
-      - run: python -m pip install --upgrade pip build "twine>=7,<8"
+      - run: python -m pip install "build==1.6.1" "twine>=7,<8"
       - run: python -m build
       # A malformed long description is only discovered at upload time otherwise.
       - run: twine check dist/*
