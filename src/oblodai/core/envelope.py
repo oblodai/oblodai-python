@@ -27,7 +27,7 @@ __all__ = [
     "unexpected_redirect",
 ]
 
-_DELTA_SECONDS = re.compile(r"^[0-9]+$")
+_DELTA_SECONDS = re.compile(r"\A[0-9]+\Z")
 
 
 def decode_envelope(

@@ -13,6 +13,7 @@ from typing import Any, Dict, Mapping, Optional, Union
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from ..generated.money import NON_MONEY_NUMBERS
+from ..generated.signing import MAX_BODY
 from .errors import ConfigError
 from .logger import is_sensitive_param
 from .route import RouteSpec
@@ -279,6 +280,16 @@ def _json_default(value: Any) -> str:
             raise ConfigError(
                 "sdk.bad_body", f"request body carries a non-finite Decimal ({value})", "body"
             )
+        # Rendered with "f", a huge exponent expands to that many digits (Decimal("1e200000000")
+        # is a 200 MB string): refuse anything that could not fit the contract's body limit
+        # before it is ever built.
+        _, digits, exponent = value.as_tuple()
+        if len(digits) + abs(int(exponent)) > MAX_BODY:
+            raise ConfigError(
+                "sdk.body_too_large",
+                f"request body carries a Decimal wider than the {MAX_BODY}-byte body limit",
+                "body",
+            )
         return format(value, "f")
     raise ConfigError(
         "sdk.bad_body",
@@ -336,4 +347,11 @@ def serialize_body(body: Any, method: str) -> bytes:
             f"request body is not JSON-serializable: {err}; amounts are decimal strings",
             "body",
         ) from err
-    return text.encode("utf-8")
+    encoded = text.encode("utf-8")
+    if len(encoded) > MAX_BODY:
+        raise ConfigError(
+            "sdk.body_too_large",
+            f"request body is {len(encoded)} bytes; the gateway accepts at most {MAX_BODY}",
+            "body",
+        )
+    return encoded

@@ -49,6 +49,14 @@ All notable changes to this package are documented here. The format follows
   `filename*=UTF-8''..%2F..%2F…` came back verbatim. `FileResult.write_to(path)` creates the file
   with `0600` permissions and refuses an existing file or symlink unless `overwrite=True`.
 
+- Validation regexes anchor with `\A…\Z`: `"25\n"` is no longer a decimal amount for the money
+  helpers, an idempotency key with a trailing newline is refused, and so is a `Retry-After`
+  delta with one. A `Decimal` whose exponent would expand past 64 characters is an `AmountError`
+  before it is rendered.
+- Request bodies are refused above the contract's `MAX_BODY` (1 MiB) with `ConfigError`
+  `sdk.body_too_large` before anything is signed or sent; a `Decimal` with a huge exponent
+  (`Decimal("1e200000000")`) is refused before it is expanded into a 200 MB string.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the

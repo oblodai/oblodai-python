@@ -54,7 +54,15 @@ def create(api: Oblodai, **options: Any) -> Any:
 
 @pytest.mark.parametrize(
     "key",
-    ["", "x" * (MAX_IDEMPOTENCY_KEY_LENGTH + 1), "has space", "tab\there", "nl\nhere", "këy"],
+    [
+        "",
+        "x" * (MAX_IDEMPOTENCY_KEY_LENGTH + 1),
+        "has space",
+        "tab\there",
+        "nl\nhere",
+        "këy",
+        "trailing-lf\n",
+    ],
 )
 def test_an_unusable_idempotency_key_is_refused_before_signing(key: str) -> None:
     """The key is signed verbatim; a stray byte changes the MAC on one side only."""
@@ -158,7 +166,21 @@ def test_an_object_json_cannot_encode_names_itself() -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["", "1.", ".5", "1.2.3", "x", "1e5", "٥", "1 000", "+1", "-", "9" * (MAX_AMOUNT_LENGTH + 1)],
+    [
+        "",
+        "1.",
+        ".5",
+        "1.2.3",
+        "x",
+        "1e5",
+        "٥",
+        "1 000",
+        "+1",
+        "-",
+        "9" * (MAX_AMOUNT_LENGTH + 1),
+        "25\n",
+        "-1.5\n",
+    ],
 )
 def test_the_money_helpers_refuse_anything_that_is_not_a_decimal_string(bad: str) -> None:
     with pytest.raises(AmountError) as excinfo:
@@ -166,6 +188,24 @@ def test_the_money_helpers_refuse_anything_that_is_not_a_decimal_string(bad: str
     assert excinfo.value.code == "sdk.bad_amount"
     # Still a ValueError, so pre-1.3 `except ValueError` keeps working.
     assert isinstance(excinfo.value, ValueError)
+
+
+def test_a_decimal_with_a_huge_exponent_is_refused_before_it_is_rendered() -> None:
+    """`format(Decimal("1e200000000"), "f")` is 200 MB of digits: bounded before rendering."""
+    with pytest.raises(AmountError):
+        compare_amounts(Decimal("1e200000000"), "1")
+    with pytest.raises(AmountError):
+        compare_amounts(Decimal("1e-200000000"), "1")
+    assert compare_amounts(Decimal("1E+2"), "100") == 0
+
+
+def test_a_body_over_the_contract_limit_is_refused_before_signing() -> None:
+    mock = MockHTTP([])
+    for amount in (Decimal("1e200000000"), "9" * (1024 * 1024)):
+        with pytest.raises(ConfigError) as excinfo:
+            client(mock).payments.create({"amount": amount, "currency": "USDT"})
+        assert excinfo.value.code == "sdk.body_too_large"
+    assert mock.calls == []
 
 
 def test_the_money_helpers_refuse_a_non_string() -> None:

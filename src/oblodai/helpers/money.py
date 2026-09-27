@@ -29,7 +29,8 @@ MAX_AMOUNT_LENGTH = 64
 
 # ASCII digits only. `\d` also matches Arabic-Indic and Devanagari digits, which `int()` happily
 # parses - so `"٥"` would become the amount 5 and no ledger anywhere would agree.
-_DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+# `\A...\Z`, not `^...$`: `$` also matches before a trailing newline, so "25\n" passed.
+_DECIMAL = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
 
 
 #: What the helpers take: the wire's decimal string or a ``Decimal`` (never a ``float``).
@@ -40,6 +41,11 @@ def _parts(amount: Amount) -> Tuple[bool, str, str]:
     if isinstance(amount, Decimal):
         if not amount.is_finite():
             raise AmountError(f"not a decimal amount: {amount}")
+        # Bound the exponent BEFORE rendering: Decimal("1e200000000") is 200 MB of digits.
+        digits = len(amount.as_tuple().digits)
+        exponent = int(amount.as_tuple().exponent)
+        if digits + abs(exponent) > MAX_AMOUNT_LENGTH:
+            raise AmountError(f"amount is longer than {MAX_AMOUNT_LENGTH} characters")
         amount = format(amount, "f")
     if not isinstance(amount, str):
         raise AmountError(f"not a decimal amount: {type(amount).__name__}")

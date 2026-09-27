@@ -20,7 +20,8 @@ __all__ = ["MAX_IDEMPOTENCY_KEY_LENGTH", "assert_idempotency_key", "new_idempote
 
 # Header values must be visible ASCII: the key is signed verbatim, so a stray control character or
 # surrounding whitespace would silently change the MAC on one side only.
-_PRINTABLE_ASCII = re.compile(r"^[\x21-\x7e]+$")
+# `\A...\Z`: `$` would also match before a trailing newline and let "key\n" through.
+_PRINTABLE_ASCII = re.compile(r"\A[\x21-\x7e]+\Z")
 
 
 def new_idempotency_key() -> str:
