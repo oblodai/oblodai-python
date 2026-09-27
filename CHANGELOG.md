@@ -72,6 +72,8 @@ All notable changes to this package are documented here. The format follows
   vectors and the conformance suite without the private backend; the drift check fails when the
   snapshot differs from the backend. `.env` files are git-ignored.
 
+- `ResolvedConfig`'s `repr` no longer prints the caller's `headers` (a proxy's `Authorization`).
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the

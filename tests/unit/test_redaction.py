@@ -128,3 +128,12 @@ def test_the_device_code_is_redacted_in_models_and_logs() -> None:
         "X-Api-Key": "[redacted]",
         "api_key": "[redacted]",
     }
+
+
+def test_the_resolved_config_repr_hides_caller_headers() -> None:
+    from oblodai.config import resolve_config
+
+    config = resolve_config(
+        public_id="p", secret="SECRET-X", headers={"Authorization": "Bearer PROXY"}, env={}
+    )
+    assert "PROXY" not in repr(config) and "SECRET-X" not in repr(config)

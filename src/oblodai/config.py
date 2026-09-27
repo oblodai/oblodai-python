@@ -50,7 +50,8 @@ class ResolvedConfig:
     deadline: float = DEFAULT_DEADLINE
     retry: RetryOptions = DEFAULT_RETRY
     logger: Optional[Logger] = None
-    headers: Optional[Mapping[str, str]] = None
+    #: Caller headers may carry a proxy's credentials: never rendered by ``repr``.
+    headers: Optional[Mapping[str, str]] = dataclasses.field(default=None, repr=False)
 
 
 #: Why ``admin_token`` does nothing any more; the one-time warning names it.
