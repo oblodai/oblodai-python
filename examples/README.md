@@ -7,7 +7,7 @@ from a checkout) and export your keys — a **sandbox key** (`test_…`) is the 
 export OBLODAI_PUBLIC_ID=test_...
 export OBLODAI_SECRET=...
 # a local or self-hosted gateway:
-# export OBLODAI_BASE_URL=http://127.0.0.1:8095
+# export OBLODAI_BASE_URL=http://127.0.0.1:8095 OBLODAI_ALLOW_INSECURE=1
 ```
 
 | script | what it shows |

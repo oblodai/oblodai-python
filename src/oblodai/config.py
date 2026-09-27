@@ -37,8 +37,6 @@ DEFAULT_DEADLINE = 90.0
 #: Seconds, or an ``httpx.Timeout`` (its largest bound becomes the per-attempt timeout).
 TimeoutLike = Union[float, httpx.Timeout]
 
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
-
 
 @dataclass(frozen=True)
 class ResolvedConfig:
@@ -168,17 +166,37 @@ def _positive(name: str, value: float) -> float:
 
 
 def _assert_base_url(base_url: str, allow_insecure: bool) -> None:
-    parts = urlsplit(base_url)
-    if not parts.scheme or not parts.netloc:
-        raise ConfigError("sdk.bad_config", f"base_url is not a valid URL: {base_url}", "base_url")
+    """https only (plain http needs ``allow_insecure_base_url``), and nothing a URL may smuggle.
+
+    ``user:password@`` is refused, never used or echoed: httpx would send it as Basic auth to
+    whatever answers, and the client's ``repr`` would print it. A query or fragment would be
+    dropped silently, so it is refused too. No message repeats the URL itself.
+    """
+    try:
+        parts = urlsplit(base_url)
+        parts.port  # noqa: B018 - raises ValueError on a malformed port
+    except ValueError:
+        raise ConfigError("sdk.bad_config", "base_url is not a valid URL", "base_url") from None
+    if not parts.scheme or not parts.hostname:
+        raise ConfigError("sdk.bad_config", "base_url is not a valid URL", "base_url")
+    if "@" in parts.netloc:
+        raise ConfigError(
+            "sdk.bad_config",
+            "base_url must not carry credentials (user:password@); configure a proxy's "
+            "credentials on your own http_client",
+            "base_url",
+        )
+    if parts.query or parts.fragment or base_url.endswith(("?", "#")):
+        raise ConfigError(
+            "sdk.bad_config", "base_url must not carry a query or a fragment", "base_url"
+        )
     if parts.scheme == "https":
         return
-    host = (parts.hostname or "").lower()
-    if parts.scheme == "http" and (allow_insecure or host in _LOCAL_HOSTS):
+    if parts.scheme == "http" and allow_insecure:
         return
     raise ConfigError(
         "sdk.bad_config",
-        f"base_url must use https (got {parts.scheme}://{parts.netloc}); "
-        "set allow_insecure_base_url=True for a local core",
+        f"base_url must use https (got {parts.scheme}://{parts.hostname}); "
+        "set allow_insecure_base_url=True (or OBLODAI_ALLOW_INSECURE=1) for a local core",
         "base_url",
     )

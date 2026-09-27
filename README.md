@@ -32,9 +32,9 @@ client, generated from the gateway's own OpenAPI contract: every route it expose
 method here, and every request and response has a typed model.
 
 > **Base URL.** Defaults to `https://api.oblodai.com`. Override `base_url` and supply your own keys
-> at initialisation if needed. The scheme must be `https://`; plain `http://` is accepted only for
-> loopback (`http://127.0.0.1:8095`) or with the explicit allow-insecure option
-> (`allow_insecure_base_url=True`, or `OBLODAI_ALLOW_INSECURE=1`).
+> at initialisation if needed. The scheme must be `https://`; plain `http://` (loopback included) is
+> accepted only with the explicit allow-insecure option (`allow_insecure_base_url=True`, or
+> `OBLODAI_ALLOW_INSECURE=1`). A base URL with `user:password@`, a query or a fragment is refused.
 
 ## Installation
 
@@ -457,7 +457,7 @@ always wins over the environment.
 | ------ | ------- | ------------ |
 | `public_id`, `secret` | environment | the merchant's API key |
 | `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
-| `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
+| `allow_insecure_base_url` | `False` | permits a plain `http://` base URL (loopback included) |
 | `admin_token` | — | deprecated and ignored; the SDK never sends an admin token |
 | `timeout` | `30.0` | seconds per attempt; an `httpx.Timeout` is accepted (its largest bound) |
 | `deadline` | `90.0` | seconds for the whole call, retries included |
@@ -474,7 +474,7 @@ With no arguments at all the client configures itself from the environment:
 | `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the merchant's API key |
 | `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr |
-| `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
+| `OBLODAI_ALLOW_INSECURE` | `1` permits a plain `http://` base URL (loopback included) |
 
 A full annotated file is in [`.env.example`](.env.example) — those five variables are the whole
 environment the client reads. A half-configured key (a `public_id` without its `secret`, or the
@@ -491,8 +491,8 @@ structlog or a test double all fit the four-method protocol the transport calls.
 Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 ```
 
-Plain `http://` is accepted for loopback without the flag; anything else needs it, so a signature
-never leaves the host in the clear by accident. Merchant provisioning (`sandbox.onboard_store`) is not
+Plain `http://` needs the flag, loopback included, so a signature never leaves the host in the
+clear by accident. Merchant provisioning (`sandbox.onboard_store`) is not
 supported by the SDK: it raises `ConfigError` before any request.
 
 ## The contract

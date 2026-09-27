@@ -73,19 +73,47 @@ def test_a_stale_payout_pair_in_the_environment_changes_nothing() -> None:
     assert not hasattr(config, "payout_credentials")
 
 
-def test_refuses_plain_http_except_for_loopback_or_when_allowed() -> None:
-    with pytest.raises(ConfigError, match="https"):
-        resolve_config(base_url="http://api.oblodai.com", env={})
+def test_refuses_plain_http_unless_explicitly_allowed() -> None:
+    """Loopback included: the explicit opt-in is the only way to plain http."""
+    for url in ("http://api.oblodai.com", "http://localhost:8093", "http://[::1]:8093"):
+        with pytest.raises(ConfigError, match="https"):
+            resolve_config(base_url=url, env={})
     assert (
-        resolve_config(base_url="http://localhost:8093", env={}).base_url == "http://localhost:8093"
+        resolve_config(
+            base_url="http://localhost:8093", allow_insecure_base_url=True, env={}
+        ).base_url
+        == "http://localhost:8093"
     )
-    assert resolve_config(base_url="http://[::1]:8093", env={}).base_url == "http://[::1]:8093"
+    assert (
+        resolve_config(base_url="http://[::1]:8093", env={"OBLODAI_ALLOW_INSECURE": "1"}).base_url
+        == "http://[::1]:8093"
+    )
     assert (
         resolve_config(base_url="http://10.0.0.1", allow_insecure_base_url=True, env={}).base_url
         == "http://10.0.0.1"
     )
     with pytest.raises(ConfigError, match="not a valid URL"):
         resolve_config(base_url="not-a-url", env={})
+
+
+def test_refuses_userinfo_query_and_fragment_in_the_base_url_without_echoing_them() -> None:
+    """httpx would send `user:pass@` as Basic auth to whatever answers, and the client repr
+    printed it; a query or fragment was dropped silently."""
+    for url in (
+        "https://user:PROXYPASS@api.example.com",
+        "https://PROXYPASS@api.example.com",
+        "https://api.example.com/?key=PROXYPASS",
+        "https://api.example.com/#PROXYPASS",
+    ):
+        with pytest.raises(ConfigError) as excinfo:
+            resolve_config(base_url=url, env={})
+        assert "PROXYPASS" not in str(excinfo.value)
+        assert "PROXYPASS" not in repr(excinfo.value)
+        with pytest.raises(ConfigError):
+            Oblodai(base_url=url, env={})
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_config(base_url="https://api.example.com:PROXYPASS", env={})
+    assert "PROXYPASS" not in str(excinfo.value)
 
 
 def test_refuses_half_a_key_pair() -> None:

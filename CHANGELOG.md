@@ -32,6 +32,10 @@ All notable changes to this package are documented here. The format follows
   option is deprecated and ignored (a `FutureWarning` plus a warning to the configured logger), and
   `OBLODAI_ADMIN_TOKEN` is no longer read.
 
+- Base URL: `user:password@`, a query and a fragment are refused with `ConfigError` (and never
+  echoed); before, userinfo was sent as Basic auth and printed by `repr(client)`. Plain `http://`
+  now needs `allow_insecure_base_url=True` / `OBLODAI_ALLOW_INSECURE=1` for loopback hosts too.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the
