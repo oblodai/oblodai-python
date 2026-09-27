@@ -56,8 +56,9 @@ class Oblodai:
     ...     {"amount": "25", "currency": "USDT", "network": "tron", "order_id": "o-1"}
     ... )
 
-    One key signs every route: credentials, base URL and admin token fall back to
-    ``OBLODAI_PUBLIC_ID``, ``OBLODAI_SECRET``, ``OBLODAI_BASE_URL`` and ``OBLODAI_ADMIN_TOKEN``.
+    One key signs every route: credentials and base URL fall back to ``OBLODAI_PUBLIC_ID``,
+    ``OBLODAI_SECRET`` and ``OBLODAI_BASE_URL``. ``admin_token`` is deprecated and ignored: the SDK
+    never sends one, and operator (onboarding) routes raise :class:`~oblodai.ConfigError`.
     """
 
     def __init__(
@@ -95,7 +96,6 @@ class Oblodai:
             user_agent=user_agent(),
             credentials=config.credentials,
             headers=config.headers,
-            admin_token=config.admin_token,
             retry=config.retry,
             timeout=config.timeout,
             deadline=config.deadline,

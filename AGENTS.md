@@ -22,8 +22,9 @@ tests.
   `TypeError` before a request is sent (list methods also accept `limit=` / `offset=`).
 - **One API key.** `public_id` + `secret` (or `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET`) sign every
   route with `ROUTES[operation_id].auth == "key"` — money-in and money-out alike. `auth == "public"` means
-  no credentials at all, `auth == "onboard"` means `X-Admin-Token` (`admin_token`), and that token
-  goes on `sandbox.onboard_store` and nowhere else. There is no second pair to configure and no per-call
+  no credentials at all, `auth == "onboard"` is the gateway's operator channel, which the SDK does
+  not implement: `sandbox.onboard_store` raises `ConfigError` (`sdk.operator_channel_unsupported`)
+  before any request, and `admin_token` is deprecated and ignored (never sent). There is no second pair to configure and no per-call
   key selection.
 - List methods return a lazy `Page`: `.first()` = one page (`.items`, `.paginate`, `.total`,
   `.has_pages`), iteration = every item, `.all(max_items=…)` = a list. Nothing is requested until

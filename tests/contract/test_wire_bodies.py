@@ -58,7 +58,6 @@ def _client(key: str) -> Any:
     client = Oblodai(
         public_id="pk",
         secret="s",
-        admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,
     )

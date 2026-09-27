@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple, cast
 
 import pytest
 
-from oblodai import Oblodai, PaymentView, SandboxOnboardResult, compare_amounts
+from oblodai import Oblodai, PaymentView, compare_amounts
 from oblodai.core.clock import MAX_PLAUSIBLE_OFFSET_SECONDS, SkewCorrectingClock
 from oblodai.core.engine import EngineSettings
 from oblodai.core.errors import (
@@ -106,13 +106,22 @@ def test_a_header_value_that_could_split_the_request_is_refused(value: str) -> N
     assert mock.calls == []
 
 
-def test_the_admin_token_goes_only_to_the_onboarding_routes() -> None:
-    """It gates the whole gateway; every merchant route that saw it would be a place it leaks."""
-    mock = MockHTTP([ok(sample(SandboxOnboardResult)), ok(PAYMENT)])
-    api = client(mock, admin_token="adm")
-    api.sandbox.onboard_store("m1")
+def test_the_admin_token_is_never_sent_and_operator_routes_fail_before_the_network() -> None:
+    """The core accepts only its operator HMAC channel on onboarding, which the SDK does not
+    implement; a raw gateway-wide token must never leave the host with an SDK request."""
+    mock = MockHTTP([ok(PAYMENT), ok(PAYMENT)])
+    with pytest.warns(FutureWarning):
+        api = client(mock, admin_token="adm")
+    with pytest.raises(ConfigError) as excinfo:
+        api.sandbox.onboard_store("m1")
+    assert excinfo.value.code == "sdk.operator_channel_unsupported"
+    assert "use the dashboard" in str(excinfo.value)
+    assert mock.calls == []
     create(api)
-    assert mock.calls[0].headers["x-admin-token"] == "adm"
+    assert "x-admin-token" not in mock.calls[0].headers
+    assert all("adm" not in value for value in mock.calls[0].headers.values())
+    # Nor can it be smuggled in as a caller header.
+    create(client(mock, headers={"X-Admin-Token": "adm"}))
     assert "x-admin-token" not in mock.calls[1].headers
 
 
@@ -257,7 +266,6 @@ def test_no_secret_reaches_a_repr() -> None:
         user_agent="ua",
         credentials=Credentials("pk_live_1", "super-secret"),
         headers={"X-Trace": "t"},
-        admin_token="adm-secret",
     )
     rendered = f"{settings!r} {settings.credentials!r}"
     for secret in ("super-secret", "adm-secret"):

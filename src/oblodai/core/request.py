@@ -101,10 +101,17 @@ def build_request(
     credentials: Optional[Credentials] = None,
     idempotency_key: Optional[str] = None,
     extra_headers: Optional[Mapping[str, str]] = None,
-    admin_token: Optional[str] = None,
     request_id: Optional[str] = None,
 ) -> BuiltRequest:
     """Assemble (and sign) one attempt of one call."""
+    if route.auth == "onboard":
+        # The core gates onboarding with its operator HMAC channel only; the SDK does not
+        # implement it and never sends a raw gateway-wide admin token.
+        raise ConfigError(
+            "sdk.operator_channel_unsupported",
+            f"{route.method} {route.path}: operator channel is not supported by the SDK; use the "
+            "dashboard",
+        )
     origin, prefix = join_url(base_url)
     path = prefix + fill_path(route.path, path_params)
     query_string = encode_query(query)
@@ -128,11 +135,6 @@ def build_request(
     if request_id:
         assert_header_value(HEADER_REQUEST_ID, request_id)
         headers[HEADER_REQUEST_ID] = request_id
-    # Onboarding is the only surface the admin token gates; sending it anywhere else would leak a
-    # gateway-wide credential onto every merchant request.
-    if route.auth == "onboard" and admin_token:
-        headers[HEADER_ADMIN_TOKEN] = admin_token
-
     if route.auth == "key":
         if credentials is None:
             raise ConfigError(

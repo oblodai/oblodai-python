@@ -59,7 +59,7 @@ pip install oblodai
 | учётные данные | как задаётся | для чего |
 | -------------- | ------------ | -------- |
 | **API-ключ** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | все подписанные маршруты: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `batches.*`, `splits.*`, `wallets.*`, `account.*`, `webhooks.*`, `settings.*`, `api_allowlist.*`, `referrals.*`, `documents.*`, `sandbox.*` |
-| **токен администратора** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | только заведение магазинов на self-hosted-шлюзе: `sandbox.onboard_store` |
+| ~~токен администратора~~ | `admin_token` — устарел и игнорируется | ничего: SDK никогда не отправляет токен администратора; `sandbox.onboard_store` поднимает `ConfigError` |
 
 Маршрутам для плательщика учётные данные не нужны вовсе: все методы `checkout.*`,
 `account.list_exchange_rates`, `payout_links.get_payout_claim/claim_payout` и
@@ -69,10 +69,11 @@ pip install oblodai
 префиксу `test_` (`test_oblodai_…` / `oblodai_test_…`); у боевого ключа такого префикса нет.
 Вызывать `sandbox.*` может только ключ `test_`.
 
-**Подключение мерчанта.** `sandbox.onboard_store` заводит мерчанту магазин песочницы и
-возвращает единственный `api_key`, которым он подписывает вызовы. Метод не подписывается и передаёт
-`X-Admin-Token` из `admin_token` (или `OBLODAI_ADMIN_TOKEN`) — это токен администратора на
-self-hosted-шлюзе, а не ключ мерчанта.
+**Подключение мерчанта.** Заведение магазинов (`sandbox.onboard_store`) шлюз принимает только по
+операторскому каналу, которого в SDK нет: метод поднимает `ConfigError`
+(`sdk.operator_channel_unsupported`, «operator channel is not supported by the SDK; use the
+dashboard») до любого запроса. `admin_token` устарел и игнорируется (`FutureWarning` и
+предупреждение в ваш логгер); `OBLODAI_ADMIN_TOKEN` не читается. Заводите магазины в кабинете.
 
 **Старые раздельные пары.** У магазина, заведённого задолго до 1.3, может остаться пара
 `oblodai_pk_…` / `oblodai_wk_…`; шлюз по-прежнему различает их по виду, и вызов не тем ключом даёт
@@ -464,7 +465,7 @@ raw.status, raw.request_id, raw.parse()
 | `public_id`, `secret` | окружение | API-ключ мерчанта |
 | `base_url` | `https://api.oblodai.com` | origin API; префикс пути (`https://gw.corp/oblodai`) сохраняется |
 | `allow_insecure_base_url` | `False` | разрешает `http://` на не-локальный хост |
-| `admin_token` | окружение | `X-Admin-Token` для `sandbox.onboard_store` на self-hosted-шлюзе |
+| `admin_token` | — | устарел и игнорируется; SDK никогда не отправляет токен администратора |
 | `timeout` | `30.0` | секунды на одну попытку; принимается и `httpx.Timeout` (его наибольшая граница) |
 | `deadline` | `90.0` | секунды на весь вызов, вместе с ретраями |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
@@ -478,12 +479,11 @@ raw.status, raw.request_id, raw.parse()
 | переменная | что задаёт |
 | ---------- | ---------- |
 | `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | API-ключ мерчанта |
-| `OBLODAI_ADMIN_TOKEN` | открывает `sandbox.onboard_store` на self-hosted-шлюзе |
 | `OBLODAI_BASE_URL` | origin API (по умолчанию `https://api.oblodai.com`; префикс пути сохраняется) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — структурные логи в stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` разрешает `http://` на не-локальный хост |
 
-Полный файл с комментариями — [`.env.example`](.env.example); этими шестью переменными окружение
+Полный файл с комментариями — [`.env.example`](.env.example); этими пятью переменными окружение
 клиента и исчерпывается. Наполовину заданный ключ (`public_id` без своего `secret` или наоборот) —
 это `ConfigError` при создании клиента, а не 401 потом.
 
@@ -501,7 +501,7 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 
 Обычный `http://` принимается для локальной петли и без флага; во всех остальных случаях флаг
 обязателен, чтобы подпись случайно не ушла с хоста в открытом виде. Заведение мерчанта
-(`sandbox.onboard_store`) не подписывается и передаёт `X-Admin-Token`, когда задан `admin_token`.
+(`sandbox.onboard_store`) SDK не поддерживает: метод поднимает `ConfigError` до любого запроса.
 
 ## Контракт
 

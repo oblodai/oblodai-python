@@ -82,7 +82,6 @@ class AsyncOblodai:
             user_agent=user_agent(),
             credentials=config.credentials,
             headers=config.headers,
-            admin_token=config.admin_token,
             retry=config.retry,
             timeout=config.timeout,
             deadline=config.deadline,

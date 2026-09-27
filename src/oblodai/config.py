@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import warnings
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional, Union
 from urllib.parse import urlsplit
@@ -52,7 +53,13 @@ class ResolvedConfig:
     retry: RetryOptions = DEFAULT_RETRY
     logger: Optional[Logger] = None
     headers: Optional[Mapping[str, str]] = None
-    admin_token: Optional[str] = None
+
+
+#: Why ``admin_token`` does nothing any more; the one-time warning names it.
+ADMIN_TOKEN_IGNORED = (
+    "admin_token is deprecated and ignored: the SDK never sends an admin token, and operator "
+    "(onboarding) routes are not supported by the SDK - use the dashboard"
+)
 
 
 def resolve_config(
@@ -69,7 +76,13 @@ def resolve_config(
     allow_insecure_base_url: Optional[bool] = None,
     env: Optional[Mapping[str, str]] = None,
 ) -> ResolvedConfig:
-    """Merge explicit options with the environment and validate what can be validated up front."""
+    """Merge explicit options with the environment and validate what can be validated up front.
+
+    ``admin_token`` is accepted for compatibility only: it is ignored (with a one-time warning),
+    and so is ``OBLODAI_ADMIN_TOKEN``. The core accepts only its operator HMAC channel on the
+    onboarding routes, which the SDK does not implement, and a raw gateway-wide token must never
+    travel with SDK requests.
+    """
     environ = os.environ if env is None else env
 
     resolved_base = (base_url or environ.get("OBLODAI_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
@@ -95,6 +108,11 @@ def resolve_config(
         if level in ("debug", "info", "warn", "warning", "error"):
             chosen_logger = console_logger("warning" if level == "warn" else level)
 
+    if admin_token:
+        warnings.warn(ADMIN_TOKEN_IGNORED, FutureWarning, stacklevel=3)
+        if chosen_logger is not None:
+            chosen_logger.warning(ADMIN_TOKEN_IGNORED)
+
     return ResolvedConfig(
         base_url=resolved_base,
         credentials=Credentials(pid, sec) if pid and sec else None,
@@ -103,7 +121,6 @@ def resolve_config(
         retry=retry or DEFAULT_RETRY,
         logger=chosen_logger,
         headers=headers,
-        admin_token=admin_token or environ.get("OBLODAI_ADMIN_TOKEN"),
     )
 
 

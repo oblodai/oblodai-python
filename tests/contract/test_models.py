@@ -92,10 +92,11 @@ def test_there_are_recorded_bodies_to_check() -> None:
 @pytest.mark.parametrize("route", RECORDED)
 def test_a_recorded_answer_parses_into_its_model_with_no_unknown_fields(route: str) -> None:
     mock = MockHTTP([Scripted(status=200, body=FIXTURES[route]["response"])])
+    if ROUTES[BY_KEY[route]].auth == "onboard":
+        pytest.skip("operator routes are refused before any request (test_guards)")
     client = Oblodai(
         public_id="pk",
         secret="s",
-        admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,
     )

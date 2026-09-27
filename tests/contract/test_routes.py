@@ -15,7 +15,7 @@ import pytest
 
 from oblodai import ROUTES, Oblodai
 from oblodai.aio import AsyncOblodai
-from oblodai.core.errors import ContractError
+from oblodai.core.errors import ConfigError, ContractError
 from oblodai.core.pagination import AsyncPage, Page
 from tests.support.coverage import COVERAGE, method_of, namespaces
 from tests.support.coverage import call as call_operation
@@ -86,7 +86,6 @@ def _client(mock: MockHTTP) -> Oblodai:
     return Oblodai(
         public_id="pk",
         secret="s",
-        admin_token="adm",
         base_url="https://api.test",
         http_client=mock.client,
     )
@@ -96,7 +95,6 @@ def _async_client(mock: MockHTTP) -> AsyncOblodai:
     return AsyncOblodai(
         public_id="pk",
         secret="s",
-        admin_token="adm",
         base_url="https://api.test",
         http_client=mock.async_client,
     )
@@ -105,6 +103,11 @@ def _async_client(mock: MockHTTP) -> AsyncOblodai:
 @pytest.mark.parametrize("key", ROUTE_KEYS)
 def test_sync_method_is_wired_to_the_route(key: str) -> None:
     mock = _script(key)
+    if ROUTES[key].auth == "onboard":
+        with pytest.raises(ConfigError, match="operator channel is not supported"):
+            call_operation(_client(mock), key)
+        assert mock.calls == []
+        return
     try:
         result = call_operation(_client(mock), key)
         if isinstance(result, Page):
@@ -117,6 +120,11 @@ def test_sync_method_is_wired_to_the_route(key: str) -> None:
 @pytest.mark.parametrize("key", ROUTE_KEYS)
 async def test_async_method_is_wired_to_the_route(key: str) -> None:
     mock = _script(key)
+    if ROUTES[key].auth == "onboard":
+        with pytest.raises(ConfigError, match="operator channel is not supported"):
+            await call_operation(_async_client(mock), key)
+        assert mock.calls == []
+        return
     # The async namespaces mirror the sync ones exactly; every method is a coroutine, and a list
     # method's coroutine gives a lazy ``AsyncPage`` whose ``__await__`` fetches the first page.
     try:

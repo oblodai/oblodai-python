@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
+from typing import Any, List
 
 import pytest
 
@@ -38,8 +40,9 @@ def test_reads_credentials_and_base_url_from_the_environment() -> None:
     assert config.base_url == "https://x.test"
 
 
-def test_the_client_reads_exactly_six_environment_variables() -> None:
-    """One key pair, one admin token, and the three knobs - nothing else is honoured.
+def test_the_client_reads_exactly_five_environment_variables() -> None:
+    """One key pair and the three knobs - nothing else is honoured (``OBLODAI_ADMIN_TOKEN`` no
+    longer is: the SDK never sends an admin token).
 
     Pinned because a variable the SDK silently stopped reading (or quietly started reading) is
     a credential that ends up somewhere its owner did not expect.
@@ -49,7 +52,6 @@ def test_the_client_reads_exactly_six_environment_variables() -> None:
     assert honoured == {
         "OBLODAI_PUBLIC_ID",
         "OBLODAI_SECRET",
-        "OBLODAI_ADMIN_TOKEN",
         "OBLODAI_BASE_URL",
         "OBLODAI_LOG",
         "OBLODAI_ALLOW_INSECURE",
@@ -95,8 +97,25 @@ def test_refuses_half_a_key_pair() -> None:
         Oblodai(public_id="pk", base_url="https://api.test", env={})
 
 
-def test_the_admin_token_falls_back_to_the_environment() -> None:
-    assert resolve_config(env={"OBLODAI_ADMIN_TOKEN": "adm"}).admin_token == "adm"
+def test_the_admin_token_is_ignored_with_a_warning() -> None:
+    """The SDK never sends a raw admin token; the option survives only to warn about itself."""
+    seen: List[str] = []
+
+    class Collecting:
+        def debug(self, message: str, fields: Any = None) -> None: ...
+        def info(self, message: str, fields: Any = None) -> None: ...
+        def warning(self, message: str, fields: Any = None) -> None:
+            seen.append(message)
+
+        def error(self, message: str, fields: Any = None) -> None: ...
+
+    with pytest.warns(FutureWarning, match="admin_token is deprecated and ignored"):
+        config = resolve_config(admin_token="adm", logger=Collecting(), env={})
+    assert not hasattr(config, "admin_token")
+    assert seen and "ignored" in seen[0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        resolve_config(env={"OBLODAI_ADMIN_TOKEN": "adm"})  # silently ignored
 
 
 def test_money_helpers_work_at_arbitrary_precision() -> None:

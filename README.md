@@ -59,7 +59,7 @@ money-out alike:
 | credential | configured as | used for |
 | ---------- | ------------- | -------- |
 | **API key** | `public_id` / `secret` (`OBLODAI_PUBLIC_ID`, `OBLODAI_SECRET`) | every signed route: `payments.*`, `payouts.*`, `refunds.*`, `payment_links.*`, `payout_links.*`, `batches.*`, `splits.*`, `wallets.*`, `account.*`, `webhooks.*`, `settings.*`, `api_allowlist.*`, `referrals.*`, `documents.*`, `sandbox.*` |
-| **admin token** | `admin_token` (`OBLODAI_ADMIN_TOKEN`) | provisioning only, on a self-hosted gateway: `sandbox.onboard_store` |
+| ~~admin token~~ | `admin_token` — deprecated and ignored | nothing: the SDK never sends an admin token; `sandbox.onboard_store` raises `ConfigError` |
 
 The payer-facing routes need no credentials at all: every `checkout.*` method,
 `account.list_exchange_rates`, `payout_links.get_payout_claim/claim_payout` and
@@ -69,10 +69,11 @@ The payer-facing routes need no credentials at all: every `checkout.*` method,
 recognisable by its `test_` prefix (`test_oblodai_…` / `oblodai_test_…`); a live key carries no such
 prefix. Only a `test_` key may call `sandbox.*`.
 
-**Onboarding.** `sandbox.onboard_store` provisions a merchant's sandbox store and returns the
-single `api_key` it signs with. It is unsigned and carries `X-Admin-Token`, taken from
-`admin_token` (or `OBLODAI_ADMIN_TOKEN`) — an administrator's token on a self-hosted gateway, not a
-merchant key.
+**Onboarding.** The gateway accepts provisioning (`sandbox.onboard_store`) only over its operator
+channel, which the SDK does not implement: the method raises `ConfigError`
+(`sdk.operator_channel_unsupported`, "operator channel is not supported by the SDK; use the
+dashboard") before any request. `admin_token` is deprecated and ignored (a `FutureWarning`, and a
+warning to your logger); `OBLODAI_ADMIN_TOKEN` is not read. Onboard stores in the dashboard.
 
 **Legacy split pairs.** A store onboarded long before 1.3 may still hold an old
 `oblodai_pk_…` / `oblodai_wk_…` pair, which the gateway still gates by kind: using one of those
@@ -457,7 +458,7 @@ always wins over the environment.
 | `public_id`, `secret` | environment | the merchant's API key |
 | `base_url` | `https://api.oblodai.com` | API origin; a path prefix (`https://gw.corp/oblodai`) is kept |
 | `allow_insecure_base_url` | `False` | permits a non-loopback `http://` base URL |
-| `admin_token` | environment | `X-Admin-Token` for `sandbox.onboard_store` on a self-hosted gateway |
+| `admin_token` | — | deprecated and ignored; the SDK never sends an admin token |
 | `timeout` | `30.0` | seconds per attempt; an `httpx.Timeout` is accepted (its largest bound) |
 | `deadline` | `90.0` | seconds for the whole call, retries included |
 | `retry` | `RetryOptions()` | `max_retries`, `base_delay_ms`, `max_delay_ms`, `max_retry_after_ms` |
@@ -471,12 +472,11 @@ With no arguments at all the client configures itself from the environment:
 | variable | what it sets |
 | -------- | ------------ |
 | `OBLODAI_PUBLIC_ID` / `OBLODAI_SECRET` | the merchant's API key |
-| `OBLODAI_ADMIN_TOKEN` | gates `sandbox.onboard_store` on a self-hosted gateway |
 | `OBLODAI_BASE_URL` | the API origin (default `https://api.oblodai.com`; a path prefix is kept) |
 | `OBLODAI_LOG` | `debug` \| `info` \| `warning` \| `error` — structured logging to stderr |
 | `OBLODAI_ALLOW_INSECURE` | `1` permits a non-loopback `http://` base URL |
 
-A full annotated file is in [`.env.example`](.env.example) — those six variables are the whole
+A full annotated file is in [`.env.example`](.env.example) — those five variables are the whole
 environment the client reads. A half-configured key (a `public_id` without its `secret`, or the
 other way round) is a `ConfigError` at construction, not a 401 later.
 
@@ -492,8 +492,8 @@ Oblodai(base_url="http://127.0.0.1:8095", allow_insecure_base_url=True)
 ```
 
 Plain `http://` is accepted for loopback without the flag; anything else needs it, so a signature
-never leaves the host in the clear by accident. Merchant provisioning (`sandbox.onboard_store`) is unsigned
-and carries `X-Admin-Token` when `admin_token` is set.
+never leaves the host in the clear by accident. Merchant provisioning (`sandbox.onboard_store`) is not
+supported by the SDK: it raises `ConfigError` before any request.
 
 ## The contract
 

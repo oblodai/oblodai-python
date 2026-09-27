@@ -95,7 +95,6 @@ class EngineSettings:
     user_agent: str
     credentials: Optional[Credentials] = None
     headers: Optional[Mapping[str, str]] = field(default=None, repr=False)
-    admin_token: Optional[str] = field(default=None, repr=False)
     retry: RetryOptions = DEFAULT_RETRY
     #: Per-attempt timeout, seconds.
     timeout: float = 30.0
@@ -111,7 +110,6 @@ class EngineSettings:
             f"EngineSettings(base_url={self.base_url!r}, user_agent={self.user_agent!r}, "
             f"credentials={self.credentials!r}, "
             f"headers={'[redacted]' if self.headers else None}, "
-            f"admin_token={'[redacted]' if self.admin_token else None}, "
             f"retry={self.retry!r}, timeout={self.timeout!r}, "
             f"deadline={self.deadline!r})"
         )
@@ -282,7 +280,6 @@ class CallEngine:
                 credentials=settings.credentials,
                 idempotency_key=self._idempotency_key,
                 extra_headers=self._headers,
-                admin_token=settings.admin_token,
                 request_id=self._request_id,
             )
         except OblodaiError as err:
