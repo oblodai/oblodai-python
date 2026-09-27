@@ -140,3 +140,25 @@ async def test_async_all_collects_with_a_cap(limit: int) -> None:
         == [1, 2, 3][:limit]
     )
     await api.aclose()
+
+
+def test_a_page_shorter_than_the_limit_does_not_end_the_walk() -> None:
+    """The core may cap a page below the requested limit: only an empty page or reaching `total`
+    ends iteration, never a short page."""
+    mock = MockHTTP([page([1, 2], 0, 5, 2), page([3, 4], 2, 5, 2), page([5], 4, 5, 2)])
+    api = Oblodai(http_client=mock.client, **CREDS)
+    assert items_of(api.payments.list_history({"limit": 50})) == [1, 2, 3, 4, 5]
+    assert [call.json["offset"] for call in mock.calls[1:]] == [2, 4]
+
+
+def test_the_walk_stops_at_total_even_if_has_pages_says_more() -> None:
+    from tests.support.mock_http import ok
+
+    body = {
+        "items": [item(1)],
+        "paginate": {"total": 1, "per_page": 1, "offset": 0, "has_pages": True},
+    }
+    mock = MockHTTP([ok(body)])
+    api = Oblodai(http_client=mock.client, **CREDS)
+    assert items_of(api.payments.list_history({"limit": 1})) == [1]
+    assert len(mock.calls) == 1

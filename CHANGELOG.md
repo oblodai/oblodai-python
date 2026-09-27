@@ -57,6 +57,10 @@ All notable changes to this package are documented here. The format follows
   `sdk.body_too_large` before anything is signed or sent; a `Decimal` with a huge exponent
   (`Decimal("1e200000000")`) is refused before it is expanded into a 200 MB string.
 
+- Pagination stops only on an empty page or once the offset reaches `paginate.total` (the
+  `has_pages` flag decides only when an answer carries no `total`), the rule every Oblodai SDK
+  now shares; a page shorter than the requested `limit` never ends the walk.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the

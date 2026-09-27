@@ -1,7 +1,8 @@
 """Offset pagination over the core's ``{items, paginate}`` lists.
 
-``paginate.has_pages`` is the server's own "there is more" flag; iteration stops on it, or on a
-short page, whichever comes first. A list method returns a lazy :class:`Page` (or
+Iteration stops on an empty page, or once the offset reaches ``paginate.total`` (or, on an answer
+without a ``total``, when ``paginate.has_pages`` is false) - never merely because a page came back
+shorter than the requested ``limit``: the core may cap a page below it. A list method returns a lazy :class:`Page` (or
 :class:`AsyncPage`): nothing is requested until it is consumed, and the first page is fetched once
 however many ways it is consumed.
 """
@@ -74,6 +75,14 @@ class PageResult(Generic[T]):
         )
 
 
+def _exhausted(page: PageResult[Any], offset: int) -> bool:
+    """Is ``offset`` past the last item? ``total`` decides; without one, ``has_pages`` does."""
+    total = page.paginate.get("total")
+    if isinstance(total, int) and not isinstance(total, bool):
+        return offset >= total
+    return not page.has_pages
+
+
 class Page(Generic[T]):
     """A lazy list handle.
 
@@ -121,7 +130,7 @@ class Page(Generic[T]):
             yield page
             got = len(page.items)
             offset += got
-            if got == 0 or not page.has_pages:
+            if got == 0 or _exhausted(page, offset):
                 return
             page = self._fetch(self._limit, offset)
 
@@ -183,7 +192,7 @@ class AsyncPage(Generic[T]):
             yield page
             got = len(page.items)
             offset += got
-            if got == 0 or not page.has_pages:
+            if got == 0 or _exhausted(page, offset):
                 return
             page = await self._fetch(self._limit, offset)
 
