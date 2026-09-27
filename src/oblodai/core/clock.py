@@ -2,8 +2,10 @@
 
 The core rejects timestamps more than +/- ``SKEW_SECONDS`` (``x-oblodai-signing``) from its own time; a host with a drifting clock
 would get ``merchant.bad_signature`` on every call. The transport learns the server's time from the
-``Date`` header of a signature-failure response, re-signs once, and keeps the offset only if that
-re-signed attempt got past authentication.
+``Date`` header of a signature-failure response and re-signs that one call once with it. The offset
+is installed for the whole client only when that re-signed attempt SUCCEEDS (2xx), and it can never
+exceed :data:`MAX_PLAUSIBLE_OFFSET_SECONDS`: one answer from whatever sits at the base URL must not
+be able to move every later signature hours into the future (a delayed-replay window).
 """
 
 from __future__ import annotations
@@ -24,8 +26,9 @@ def system_now() -> int:
 #: Anything with ``__call__() -> int`` fits: the tests inject a frozen clock.
 Clock = Callable[[], int]
 
-#: Offsets beyond this are implausible drift and are ignored (a broken proxy ``Date``).
-MAX_PLAUSIBLE_OFFSET_SECONDS = 24 * 3600
+#: Offsets beyond this (15 minutes) are not drift the SDK corrects and are ignored: a broken proxy
+#: ``Date``, or a responder trying to push the signing clock into the future.
+MAX_PLAUSIBLE_OFFSET_SECONDS = 900
 
 
 class SkewCorrectingClock:
@@ -52,6 +55,10 @@ class SkewCorrectingClock:
 
     def __call__(self) -> int:
         return self.now()
+
+    def now_at(self, offset: int) -> int:
+        """The local time moved by ``offset`` - a candidate correction, not yet installed."""
+        return self._base() + offset
 
     @property
     def offset(self) -> int:

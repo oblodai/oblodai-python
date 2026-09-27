@@ -174,9 +174,9 @@ def test_a_3xx_the_sdk_sees_itself_names_the_target() -> None:
 # --- clock skew under concurrency ---------------------------------------------------------------
 
 
-def test_concurrent_calls_all_survive_an_hour_of_skew_with_one_correction() -> None:
+def test_concurrent_calls_all_survive_ten_minutes_of_skew_with_one_correction() -> None:
     """Every thread shares one clock: a correction one call installs must not be clobbered."""
-    server_now = int(time.time()) + 3600
+    server_now = int(time.time()) + 600
     lock = threading.Lock()
     corrected: List[bool] = []
 

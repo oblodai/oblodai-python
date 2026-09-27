@@ -137,8 +137,9 @@ class CallEngine:
         self._now_ms = now_ms or _now_ms
         self._attempt = 0
         self._skew_tried = False
-        self._skew_before = 0
-        self._skew_installed = 0
+        #: A server-derived offset this call re-signs ONE attempt with. It reaches the shared clock
+        #: only if that attempt succeeds; any other outcome discards it.
+        self._skew_candidate: Optional[int] = None
         #: The offset the attempt in flight was signed with - not whatever the shared clock says
         #: now, which another thread may already have moved.
         self._signed_offset = 0
@@ -200,7 +201,11 @@ class CallEngine:
         return self._send()
 
     def on_response(self, raw: RawResponse) -> Step:
+        candidate, self._skew_candidate = self._skew_candidate, None
         if 200 <= raw.status < 300:
+            if candidate is not None:
+                # The re-signed attempt got through: the core agrees with this offset.
+                self._settings.clock.correct(candidate)
             self._emit_response(raw.status, raw.headers, None)
             return Finish(dataclasses.replace(raw, request_id=self._request_id))
 
@@ -218,36 +223,34 @@ class CallEngine:
             ),
         )
 
-        # Clock skew: the core rejected the timestamp/MAC. Learn its time from the `Date` header,
-        # re-sign once, and keep the offset only if that attempt got past authentication.
-        if raw.status == 401 and getattr(failure, "code", None) in SIGNATURE_FAILURE_CODES:
-            clock = self._settings.clock
-            if not self._skew_tried:
-                offset = clock.observe_server_date(raw.header("date"))
-                # Compared against what THIS attempt signed with: another thread may have moved
-                # the shared offset in the meantime, and its correction is not evidence about
-                # this request.
-                if (
-                    offset is not None
-                    and abs(offset - self._signed_offset) > SIGNATURE_SKEW_SECONDS / 2
-                ):
-                    self._settings.logger.warning(
-                        "clock skew detected; re-signing with server time",
-                        {"route": self._label, "offset_sec": offset},
-                    )
-                    self._skew_tried = True
-                    self._skew_before = self._signed_offset
-                    self._skew_installed = offset
-                    clock.correct(offset)
-                    return self._send()
-            else:
-                # The corrected timestamp did not help: it was not skew. Put the old offset back
-                # only if this call's correction is still the one in force.
-                clock.revert_if_unchanged(self._skew_installed, self._skew_before)
+        # Clock skew: the core rejected the timestamp/MAC. Learn its time from the `Date` header
+        # (at most +/-MAX_PLAUSIBLE_OFFSET_SECONDS) and re-sign this one call once with it; the
+        # offset is installed for the client only if that attempt succeeds (above).
+        if (
+            raw.status == 401
+            and getattr(failure, "code", None) in SIGNATURE_FAILURE_CODES
+            and not self._skew_tried
+        ):
+            offset = self._settings.clock.observe_server_date(raw.header("date"))
+            # Compared against what THIS attempt signed with: another thread may have moved
+            # the shared offset in the meantime, and its correction is not evidence about
+            # this request.
+            if (
+                offset is not None
+                and abs(offset - self._signed_offset) > SIGNATURE_SKEW_SECONDS / 2
+            ):
+                self._settings.logger.warning(
+                    "clock skew detected; re-signing with server time",
+                    {"route": self._label, "offset_sec": offset},
+                )
+                self._skew_tried = True
+                self._skew_candidate = offset
+                return self._send()
 
         return self._after_failure(failure)
 
     def on_transport_error(self, error: BaseException) -> Step:
+        self._skew_candidate = None
         self._emit_response(0, {}, error)
         return self._after_failure(error)
 
@@ -260,7 +263,13 @@ class CallEngine:
     def _send(self) -> Step:
         route = self._route
         settings = self._settings
-        ts, self._signed_offset = settings.clock.now_with_offset()
+        if self._skew_candidate is not None:
+            ts, self._signed_offset = (
+                settings.clock.now_at(self._skew_candidate),
+                self._skew_candidate,
+            )
+        else:
+            ts, self._signed_offset = settings.clock.now_with_offset()
         try:
             request = build_request(
                 base_url=settings.base_url,

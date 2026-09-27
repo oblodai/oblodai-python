@@ -423,8 +423,8 @@ the same for every attempt of the call. There is no `AbortSignal`
 equivalent: cancel an async call by cancelling its task (`CancelledError` propagates untouched).
 
 Signed requests carry a timestamp, so a machine with a wrong clock would fail authentication; the
-client learns the offset from the gateway's own `Date` header and corrects for it (offsets beyond
-24 h are treated as implausible and ignored). Redirects are never followed — a signature is only
+client learns the offset from the gateway's own `Date` header, re-signs that call once with it and
+keeps it only if that attempt succeeds (offsets beyond 15 minutes are ignored). Redirects are never followed — a signature is only
 valid for the URI it was signed for, and an injected HTTP client that follows one is caught and
 turned into an error. Response bodies are read under a cap: 8 MiB for JSON, 64 MiB for documents,
 beyond which the call raises `ResponseTooLargeError`.

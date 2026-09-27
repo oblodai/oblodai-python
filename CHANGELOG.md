@@ -20,6 +20,11 @@ All notable changes to this package are documented here. The format follows
 - Webhooks: a timestamp header longer than 19 digits is a
   `SignatureError`; before, 4300+ digits raised a bare `ValueError`.
 
+- Clock skew: a `Date` header can move the signing clock by at most ±900 s (was ±24 h), and the
+  offset is installed for the client only after the re-signed attempt succeeds (2xx); any other
+  outcome discards it. Before, one 401 answer could shift every later signature up to a day into
+  the future, and the shift stuck after any non-signature answer.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the

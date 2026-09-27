@@ -73,7 +73,7 @@ async def test_surfaces_the_core_error_after_the_retry_budget() -> None:
 
 
 async def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> None:
-    server_now = int(time.time()) + 3600
+    server_now = int(time.time()) + 600
     mock = MockHTTP(
         [
             api_error(

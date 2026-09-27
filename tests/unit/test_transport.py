@@ -171,7 +171,7 @@ def test_re_signs_once_with_the_server_clock_when_a_401_reveals_skew() -> None:
     import time
     from email.utils import formatdate
 
-    server_now = int(time.time()) + 3600
+    server_now = int(time.time()) + 600
     mock = MockHTTP(
         [
             api_error(

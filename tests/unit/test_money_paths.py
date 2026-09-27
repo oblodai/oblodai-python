@@ -134,7 +134,7 @@ def _far_date() -> Dict[str, str]:
     import time
     from email.utils import formatdate
 
-    return {"date": formatdate(time.time() + 4000, usegmt=True)}
+    return {"date": formatdate(time.time() + 600, usegmt=True)}
 
 
 def test_ignores_the_date_header_on_a_401_that_is_not_a_signature_failure() -> None:
@@ -158,6 +158,55 @@ def test_reverts_the_correction_when_the_re_signed_attempt_is_still_rejected() -
     api.account.get_balance()
     # One bad `Date` cannot wedge the client: the third call signs with the local clock again.
     assert abs(int(mock.calls[2].headers[HEADER_TIMESTAMP.lower()]) - int(time.time())) < 5
+
+
+def _date(delta: int) -> Dict[str, str]:
+    import time
+    from email.utils import formatdate
+
+    return {"date": formatdate(time.time() + delta, usegmt=True)}
+
+
+def test_a_far_date_on_a_signature_401_never_moves_the_signing_clock() -> None:
+    """One answer from whatever sits at the base URL must not shift every later signature hours
+    into the future (valid there for a delayed replay): offsets past 900 s are ignored."""
+    import time
+
+    bad = api_error(401, {"code": "merchant.bad_signature", "retryable": False}, _date(23 * 3600))
+    mock = MockHTTP([bad, ok({"balance": {"merchant": []}})])
+    api = client(mock, retry=RetryOptions(max_retries=0))
+    with pytest.raises(OblodaiError):
+        api.account.get_balance()
+    assert len(mock.calls) == 1, "no re-signed attempt with a 23 h offset"
+    assert api.transport.settings.clock.offset == 0
+    api.account.get_balance()
+    assert abs(int(mock.calls[1].headers[HEADER_TIMESTAMP.lower()]) - int(time.time())) < 5
+
+
+def test_an_offset_is_kept_only_when_the_re_signed_attempt_succeeds() -> None:
+    """401 bad_signature + a plausible Date, then a 404: the re-signed attempt did not succeed, so
+    the offset is discarded rather than left installed for every later call."""
+    import time
+
+    bad = api_error(401, {"code": "merchant.bad_signature", "retryable": False}, _date(600))
+    missing = api_error(404, {"code": "payment.not_found", "retryable": False})
+    mock = MockHTTP([bad, missing, ok({"balance": {"merchant": []}})])
+    api = client(mock, retry=RetryOptions(max_retries=0))
+    with pytest.raises(OblodaiError):
+        api.account.get_balance()
+    assert len(mock.calls) == 2
+    assert abs(int(mock.calls[1].headers[HEADER_TIMESTAMP.lower()]) - (int(time.time()) + 600)) < 5
+    assert api.transport.settings.clock.offset == 0
+    api.account.get_balance()
+    assert abs(int(mock.calls[2].headers[HEADER_TIMESTAMP.lower()]) - int(time.time())) < 5
+
+
+def test_an_offset_is_installed_after_the_re_signed_attempt_succeeds() -> None:
+    bad = api_error(401, {"code": "merchant.bad_signature", "retryable": False}, _date(600))
+    mock = MockHTTP([bad, ok({"balance": {"merchant": []}})])
+    api = client(mock, retry=RetryOptions(max_retries=0))
+    api.account.get_balance()
+    assert abs(api.transport.settings.clock.offset - 600) < 5
 
 
 # --- request construction ------------------------------------------------------------------
