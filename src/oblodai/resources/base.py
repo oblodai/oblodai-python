@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar, Union
@@ -63,11 +64,21 @@ class FileResult:
 
     content: bytes
     content_type: str
+    #: The server's suggested file name, reduced to a safe basename: no directories, no control
+    #: characters, never ``.`` or ``..``. ``None`` when the answer named none (or nothing safe).
     filename: Optional[str] = None
 
-    def write_to(self, path: str) -> None:
-        """Save the document next to your code (or anywhere else)."""
-        with open(path, "wb") as handle:
+    def write_to(self, path: Union[str, os.PathLike[str]], *, overwrite: bool = False) -> None:
+        """Save the document to ``path`` (always a path you chose, never the server's name).
+
+        The file is created with ``0600`` permissions. An existing file (or a symlink) at
+        ``path`` is an error unless ``overwrite=True``, so a download never clobbers something
+        by accident.
+        """
+        flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        flags |= os.O_TRUNC if overwrite else os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags, 0o600)
+        with os.fdopen(fd, "wb") as handle:
             handle.write(self.content)
 
 
@@ -298,11 +309,22 @@ _FILENAME_PLAIN = re.compile(r'filename="?([^";]+)"?', re.IGNORECASE)
 
 
 def filename_from(disposition: Optional[str]) -> Optional[str]:
-    """Pull the file name out of a ``Content-Disposition`` header."""
+    """The file name of a ``Content-Disposition`` header, as a safe basename (:func:`safe_filename`)."""
     if not disposition:
         return None
     utf8 = _FILENAME_UTF8.search(disposition)
     if utf8:
-        return unquote(utf8.group(1))
+        return safe_filename(unquote(utf8.group(1)))
     plain = _FILENAME_PLAIN.search(disposition)
-    return plain.group(1) if plain else None
+    return safe_filename(plain.group(1)) if plain else None
+
+
+def safe_filename(name: str) -> Optional[str]:
+    """A server-chosen name reduced to something a caller can join to a directory: the last path
+    component only (``/`` and ``\\`` both separate), control characters dropped, and never ``.``,
+    ``..`` or empty (``None`` then)."""
+    base = re.split(r"[/\\]", name)[-1]
+    base = "".join(ch for ch in base if ch.isprintable()).strip()
+    if base in ("", ".", ".."):
+        return None
+    return base

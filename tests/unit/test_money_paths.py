@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import pytest
 
@@ -11,6 +12,7 @@ from oblodai import Oblodai, PaymentView, PayoutView, PublicPayResult
 from oblodai.core.errors import ConfigError, OblodaiError, TransportError
 from oblodai.core.retry import RetryOptions
 from oblodai.generated.signing import HEADER_IDEMPOTENCY_KEY, HEADER_SIGNATURE, HEADER_TIMESTAMP
+from oblodai.resources.base import FileResult
 from tests.support.mock_http import MockHTTP, Scripted, api_error, html, ok
 from tests.support.samples import sample
 
@@ -278,6 +280,48 @@ def test_reads_the_filename_from_content_disposition() -> None:
         ]
     )
     assert client(mock).documents.get_statement().filename == "statement.pdf"
+
+
+@pytest.mark.parametrize(
+    ("disposition", "expected"),
+    [
+        ('attachment; filename="../../.bashrc"', ".bashrc"),
+        ("attachment; filename*=UTF-8''..%2F..%2Fetc%2Fpasswd", "passwd"),
+        ('attachment; filename="C:\\\\Windows\\\\evil.pdf"', "evil.pdf"),
+        ('attachment; filename=".."', None),
+        ("attachment; filename*=UTF-8''.", None),
+        ("attachment; filename*=UTF-8''a%0D%0Ab%1B%5B31m.pdf", "ab[31m.pdf"),
+    ],
+)
+def test_a_server_file_name_is_reduced_to_a_safe_basename(
+    disposition: str, expected: Optional[str]
+) -> None:
+    mock = MockHTTP(
+        [Scripted(status=200, text="%PDF", headers={"content-disposition": disposition})]
+    )
+    assert client(mock).documents.get_statement().filename == expected
+
+
+def test_write_to_never_clobbers_and_writes_owner_only(tmp_path: Path) -> None:
+    import os
+    import stat
+
+    doc = FileResult(content=b"%PDF-1", content_type="application/pdf", filename="s.pdf")
+    target = tmp_path / "s.pdf"
+    doc.write_to(target)
+    assert target.read_bytes() == b"%PDF-1"
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
+    with pytest.raises(FileExistsError):
+        doc.write_to(target)
+    victim = tmp_path / "victim"
+    victim.write_text("keep")
+    link = tmp_path / "link.pdf"
+    link.symlink_to(victim)
+    with pytest.raises(OSError):
+        doc.write_to(link)
+    assert victim.read_text() == "keep"
+    FileResult(content=b"new", content_type="application/pdf").write_to(target, overwrite=True)
+    assert target.read_bytes() == b"new"
 
 
 def test_serializes_the_body_compactly_and_signs_exactly_those_bytes() -> None:

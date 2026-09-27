@@ -44,6 +44,11 @@ All notable changes to this package are documented here. The format follows
   only the signature. `device_code` and `api_key`/`X-Api-Key` join the redacted names in model
   `repr` and logs, and `BuiltRequest.__repr__` shows only the method and the redacted URL.
 
+- `FileResult.filename` is a safe basename of the server's `Content-Disposition` name: no
+  directories (`/` or `\`), no control characters, never `.`/`..` (`None` then); before, a
+  `filename*=UTF-8''..%2F..%2F…` came back verbatim. `FileResult.write_to(path)` creates the file
+  with `0600` permissions and refuses an existing file or symlink unless `overwrite=True`.
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the
