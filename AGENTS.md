@@ -105,10 +105,10 @@ known kind into its model (`None` for an unknown one).
 Verify over the **raw** bytes. Only `<ts>.<raw body>` is signed; the delivery-id, event-id,
 event, event-time and test headers are not (exposed only as `delivery.unverified_*`). ALWAYS ignore
 `delivery.is_test` deliveries (also `webhooks.is_test_event(event)`: `test: true` in the signed
-body) — never treat them as money. Deduplicate on `delivery.event_key` (`"<type>:<object
-id>:<sequence>"` from the signed body), never on a header; drop out-of-order events with
-`webhooks.is_stale(event, last_sequence)`; a resend has a new sequence, so make the action
-idempotent per object and status. During a rotation pass `previous_secret=` for at least
+body) — never treat them as money. Deduplicate on `delivery.event_key`: dedupe on `event_id`
+(fallback `type:id:sequence`), both from the signed body, never on a header; drop out-of-order
+events with `webhooks.is_stale(event, last_sequence)`; a resend keeps its `event_id`, but an older
+core sends none, so keep the action idempotent per object and status. During a rotation pass `previous_secret=` for at least
 26 h.
 
 ## Machine-readable surface

@@ -10,10 +10,11 @@ The rules that matter, whichever framework you use:
    signed, so anyone who captured a delivery can resend it with other values in them.
 3. Always ignore a rehearsal delivery (`delivery.is_test`, from the body's `test: true`): answer
    2xx, but never act on it as if money moved - it is signed like a live one.
-4. Deduplicate on `delivery.event_key` (type, object id and sequence from the signed body), and
-   drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`.
-5. A resend of a state carries a new, higher sequence: make the action itself idempotent per
-   object and status (below: `acted`), so a second `paid` never ships the goods twice.
+4. Deduplicate on `delivery.event_key`: dedupe on event_id (fallback type:id:sequence), both from
+   the signed body; drop out-of-order deliveries with `webhooks.is_stale(event, last_sequence)`.
+5. A resend of a state keeps its event_id, but a delivery from an older core has none and its
+   resend carries a new sequence: make the action itself idempotent per object and status
+   (below: `acted`), so a second `paid` never ships the goods twice.
 
 Answer 2xx quickly: the gateway retries anything else for about 26 hours.
 

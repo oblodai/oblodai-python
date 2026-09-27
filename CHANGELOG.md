@@ -9,8 +9,12 @@ All notable changes to this package are documented here. The format follows
 ### Security
 
 - Webhooks: every decision now comes from the signed body. `WebhookDeliveryInfo.event_key` (and
-  `webhooks.event_key(event)`) is the dedupe key, `"<type>:<object id>:<sequence>"`, read from the
-  signed body; `is_test` is the body's `test: true` only. The unsigned headers moved to
+  `webhooks.event_key(event)`) is the dedupe key: dedupe on `event_id` (fallback
+  `type:id:sequence`), read from the signed body. The body's `event_id`
+  (`webhooks.WEBHOOK_EVENT_ID_FIELD`) is the same across retries and resends of one state; a
+  delivery from an older core without it keys on `"<type>:<object id>:<sequence>"`. The webhook
+  models gain an optional `event_id`; a present but empty or non-string one is
+  `webhook.bad_payload`; `is_test` is the body's `test: true` only. The unsigned headers moved to
   `unverified_delivery_id`, `unverified_event_id`, `unverified_event_type`,
   `unverified_event_time` and `unverified_test_header` (breaking: `id`, `event_id`, `event_type`
   and `event_time` are gone). A captured delivery replayed with a new `X-Webhook-Event-Id` no

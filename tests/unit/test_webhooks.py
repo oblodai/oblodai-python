@@ -22,8 +22,9 @@ from oblodai.generated.signing import (
 )
 from tests.support.fixtures import load_webhook_samples, result_of
 
-# The samples were delivered by the core's real dispatcher to the recorder, signed with the
-# endpoint secret in force at that moment - the one returned by the rotate-secret call.
+# The samples were delivered by the core's real dispatcher to the recorder and keep their captured
+# bodies and headers, but are re-signed with fake secrets so no captured secret is published: the
+# rotate-secret fixture's secret (64 "0"s) and, in the Prev header, the register fixture's (64 "1"s).
 SAMPLES: List[Dict[str, Any]] = load_webhook_samples()
 SECRET: str = result_of("POST /v1/webhooks/rotate-secret")["secret"]
 
@@ -346,13 +347,50 @@ def test_a_replay_with_forged_headers_keeps_the_signed_dedupe_key() -> None:
     assert not hasattr(replay, "event_id") and not hasattr(replay, "id")
 
 
-def test_a_resend_has_a_new_key_and_is_never_stale() -> None:
-    """A resend (`POST /v1/payment/resend`) carries a deliberately HIGHER sequence, so it is a new
-    key and not stale: the action itself must be idempotent per object and status."""
+EVENT_ID = "5b1c2a4e-7d1f-5e0a-9c3b-2f4d6e8a0b1c"
+
+
+def test_a_resend_keeps_its_signed_event_id_and_dedupes() -> None:
+    """A resend (`POST /v1/payment/resend`) carries a deliberately HIGHER sequence but the same
+    signed `event_id`: same key (deduped), never stale. A forged event-id header changes nothing."""
+    ts = 1_700_000_000
+    body = dict(next(s["body"] for s in SAMPLES if s["body"]["type"] == "payment"))
+    body["sequence"] = 7
+    first = json.dumps({**body, webhooks.WEBHOOK_EVENT_ID_FIELD: EVENT_ID})
+    resend = json.dumps({**body, "sequence": 42, webhooks.WEBHOOK_EVENT_ID_FIELD: EVENT_ID})
+
+    def deliver(raw: str, header_event_id: str) -> webhooks.WebhookDeliveryInfo:
+        headers = {
+            HEADER_WEBHOOK_TIMESTAMP: str(ts),
+            HEADER_WEBHOOK_SIGNATURE: sign_webhook("whsec", ts, raw.encode()),
+            HEADER_WEBHOOK_EVENT_ID: header_event_id,
+        }
+        return webhooks.verify_delivery(raw, headers, secret="whsec", now=ts)
+
+    a = deliver(first, EVENT_ID)
+    b = deliver(resend, "attacker-fresh")
+    assert a.event_key == b.event_key == EVENT_ID
+    assert b.unverified_event_id == "attacker-fresh"
+    assert not webhooks.is_stale(b.event, last_processed_sequence=7)
+    model = webhooks.to_model(b.event)
+    assert model is not None and getattr(model, "event_id", None) == EVENT_ID
+
+
+def test_an_old_core_delivery_without_event_id_falls_back_to_type_id_sequence() -> None:
+    """Before the core signs `event_id`, the key is type:id:sequence - and a resend of that state
+    (higher sequence) is a new key: the action itself must be idempotent per object and status."""
     body = {"type": "payment", "uuid": "inv-1", "status": "paid", "sequence": 7}
     resend = {**body, "sequence": 42}
+    assert webhooks.event_key(body) == "payment:inv-1:7"
     assert webhooks.event_key(body) != webhooks.event_key(resend)
     assert not webhooks.is_stale(resend, last_processed_sequence=7)
+
+
+@pytest.mark.parametrize("bad", ['""', "7", "null"])
+def test_a_present_but_unusable_event_id_is_a_bad_payload(bad: str) -> None:
+    raw = '{"type": "payment", "uuid": "inv-1", "sequence": 7, "event_id": ' + bad + "}"
+    with pytest.raises(WebhookPayloadError):
+        webhooks.parse(raw)
 
 
 def test_event_key_is_none_without_an_object_id_or_sequence() -> None:

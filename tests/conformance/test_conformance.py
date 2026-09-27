@@ -92,6 +92,21 @@ def _test_header(suite: Dict[str, Any]) -> str:
     return name
 
 
+def _dedupe_field(suite: Dict[str, Any]) -> str:
+    """The signed body field to deduplicate on, from the spec (``dedupe_key.field_pointer``)."""
+    name: str = _pointer(_spec(suite), suite["dedupe_key"]["field_pointer"])
+    assert name
+    return name
+
+
+def test_webhook_dedupe_key_and_unverified_fields_match_the_sdk() -> None:
+    suite = _suite("webhook_delivery")
+    assert _dedupe_field(suite) == webhooks.WEBHOOK_EVENT_ID_FIELD
+    assert suite["dedupe_key"]["fallback"] == "type:id:sequence"
+    # Every header field is reported only under an `unverified_` name (see _UNVERIFIED_FIELDS).
+    assert suite["fields_unverified"] is True
+
+
 def _cases(name: str) -> List[Any]:
     suite = _suite(name)
     signing, vectors = _source(suite)
@@ -259,11 +274,20 @@ def test_webhook_delivery(
     if rehearsal:
         headers[_test_header(_suite("webhook_delivery"))] = "true"
     info = webhooks.verify_delivery(delivery["payload"], headers, secret=secret, now=delivery["ts"])
-    # The suite marks a rehearsal with the test HEADER, which the MAC does not cover: this SDK
-    # reports it as `unverified_test_header` and takes `is_test` from the signed body alone
-    # (whose `test` flag these deliveries do not set).
+    # The rehearsal HEADER is not covered by the MAC: it is reported only as
+    # `unverified_test_header`, and `is_test` comes from the signed body, live in every delivery.
     assert info.unverified_test_header is rehearsal
-    assert info.is_test is (info.event.get("test") is True)
+    assert info.is_test is False
+    assert webhooks.is_test_event(info.event) is False
+    # dedupe_key: the signed body field the spec names, else type:id:sequence from the body.
+    suite = _suite("webhook_delivery")
+    body = json.loads(delivery["payload"])
+    signed_id = body.get(_dedupe_field(suite))
+    if isinstance(signed_id, str):
+        assert signed_id == delivery["headers"][_header_names(suite)["event_id"]]
+        assert info.event_key == signed_id
+    else:
+        assert info.event_key == f"{body['type']}:{webhooks.object_id(body)}:{body['sequence']}"
     assert webhooks.is_known_event(info.event)
     assert info.event["type"] == delivery["kind"]
     model = webhooks.to_model(info.event)

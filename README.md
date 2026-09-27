@@ -329,11 +329,12 @@ learns what time this endpoint thinks it is.
 Only `<timestamp>.<raw body>` is signed. The delivery-id, event-id, event, event-time and test
 headers are **not**: anyone who captured one genuine delivery can resend it within the freshness
 window with other values in them. So decide on the signed body alone. Deduplicate on
-`delivery.event_key` (`webhooks.event_key(event)`: `"<type>:<object id>:<sequence>"`, all from the
-signed body); always ignore `delivery.is_test` deliveries (`test: true` in the signed body — the
-header does not count). A resend (`webhooks.resend_payment`, a sandbox replay) carries a new, higher
-`sequence` and so a new key: make the action itself idempotent per object and status, or a resent
-`invoice.paid` ships twice. The header values stay available as `delivery.unverified_*` for logs.
+`delivery.event_key` (`webhooks.event_key(event)`): dedupe on `event_id` (fallback
+`type:id:sequence`), both from the signed body — a delivery from an older core has no `event_id`.
+Always ignore `delivery.is_test` deliveries (`test: true` in the signed body — the header does not
+count). A resend (`webhooks.resend_payment`, a sandbox replay) carries a new, higher `sequence` but
+the same `event_id`, so it dedupes; on the fallback key it does not, so make the action itself
+idempotent per object and status all the same, or a resent `invoice.paid` could ship twice. The header values stay available as `delivery.unverified_*` for logs.
 During a secret rotation (`webhooks.rotate_secret`) pass `previous_secret=` for
 at least 26 h — deliveries queued before the rotation stay signed with the old secret for their
 whole retry life. `tolerance_sec` (default 300) bounds how stale a delivery may be.

@@ -21,13 +21,16 @@ Only ``<ts>.<raw body>`` is signed. The event, id, event-id, event-time and test
 not: anyone who captured one genuine delivery can resend it within the freshness window with other
 values in them. So every decision is taken from the signed body alone:
 
-* deduplicate on :func:`event_key` (``WebhookDeliveryInfo.event_key``) - ``type``, the object's
-  id and ``sequence``, all read from the signed body;
+* deduplicate on :func:`event_key` (``WebhookDeliveryInfo.event_key``): dedupe on ``event_id``
+  (fallback ``type:id:sequence``), both read from the signed body. ``event_id``
+  (:data:`WEBHOOK_EVENT_ID_FIELD`) is the same for every retry and every resend of one state of an
+  object; a delivery from an older core may lack it, and then the key is ``type``, the object's id
+  and ``sequence``;
 * a rehearsal is ``test: true`` in the signed body (:func:`is_test_event`,
   ``WebhookDeliveryInfo.is_test``); ALWAYS ignore those deliveries;
-* a resend of a state carries a new, higher ``sequence``, so it has a new key: make the action
-  itself idempotent per object and status (ship an invoice once, whatever the number of
-  ``paid`` deliveries).
+* a resend of a state keeps its ``event_id`` (only ``sequence`` grows), so it dedupes; on the
+  fallback key of an older core it does not: make the action itself idempotent per object and
+  status all the same (ship an invoice once, whatever the number of ``paid`` deliveries).
 
 The header values stay readable as ``WebhookDeliveryInfo.unverified_*`` for logs and support
 tickets only.
@@ -70,6 +73,7 @@ from .generated.signing import (
     HEADER_WEBHOOK_TEST,
     HEADER_WEBHOOK_TIMESTAMP,
     SKEW_SECONDS,
+    WEBHOOK_EVENT_ID_FIELD,
 )
 
 __all__ = [
@@ -83,6 +87,7 @@ __all__ = [
     "HEADER_WEBHOOK_TIMESTAMP",
     "KNOWN_EVENT_KINDS",
     "WEBHOOK_EVENTS",
+    "WEBHOOK_EVENT_ID_FIELD",
     "WEBHOOK_ID_FIELDS",
     "WEBHOOK_MODELS",
     "SignatureError",
@@ -136,9 +141,10 @@ class WebhookDeliveryInfo:
     event: AnyWebhookEvent
     #: :data:`HEADER_WEBHOOK_TIMESTAMP` - unix seconds when this attempt was sent (it is signed).
     sent_at: int
-    #: The deduplication key, from the signed body: ``"<type>:<object id>:<sequence>"``
-    #: (:func:`event_key`). Keep the keys you have handled and skip repeats. ``None`` when the body
-    #: lacks the object id or the ``sequence`` (an event kind newer than this SDK): process it.
+    #: The deduplication key, from the signed body (:func:`event_key`): its ``event_id``, or, from
+    #: an older core without it, ``"<type>:<object id>:<sequence>"``. Keep the keys you have handled
+    #: and skip repeats. ``None`` when neither can be built (an event kind newer than this SDK
+    #: without ``event_id``): process it.
     event_key: Optional[str] = None
     #: A rehearsal delivery (``test: true`` in the signed body): no money moved; ignore it.
     is_test: bool = False
@@ -277,6 +283,12 @@ def parse(raw_body: RawBody) -> AnyWebhookEvent:
     id_field = WEBHOOK_ID_FIELDS.get(kind)
     if id_field is not None and not isinstance(body.get(id_field), str):
         raise WebhookPayloadError(f"{kind} delivery body lacks the string {id_field} field")
+    if WEBHOOK_EVENT_ID_FIELD in body:
+        signed_id = body[WEBHOOK_EVENT_ID_FIELD]
+        if not isinstance(signed_id, str) or not signed_id:
+            raise WebhookPayloadError(
+                f"delivery body's {WEBHOOK_EVENT_ID_FIELD} is not a non-empty string"
+            )
     return dict(body)
 
 
@@ -297,18 +309,24 @@ def object_id(event: Mapping[str, Any]) -> Optional[str]:
 
 
 def event_key(event: Mapping[str, Any]) -> Optional[str]:
-    """The deduplication key of a verified event, built from its signed body only:
-    ``"<type>:<object id>:<sequence>"`` (``"payment:2f1c...:7"``).
+    """The deduplication key of a verified event, built from its signed body only: dedupe on
+    ``event_id`` (fallback ``type:id:sequence``).
 
-    A retry of a delivery, and a captured delivery replayed by someone else, carry the same body
-    and so the same key: keep the keys you handled and skip repeats. The delivery and event-id
-    headers are not signed and must never be the key.
+    The body's ``event_id`` (:data:`WEBHOOK_EVENT_ID_FIELD`) is the same for every retry and every
+    resend of one state of an object, so a resend dedupes too. A delivery from an older core may
+    lack it; then the key is ``"<type>:<object id>:<sequence>"`` (``"payment:2f1c...:7"``), which a
+    retry or a captured replay shares but a resend (higher ``sequence``) does not. The delivery
+    and event-id headers are not signed and must never be the key.
 
-    ``None`` when the body has no object id (:func:`object_id`) or no integer ``sequence`` - an
-    event kind newer than this SDK: process such a delivery rather than drop it.
+    ``None`` when there is no ``event_id`` and the body has no object id (:func:`object_id`) or
+    no integer ``sequence`` - an event kind newer than this SDK: process such a delivery rather
+    than drop it.
     """
     if not isinstance(event, Mapping):
         return None
+    signed_id = event.get(WEBHOOK_EVENT_ID_FIELD)
+    if isinstance(signed_id, str) and signed_id:
+        return signed_id
     kind = event.get("type")
     obj = object_id(event)
     sequence = event.get("sequence")
@@ -377,8 +395,9 @@ def is_stale(event: Mapping[str, Any], last_processed_sequence: Optional[int]) -
 
     This is ORDERING, not deduplication (that is :func:`event_key`). A resend carries a
     deliberately HIGHER sequence (a lower one could be discarded as a straggler, and a resend has
-    to be able to correct a reorg reversal), so it is never stale and has a new key: make the
-    action itself idempotent per object and status, or a resent ``invoice.paid`` ships twice.
+    to be able to correct a reorg reversal), so it is never stale; it keeps its ``event_id`` and so
+    its :func:`event_key`, except on the fallback key of an older core: keep the action itself
+    idempotent per object and status, or a resent ``invoice.paid`` could ship twice.
     """
     if last_processed_sequence is None:
         return False
