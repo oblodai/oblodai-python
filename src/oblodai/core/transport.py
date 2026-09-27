@@ -23,6 +23,7 @@ from .engine import (
 )
 from .errors import OblodaiError, TransportError
 from .route import RouteSpec
+from .steps import scrub
 
 __all__ = ["Transport"]
 
@@ -123,4 +124,6 @@ class Transport:
             # Only a real transport failure becomes one. A TypeError from inside this SDK is a
             # bug, and dressing it up as a retryable network error would hide it and re-send the
             # request twice more.
-            raise TransportError("transport.network", f"network error: {err}", err) from err
+            raise TransportError(
+                "transport.network", f"network error: {scrub(str(err), step.request)}", err
+            ) from err

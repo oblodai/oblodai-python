@@ -27,6 +27,7 @@ __all__ = [
     "Send",
     "Step",
     "assert_not_redirected",
+    "scrub",
 ]
 
 
@@ -101,13 +102,25 @@ class BodyReader:
         if self._size > self._step.max_bytes:
             raise ResponseTooLargeError(
                 f"response body exceeds the {self._step.max_bytes} byte limit for "
-                f"{self._step.request.method} {self._step.request.request_uri}",
+                f"{self._step.request.method} {self._step.request.display_uri}",
                 http_status,
             )
         self._chunks.append(chunk)
 
     def finish(self) -> bytes:
         return b"".join(self._chunks)
+
+
+def scrub(text: str, request: BuiltRequest) -> str:
+    """An HTTP library's error text with the request's secret-bearing URL swapped for its display
+    form (a claim token in the path, a signed link's ``sig`` in the query)."""
+    for secret, shown in (
+        (request.url, request.display_url),
+        (request.request_uri, request.display_uri),
+    ):
+        if secret and secret != shown:
+            text = text.replace(secret, shown)
+    return text
 
 
 def assert_not_redirected(requested_url: str, final_url: str, http_status: int) -> None:

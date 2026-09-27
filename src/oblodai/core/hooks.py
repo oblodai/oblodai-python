@@ -10,17 +10,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional
 
+from .logger import is_sensitive
 from .signing import HEADER_ADMIN_TOKEN, HEADER_SIGNATURE
 
 __all__ = ["Hooks", "RequestInfo", "ResponseInfo", "redact_headers"]
 
-_SECRET_HEADERS = frozenset(h.lower() for h in (HEADER_SIGNATURE, HEADER_ADMIN_TOKEN))
+_SECRET_HEADERS = frozenset(
+    h.lower() for h in (HEADER_SIGNATURE, HEADER_ADMIN_TOKEN, "Cookie", "Set-Cookie")
+)
 
 
 def redact_headers(headers: Mapping[str, str]) -> Mapping[str, str]:
-    """A copy with the signature and the admin token replaced by ``[redacted]``."""
+    """A copy with every secret-carrying header replaced by ``[redacted]``: the signature, and any
+    header whose name reads like a credential (``Authorization``, ``X-Api-Key``,
+    ``Proxy-Authorization``, ``X-Claim-Passcode``, ...), compared case-insensitively."""
     return {
-        name: "[redacted]" if name.lower() in _SECRET_HEADERS else value
+        name: "[redacted]" if name.lower() in _SECRET_HEADERS or is_sensitive(name) else value
         for name, value in headers.items()
     }
 
@@ -30,8 +35,10 @@ class RequestInfo:
     """One attempt about to be sent."""
 
     method: str
+    #: The URL with secret path and query parameters (a claim ``{token}``, a signed link's
+    #: ``sig``/``exp``) replaced by ``[redacted]``.
     url: str
-    #: The headers as sent, with the signature and the admin token redacted.
+    #: The headers as sent, with the signature and other credentials redacted.
     headers: Mapping[str, str] = field(repr=False)
     #: 1 for the first attempt, 2 for the first retry, and so on.
     attempt: int

@@ -17,6 +17,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .errors import ApiError, ContractError, ErrorDetail, api_error_from, coerce_retry_after
+from .logger import redact_location
 
 __all__ = [
     "as_page",
@@ -91,7 +92,8 @@ def unexpected_redirect(http_status: int, location: Optional[str], raw: Any = No
     Raised both for a 3xx the SDK saw itself and for one an injected HTTP client followed behind
     its back (detected by the answer coming from a URL nobody asked for).
     """
-    where = f" to {location}" if location else ""
+    # Scheme and host only: the path and query may carry the claim token or link signature.
+    where = f" to {redact_location(location)}" if location else ""
     return api_error_from(
         http_status,
         {

@@ -299,7 +299,7 @@ class CallEngine:
         if hooks is not None:
             self._attempt_info = RequestInfo(
                 method=request.method,
-                url=request.url,
+                url=request.display_url,
                 headers=redact_headers(request.headers),
                 attempt=self._attempt + 1,
                 request_id=self._request_id,
@@ -325,7 +325,7 @@ class CallEngine:
             ResponseInfo(
                 request=self._attempt_info,
                 status=status,
-                headers=headers,
+                headers=redact_headers(headers),
                 elapsed=max(0.0, (self._now_ms() - self._sent_at) / 1000.0),
                 error=error,
             )

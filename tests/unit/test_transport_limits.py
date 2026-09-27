@@ -168,7 +168,8 @@ def test_a_3xx_the_sdk_sees_itself_names_the_target() -> None:
     client = Oblodai(http_client=mock.client, **CREDS)
     with pytest.raises(OblodaiError) as excinfo:
         client.account.get_balance()
-    assert "https://elsewhere.test/x" in str(excinfo.value)
+    assert "https://elsewhere.test/" in str(excinfo.value)
+    assert "/x" not in str(excinfo.value), "the path may carry the claim token: never shown"
 
 
 # --- clock skew under concurrency ---------------------------------------------------------------

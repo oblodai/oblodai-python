@@ -14,6 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from ..generated.money import NON_MONEY_NUMBERS
 from .errors import ConfigError
+from .logger import is_sensitive_param
 from .route import RouteSpec
 from .signing import (
     HEADER_ADMIN_TOKEN,
@@ -77,16 +78,32 @@ class Credentials:
         return f"Credentials(public_id={self.public_id!r}, secret='[redacted]')"
 
 
+#: What a secret path or query value is shown as.
+REDACTED = "[redacted]"
+
+
 @dataclass(frozen=True)
 class BuiltRequest:
-    """Everything the HTTP layer needs, plus the string that was signed."""
+    """Everything the HTTP layer needs, plus the string that was signed.
+
+    ``url`` and ``request_uri`` are what goes on the wire and may carry a bearer secret (a claim
+    ``{token}``, a signed link's ``sig``); anything shown to people - hooks, error messages,
+    ``repr`` - uses ``display_url`` / ``display_uri`` instead.
+    """
 
     url: str
     method: str
-    headers: Dict[str, str]
-    content: Optional[bytes]
+    headers: Dict[str, str] = field(repr=False)
+    content: Optional[bytes] = field(repr=False)
     #: What was signed (path + query); kept for debugging signature mismatches.
-    request_uri: str
+    request_uri: str = field(repr=False)
+    #: ``url`` with secret path and query values replaced by ``[redacted]``.
+    display_url: str = ""
+    #: ``request_uri`` likewise.
+    display_uri: str = ""
+
+    def __repr__(self) -> str:
+        return f"BuiltRequest(method={self.method!r}, url={self.display_url!r})"
 
 
 def build_request(
@@ -116,6 +133,9 @@ def build_request(
     path = prefix + fill_path(route.path, path_params)
     query_string = encode_query(query)
     request_uri = f"{path}?{query_string}" if query_string else path
+    shown_path = prefix + fill_path(route.path, path_params, redact=True)
+    shown_query = encode_query(query, redact=True)
+    display_uri = f"{shown_path}?{shown_query}" if shown_query else shown_path
 
     headers: Dict[str, str] = {}
     for name, value in (extra_headers or {}).items():
@@ -159,6 +179,8 @@ def build_request(
         headers=headers,
         content=body if has_body else None,
         request_uri=request_uri,
+        display_url=f"{origin}{display_uri}",
+        display_uri=display_uri,
     )
 
 
@@ -193,8 +215,17 @@ def join_url(base_url: str) -> tuple[str, str]:
     return origin, prefix
 
 
-def fill_path(template: str, params: Optional[Mapping[str, Union[str, int]]] = None) -> str:
-    """Substitute ``{name}`` segments; every placeholder must be supplied, values are encoded."""
+def fill_path(
+    template: str,
+    params: Optional[Mapping[str, Union[str, int]]] = None,
+    *,
+    redact: bool = False,
+) -> str:
+    """Substitute ``{name}`` segments; every placeholder must be supplied, values are encoded.
+
+    ``redact=True`` shows a secret parameter (:func:`~oblodai.core.logger.is_sensitive_param`,
+    e.g. the claim ``{token}``) as ``[redacted]`` - for display, never for the wire.
+    """
     values = params or {}
     out = template
     while True:
@@ -214,11 +245,16 @@ def fill_path(template: str, params: Optional[Mapping[str, Union[str, int]]] = N
                 f"(got {json.dumps(text)})",
                 name,
             )
-        out = out[:start] + quote(text, safe="") + out[end + 1 :]
+        shown = REDACTED if redact and is_sensitive_param(name) else quote(text, safe="")
+        out = out[:start] + shown + out[end + 1 :]
 
 
-def encode_query(query: Optional[Query]) -> str:
-    """Percent-encode a query mapping, dropping ``None`` values and keeping insertion order."""
+def encode_query(query: Optional[Query], *, redact: bool = False) -> str:
+    """Percent-encode a query mapping, dropping ``None`` values and keeping insertion order.
+
+    ``redact=True`` shows secret values (a signed link's ``sig``/``exp``, any ``token``) as
+    ``[redacted]`` - for display, never for the wire.
+    """
     if not query:
         return ""
     parts = []
@@ -226,6 +262,9 @@ def encode_query(query: Optional[Query]) -> str:
         if value is None:
             continue
         rendered = ("true" if value else "false") if isinstance(value, bool) else str(value)
+        if redact and is_sensitive_param(str(key)):
+            parts.append(f"{quote(str(key), safe='')}={REDACTED}")
+            continue
         parts.append(f"{quote(str(key), safe='')}={quote(rendered, safe='')}")
     return "&".join(parts)
 

@@ -24,6 +24,7 @@ from .engine import (
 )
 from .errors import OblodaiError, TransportError
 from .route import RouteSpec
+from .steps import scrub
 
 __all__ = ["AsyncTransport"]
 
@@ -116,7 +117,9 @@ class AsyncTransport:
             raise
         except (httpx.HTTPError, OSError) as err:
             # Only a real transport failure becomes one; a bug inside this SDK stays a bug.
-            raise TransportError("transport.network", f"network error: {err}", err) from err
+            raise TransportError(
+                "transport.network", f"network error: {scrub(str(err), step.request)}", err
+            ) from err
 
     async def _perform(self, step: Send) -> RawResponse:
         request = step.request
