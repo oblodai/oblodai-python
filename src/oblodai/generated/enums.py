@@ -656,6 +656,7 @@ class WebhookEventName(str, Enum):
     INVOICE_EXPIRED = "invoice.expired"
     INVOICE_CANCELLED = "invoice.cancelled"
     INVOICE_UNDER_REVIEW = "invoice.under_review"
+    INVOICE_REVERSED = "invoice.reversed"
     PAYOUT_APPROVED = "payout.approved"
     PAYOUT_AWAITING_COSIGN = "payout.awaiting_cosign"
     PAYOUT_BROADCASTING = "payout.broadcasting"

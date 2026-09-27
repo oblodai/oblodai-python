@@ -3,4 +3,4 @@
 its bytes. The User-Agent names the hash; it changes with every change of the contract."""
 
 CONTRACT_VERSION = "1.0.0"
-CONTRACT_HASH = "57f2776340d14aa4b941baead37f71c8e45cdff09871424537dca845545f21fd"
+CONTRACT_HASH = "723f121d0898f88c90c112294d9f95c9efa5a62f89399a1cd75d7c8f44c74822"

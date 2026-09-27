@@ -443,3 +443,20 @@ def test_to_model_leaves_an_unknown_kind_alone_and_rejects_a_broken_known_one() 
 def test_every_known_kind_has_a_model_and_an_event() -> None:
     assert set(webhooks.WEBHOOK_MODELS) == set(webhooks.KNOWN_EVENT_KINDS)
     assert set(webhooks.WEBHOOK_EVENTS.values()) == set(webhooks.KNOWN_EVENT_KINDS)
+
+
+def test_invoice_reversed_is_a_payment_event_and_reversal_is_optional() -> None:
+    """``invoice.reversed``: a chain reorganization removed a counted deposit. ``reversal`` is
+    optional - a core before it does not send the field, which then reads as false."""
+    from oblodai import PaymentWebhook, WebhookEventName
+    from tests.support.samples import sample
+
+    assert WebhookEventName("invoice.reversed") is WebhookEventName.INVOICE_REVERSED
+    assert webhooks.WEBHOOK_EVENTS["invoice.reversed"] == "payment"
+    body = sample(PaymentWebhook, type="payment", uuid="u1", sequence=8)
+    assert "reversal" not in body, "reversal must stay optional"
+    older = webhooks.to_model(webhooks.parse(json.dumps(body)))
+    assert isinstance(older, PaymentWebhook) and older.reversal is None
+    reversed_body = {**body, "status": "expired", "reversal": True, "txid": ""}
+    model = webhooks.to_model(webhooks.parse(json.dumps(reversed_body)))
+    assert isinstance(model, PaymentWebhook) and model.reversal is True

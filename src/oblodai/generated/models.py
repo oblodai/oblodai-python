@@ -4817,8 +4817,9 @@ class PaymentViewList(Model):
 
 @dataclasses.dataclass(frozen=True, repr=False, kw_only=True)
 class PaymentWebhook(Model):
-    """Sent when a payment moves to paid, paid_over, wrong_amount, expired or under_review, and when
-    it rolls back from them (a chain reorganization). The current status — any value from the
+    """Sent when a payment moves to paid, paid_over, wrong_amount, expired, cancelled or
+    under_review. A chain reorganization that removes a counted deposit is sent as invoice.reversed
+    (reversal = true, txid empty) with the status after it. The current status — any value from the
     vocabulary — can be requested again: POST /v1/payment/resend. Match it to the order by
     order_id/uuid and to the blockchain by txid and network.
     """
@@ -4856,6 +4857,7 @@ class PaymentWebhook(Model):
         "payer_amount",
         "payer_currency",
         "payment_amount",
+        "reversal",
         "sequence",
         "status",
         "test",
@@ -4882,6 +4884,7 @@ class PaymentWebhook(Model):
     type_: str
     uuid: str
     event_id: Optional[str] = None
+    reversal: Optional[bool] = None
     test: Optional[bool] = None
     extra: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -4906,6 +4909,7 @@ class PaymentWebhook(Model):
             type_=str(data["type"]),
             uuid=str(data["uuid"]),
             event_id=_opt(str, data.get("event_id")),
+            reversal=_opt(bool, data.get("reversal")),
             test=_opt(bool, data.get("test")),
             extra=_extra(data, cls._FIELDS),
         )
@@ -4931,6 +4935,8 @@ class PaymentWebhook(Model):
         out["uuid"] = _dump(self.uuid)
         if self.event_id is not None:
             out["event_id"] = _dump(self.event_id)
+        if self.reversal is not None:
+            out["reversal"] = _dump(self.reversal)
         if self.test is not None:
             out["test"] = _dump(self.test)
         return out

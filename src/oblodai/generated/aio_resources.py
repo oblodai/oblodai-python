@@ -511,7 +511,7 @@ class AsyncPayments(AsyncResource):
         (`invoice.already_paid` / `invoice.deposit_pending`): such an invoice must be settled or
         refunded, not cancelled.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, invoice.already_paid, invoice.corrupt_pay_asset, invoice.deposit_pending,
@@ -562,7 +562,7 @@ class AsyncPayments(AsyncResource):
         `email.rate_limited`, 429). A payment receipt is sent automatically to `payer_email` once
         the payment is received.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         email.bad_recipient, email.disabled, email.no_recipient, email.rate_limited, internal,
@@ -620,7 +620,7 @@ class AsyncPayments(AsyncResource):
         string in a redirect means "do not redirect". The URL must be http(s); it is validated on
         write, not on display.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, checkoutcfg.bad_url,
         checkoutcfg.disabled, checkoutcfg.url_too_long, cli.permission_denied, internal,
@@ -705,7 +705,7 @@ class AsyncPayments(AsyncResource):
         `link` (hand it to the payer), `expired_at`, `status` (`init|pending|completed|expired`).
         The questionnaire contents are not shown to you: they are your customer's data, not yours.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: aml.sof_race, auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed,
         cli.permission_denied, internal, invoice.corrupt_pay_asset, merchant.bad_signature,
@@ -762,8 +762,7 @@ class AsyncPayments(AsyncResource):
         refunded. It moves money — it is signed with your API key like everything else: a merchant
         has one key and it has full access.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         compliance.blocked, compliance.blocked_address, compliance.blocklist_unavailable,
@@ -858,7 +857,7 @@ class AsyncPaymentLinks(AsyncResource):
         lifetime in seconds (0 = **never expires**; the invoices themselves still have the usual
         short lifetime). The response contains `link_id` and the `url` for the customer.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.acceptance_blocked, merchant.bad_signature, merchant.key_expired,
@@ -1003,7 +1002,7 @@ class AsyncPaymentLinks(AsyncResource):
 
         `{link_id, active}`. A disabled link does not accept new payments.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -1075,10 +1074,13 @@ class AsyncRefunds(AsyncResource):
         with `payout.insufficient_funds`. POST /v1/payment/refund/calculate shows these numbers
         without refunding.
 
-        Idempotent on `(payment, address, amount)`. Refunds to any address are approved
-        automatically. The only exception is a card payment via an on-ramp: a refund TO THE RECORDED
-        PAYER ADDRESS of such an invoice is rejected (`refund.omnibus_destination`), because that
-        address belongs to the provider, not the buyer — send the buyer's address explicitly.
+        Idempotent on `(payment, address, amount)`, and on `reference` when you pass it: a retry
+        with the same `reference` returns the refund already made — also when `amount` is omitted,
+        where the retry's own default would otherwise be the (now zero) remainder. Refunds to any
+        address are approved automatically. The only exception is a card payment via an on-ramp: a
+        refund TO THE RECORDED PAYER ADDRESS of such an invoice is rejected
+        (`refund.omnibus_destination`), because that address belongs to the provider, not the buyer
+        — send the buyer's address explicitly.
 
         A refund is paid in THE SAME coin the buyer paid with. If it has already been converted into
         a stablecoin by auto-conversion, pass `from_currency: "USDT"` — the refund is funded by
@@ -1086,8 +1088,7 @@ class AsyncRefunds(AsyncResource):
         partner shares are reversed. You can also send the money as a regular payout, but reports
         will show it as a payout, not a refund.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         compliance.blocked, compliance.blocked_address, compliance.blocklist_unavailable,
@@ -1178,9 +1179,14 @@ class AsyncRefunds(AsyncResource):
         (`refund.exceeds_refundable`, `refund.dust`, `refund.no_address`,
         `refund.nothing_to_refund`, …), including `payout.insufficient_funds` when your available
         balance does not cover the refund — which, when you bear the commission, can be more than
-        the payment credited. Not checked: the destination address screening, which runs when the
-        refund is made, and deposits that are not yet final, which the refund holds back
-        (`payout.funds_maturing`). Reserves and sends nothing; safe to retry.
+        the payment credited — and the payout controls the refund's payout meets: the payout freeze,
+        your freeze, daily limit and per-payout limit, and whether the destination can receive this
+        amount (`payout.destination_not_activated`). Not checked: the paid screening of the
+        destination address, which runs when the refund is made; deposits that are not yet final,
+        which the refund holds back (`payout.funds_maturing`); and, for a key that may not make
+        refunds itself (a CLI key without the right to move money out), whether the address belongs
+        to the gateway (`refund.destination_internal`) — the refund always checks it. Reserves and
+        sends nothing; safe to retry.
 
         Requires role: Viewer when called with a CLI key.
 
@@ -1189,9 +1195,10 @@ class AsyncRefunds(AsyncResource):
         merchant.key_mode_mismatch, merchant.rate_limited, merchant.secret_decrypt,
         merchant.suspended, merchant.unknown_key, onramp.suppresses, payment.bad_uuid,
         payment.no_lookup, payment.not_found, payout.above_limit, payout.address_network_mismatch,
-        payout.bad_address, payout.bad_memo, payout.cap_unpriceable, payout.convert_bad_amount,
-        payout.convert_insufficient, payout.convert_no_rate, payout.convert_same_asset,
-        payout.convert_unsupported, payout.daily_cap, payout.freeze_unknown, payout.frozen,
+        payout.amount_below_fee, payout.bad_address, payout.bad_memo, payout.cap_unpriceable,
+        payout.convert_bad_amount, payout.convert_insufficient, payout.convert_no_rate,
+        payout.convert_same_asset, payout.convert_unsupported, payout.daily_cap,
+        payout.destination_not_activated, payout.freeze_unknown, payout.frozen,
         payout.insufficient_funds, payout.memo_conflict, payout.memo_required, payout.memo_too_long,
         payout.merchant_frozen, rates.deviation, rates.no_source, rates.non_positive,
         rates.stale_rate, refund.bad_amount, refund.chain_ambiguous, refund.destination_internal,
@@ -1254,8 +1261,7 @@ class AsyncRefunds(AsyncResource):
         the operator has reviewed it. Until then it is not yours yet, and the response will be
         "nothing to refund".
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         compliance.blocked, compliance.blocked_address, compliance.blocklist_unavailable,
@@ -1338,8 +1344,7 @@ class AsyncPayouts(AsyncResource):
 
         Also: `memo` (tag/memo for TON), `url_callback` (your own webhook URL for this payout).
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         compliance.blocked, compliance.blocked_address, compliance.blocklist_unavailable,
@@ -1415,8 +1420,7 @@ class AsyncPayouts(AsyncResource):
         stop the rest, and a result is returned for each. Idempotent on `order_id`, like a regular
         payout.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed,
         batch.duplicate_order_id, cli.permission_denied, compliance.blocked,
@@ -1644,34 +1648,37 @@ class AsyncPayouts(AsyncResource):
     ) -> PayoutValidateResult:
         """Validate a payout without creating it (dry run)
 
-        Runs all payout-creation checks — currency, amount, network, address, memo, address
-        screening, fee, freeze/daily limit and balance sufficiency — but reserves and sends nothing.
-        The response is `valid: true` with the amounts (`amount`, `commission`, `payer_amount`,
-        `fee_bearer`), the destination `address`, and for a `from_currency` payout the USDT the
-        funding conversion would spend (`from_amount`, at the current rate), or the same error that
-        creation would return. The body is the same as for POST /v1/payout (order_id is optional for
-        validation).
+        Runs the payout-creation checks — currency, amount, network, address, memo, sanctions lists
+        and blocklist, fee, payout freeze, destination activation, your freeze/daily
+        limit/per-payout limit and balance sufficiency — but reserves and sends nothing, and costs
+        nothing: the paid AML screening of the address runs only when the payout is created, so
+        `compliance.blocked` is the one refusal validation cannot foresee. The response is `valid:
+        true` with the amounts (`amount`, `commission`, `payer_amount`, `fee_bearer`), the
+        destination `address`, and for a `from_currency` payout the USDT the funding conversion
+        would spend (`from_amount`, at the current rate), or the same error that creation would
+        return. The body is the same as for POST /v1/payout (order_id is optional for validation).
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
-        compliance.blocked, compliance.blocked_address, compliance.blocklist_unavailable,
-        compliance.no_destination, compliance.no_network, compliance.sanctioned_address,
-        compliance.sanctions_unavailable, internal, merchant.bad_signature, merchant.key_expired,
-        merchant.key_mode_mismatch, merchant.rate_limited, merchant.secret_decrypt,
-        merchant.suspended, merchant.unknown_key, payout.above_limit,
-        payout.address_network_mismatch, payout.amount_below_fee, payout.bad_address,
-        payout.bad_amount, payout.bad_memo, payout.bad_url_callback, payout.cap_unpriceable,
-        payout.convert_bad_amount, payout.convert_insufficient, payout.convert_no_rate,
-        payout.convert_same_asset, payout.convert_unsupported, payout.daily_cap,
-        payout.destination_internal, payout.from_currency_unsupported, payout.insufficient_funds,
+        compliance.blocked_address, compliance.blocklist_unavailable, compliance.no_destination,
+        compliance.no_network, compliance.sanctioned_address, compliance.sanctions_unavailable,
+        internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
+        merchant.rate_limited, merchant.secret_decrypt, merchant.suspended, merchant.unknown_key,
+        payout.above_limit, payout.address_network_mismatch, payout.amount_below_fee,
+        payout.asset_mismatch, payout.bad_address, payout.bad_amount, payout.bad_memo,
+        payout.bad_url_callback, payout.cap_unpriceable, payout.convert_bad_amount,
+        payout.convert_insufficient, payout.convert_no_rate, payout.convert_same_asset,
+        payout.convert_unsupported, payout.daily_cap, payout.destination_internal,
+        payout.destination_not_activated, payout.fee_asset_mismatch, payout.freeze_unknown,
+        payout.from_currency_unsupported, payout.frozen, payout.insufficient_funds,
         payout.memo_conflict, payout.memo_required, payout.memo_too_long, payout.merchant_frozen,
-        payout.network_required, payout.reserved_reference, payout.unsupported_network,
-        rates.deviation, rates.no_source, rates.non_positive, request.bad_json, request.body_read,
-        request.control_char, request.duplicate_field, request.nul_byte, request.overloaded,
-        request.rate_limited, request.reference_invalid, request.reference_too_long,
-        request.too_deep, request.unknown_currency, sandbox.convert_not_available,
-        wallet.static_not_found, webhook.no_endpoint
+        payout.network_required, payout.no_destination, payout.reserved_reference,
+        payout.unsupported_network, rates.deviation, rates.no_source, rates.non_positive,
+        request.bad_json, request.body_read, request.control_char, request.duplicate_field,
+        request.nul_byte, request.overloaded, request.rate_limited, request.reference_invalid,
+        request.reference_too_long, request.too_deep, request.unknown_currency,
+        sandbox.convert_not_available, wallet.static_not_found, webhook.no_endpoint
         """
         body = merge_params(
             params,
@@ -1718,7 +1725,7 @@ class AsyncPayouts(AsyncResource):
         also a payout, so this same method rejects a refund that has not been sent yet. Only your
         own payout.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, ledger.account_not_found, ledger.asset_mismatch, ledger.bad_direction,
@@ -1914,8 +1921,7 @@ class AsyncPayouts(AsyncResource):
         fee, instant, off-chain). The recipient is addressed by user id; a username is resolved by
         the dashboard's public endpoint /public/users/{username}.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         idempotency.bad_key, idempotency.in_progress, idempotency.key_reused,
@@ -1972,8 +1978,7 @@ class AsyncPayouts(AsyncResource):
         An asynchronous batch of internal transfers: {"transfers":[<as in /v1/transfer/to-user>...],
         "on_error":"continue"}. Status and per-row results — POST /v1/batch/info.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, batch.bad_on_error,
         batch.bad_recipient, batch.disabled, batch.duplicate_order_id, batch.duplicate_reference,
@@ -2037,8 +2042,7 @@ class AsyncPayoutLinks(AsyncResource):
         HOUR, not the maximum — set the lifetime explicitly. Idempotency: `reference` (or the
         `Idempotency-Key` header).
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         email.bad_recipient, idempotency.bad_key, idempotency.in_progress, idempotency.key_reused,
@@ -2100,8 +2104,7 @@ class AsyncPayoutLinks(AsyncResource):
         Up to 500 links per call; each succeeds or fails independently, the response is aligned with
         the request indices. Retrying with the same `reference` values is safe.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         email.bad_recipient, idempotency.bad_key, idempotency.in_progress, idempotency.key_reused,
@@ -2237,7 +2240,7 @@ class AsyncPayoutLinks(AsyncResource):
 
         An unclaimed link is cancelled and the reserve is returned to the balance.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, ledger.account_not_found, ledger.asset_mismatch, ledger.bad_direction,
@@ -2403,7 +2406,7 @@ class AsyncBatches(AsyncResource):
         is rejected with `batch.bad_on_error`. Each item is idempotent on its own `order_id`; the
         whole batch — on the `Idempotency-Key` header.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, batch.bad_on_error,
         batch.bad_recipient, batch.disabled, batch.duplicate_order_id, batch.duplicate_reference,
@@ -2455,8 +2458,7 @@ class AsyncBatches(AsyncResource):
         would silently collapse into one. Returns `batch_id`; per-item status via `/v1/batch/info`.
         `on_error`: `continue`/`stop`.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, batch.bad_on_error,
         batch.bad_recipient, batch.disabled, batch.duplicate_order_id, batch.duplicate_reference,
@@ -2505,8 +2507,7 @@ class AsyncBatches(AsyncResource):
         payouts, processed in the background, status via `/v1/batch/info`. Each item is a regular
         `/v1/payout` object, idempotent on `order_id`.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, batch.bad_on_error,
         batch.bad_recipient, batch.disabled, batch.duplicate_order_id, batch.duplicate_reference,
@@ -2624,8 +2625,7 @@ class AsyncSplits(AsyncResource):
         external share cannot be recovered (top up your balance); an on-platform partner's share is
         clawed back automatically.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         idempotency.bad_key, idempotency.in_progress, idempotency.key_reused,
@@ -2721,7 +2721,7 @@ class AsyncSplits(AsyncResource):
 
         `{rule_id}`. Does not affect shares already sent.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -2769,7 +2769,7 @@ class AsyncSplits(AsyncResource):
         after sending. Range 0–7776000 (up to 90 days); the field is required — send `0` explicitly
         if shares should be sent immediately.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -2847,7 +2847,7 @@ class AsyncSplits(AsyncResource):
         disabled, nobody can create an internal split rule with you as the recipient. Disabling does
         not revoke rules already created (money keeps arriving under them), but blocks new ones.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -3662,7 +3662,7 @@ class AsyncWebhooks(AsyncResource):
         additionally carry `X-Webhook-Signature-Prev` signed with the old secret — time to roll out
         the change without losing verification.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -3706,7 +3706,7 @@ class AsyncWebhooks(AsyncResource):
         succeeded for 3 days in a row is disabled automatically — its queue is cancelled and the
         store owner gets an email; after fixing the receiver, enable it with this endpoint.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -3832,7 +3832,7 @@ class AsyncSettings(AsyncResource):
         underpayment. Both are ON by default. The refund goes to the payer's address
         (EVM/Tron/TON/Solana; on Bitcoin/UTXO — manually).
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -4238,7 +4238,7 @@ class AsyncSettings(AsyncResource):
         `fee_on_recipient: true` — the network fee is paid by the recipient (they receive the amount
         minus the fee).
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -4318,7 +4318,7 @@ class AsyncSettings(AsyncResource):
         credited. Without this setting your refunds follow the gateway default (the get method shows
         it), while the automatic refunds deduct the commission.
 
-        Requires role: Finance when called with a CLI key.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -4479,8 +4479,7 @@ class AsyncSettings(AsyncResource):
 
         Automatically withdraw incoming funds to a given address.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, autowithdraw.bad_min,
         autowithdraw.missing, autowithdraw.network_required, autowithdraw.unsupported_network,
@@ -4558,8 +4557,7 @@ class AsyncSettings(AsyncResource):
     ) -> AutoWithdrawListResult:
         """Delete an auto-withdrawal rule
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cli.permission_denied,
         internal, merchant.bad_signature, merchant.key_expired, merchant.key_mode_mismatch,
@@ -5107,8 +5105,7 @@ class AsyncDocuments(AsyncResource):
         issued again, so the cheque can only be printed while you still have the token. ⚠ The
         document is money: anyone who has it can claim the funds. The response is `application/pdf`.
 
-        With a CLI key: only the store owner's own key (role Owner); other team members use the
-        dashboard, where each such operation is confirmed with 2FA.
+        Not available to CLI keys: call it with the integration key.
 
         Raises: auth.bad_timestamp, auth.body_too_large, auth.ip_not_allowed, cheque.token_required,
         cli.permission_denied, document.disabled, document.encode_failed, document.render_failed,
