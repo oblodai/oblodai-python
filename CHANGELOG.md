@@ -61,6 +61,10 @@ All notable changes to this package are documented here. The format follows
   `has_pages` flag decides only when an answer carries no `total`), the rule every Oblodai SDK
   now shares; a page shorter than the requested `limit` never ends the walk.
 
+- The recorded onboarding fixtures no longer carry real-format captured keys: their
+  `oblodai_live_…` / `oblodai_test_…` secrets and public ids are all-zero placeholders of the same
+  format (they ship in the sdist).
+
 ### Added
 
 - `client.cli_login` — `start`, `poll`, `logout` (sync and async): the browser login of the
